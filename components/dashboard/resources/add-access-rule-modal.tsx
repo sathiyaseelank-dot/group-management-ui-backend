@@ -117,15 +117,22 @@ export function AddAccessRuleModal({
           {/* Effect Selector */}
           <div className="space-y-2">
             <label className="text-sm font-semibold">Effect</label>
-            <Select value={effect} onValueChange={(v) => setEffect(v as 'ALLOW' | 'DENY')}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALLOW">Allow Access</SelectItem>
-                <SelectItem value="DENY">Deny Access</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex w-full rounded-md border p-1">
+              <Button
+                variant={effect === 'ALLOW' ? 'secondary' : 'ghost'}
+                onClick={() => setEffect('ALLOW')}
+                className="flex-1"
+              >
+                Allow Access
+              </Button>
+              <Button
+                variant={effect === 'DENY' ? 'secondary' : 'ghost'}
+                onClick={() => setEffect('DENY')}
+                className="flex-1"
+              >
+                Deny Access
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground">
               {effect === 'ALLOW'
                 ? 'These subjects will be granted access to this resource'

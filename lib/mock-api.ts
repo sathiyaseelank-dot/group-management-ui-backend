@@ -1,6 +1,6 @@
 /**
- * Mock API for Zero-Trust Identity Provider
- * Simulates backend endpoints with ~100ms delay
+ * API client for Zero-Trust Identity Provider
+ * Uses Next.js API routes backed by SQLite.
  */
 
 import {
@@ -12,250 +12,184 @@ import {
   AccessRule,
   Subject,
   SelectedSubject,
+  RemoteNetwork,
+  Connector,
+  Tunneler,
+  ResourceType,
 } from './types';
 
-// Mock Data: Users
-const MOCK_USERS: User[] = [
-  {
-    id: 'usr_1',
-    name: 'Alice Johnson',
-    type: 'USER',
-    displayLabel: 'User: Alice Johnson',
-    email: 'alice@company.com',
-    status: 'active',
-    groups: ['grp_1', 'grp_3'],
-    createdAt: '2026-01-10',
-  },
-  {
-    id: 'usr_2',
-    name: 'Bob Smith',
-    type: 'USER',
-    displayLabel: 'User: Bob Smith',
-    email: 'bob@company.com',
-    status: 'active',
-    groups: ['grp_2'],
-    createdAt: '2026-01-12',
-  },
-  {
-    id: 'usr_3',
-    name: 'Charlie Davis',
-    type: 'USER',
-    displayLabel: 'User: Charlie Davis',
-    email: 'charlie@company.com',
-    status: 'active',
-    groups: ['grp_1'],
-    createdAt: '2026-01-15',
-  },
-  {
-    id: 'usr_4',
-    name: 'Diana Wilson',
-    type: 'USER',
-    displayLabel: 'User: Diana Wilson',
-    email: 'diana@company.com',
-    status: 'inactive',
-    groups: [],
-    createdAt: '2026-02-01',
-  },
-];
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(path, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
 
-// Mock Data: Groups
-const MOCK_GROUPS: Group[] = [
-  {
-    id: 'grp_1',
-    name: 'Engineering',
-    type: 'GROUP',
-    displayLabel: 'Group: Engineering',
-    description: 'Engineering team with database and API access',
-    memberCount: 2,
-    createdAt: '2026-01-15',
-  },
-  {
-    id: 'grp_2',
-    name: 'Marketing',
-    type: 'GROUP',
-    displayLabel: 'Group: Marketing',
-    description: 'Marketing department',
-    memberCount: 1,
-    createdAt: '2026-01-20',
-  },
-  {
-    id: 'grp_3',
-    name: 'Admin',
-    type: 'GROUP',
-    displayLabel: 'Group: Admin',
-    description: 'System administrators',
-    memberCount: 1,
-    createdAt: '2026-01-25',
-  },
-];
+  if (!res.ok) {
+    const message = await res.text();
+    throw new Error(message || `Request failed with ${res.status}`);
+  }
 
-// Mock Data: Service Accounts
-const MOCK_SERVICE_ACCOUNTS: ServiceAccount[] = [
-  {
-    id: 'svc_1',
-    name: 'CI/CD Pipeline',
-    type: 'SERVICE',
-    displayLabel: 'Service: CI/CD Pipeline',
-    status: 'active',
-    associatedResourceCount: 2,
-    createdAt: '2026-01-01',
-  },
-  {
-    id: 'svc_2',
-    name: 'Analytics Sync',
-    type: 'SERVICE',
-    displayLabel: 'Service: Analytics Sync',
-    status: 'active',
-    associatedResourceCount: 1,
-    createdAt: '2026-01-10',
-  },
-];
+  return res.json() as Promise<T>;
+}
 
-// Mock Data: Resources
-const MOCK_RESOURCES: Resource[] = [
-  {
-    id: 'res_1',
-    name: 'Database Server',
-    address: 'db.internal.company.com:5432',
-    description: 'Production PostgreSQL database for main application',
-  },
-  {
-    id: 'res_2',
-    name: 'API Gateway',
-    address: 'api.company.com',
-    description: 'Main API endpoint for frontend applications',
-  },
-  {
-    id: 'res_3',
-    name: 'S3 Bucket',
-    address: 'company-assets.s3.amazonaws.com',
-    description: 'Asset storage bucket',
-  },
-];
+// API: Get single remote network with connectors and resources
+export async function getRemoteNetwork(networkId: string) {
+  return request<{ network: RemoteNetwork | undefined; connectors: Connector[]; resources: Resource[] }>(
+    `/api/remote-networks/${networkId}`
+  );
+}
 
-// Mock Data: Access Rules
-const MOCK_ACCESS_RULES: AccessRule[] = [
-  {
-    id: 'rule_1',
-    resourceId: 'res_1',
-    subjectId: 'grp_1',
-    subjectType: 'GROUP',
-    subjectName: 'Engineering',
-    effect: 'ALLOW',
-    createdAt: '2026-01-20',
-  },
-  {
-    id: 'rule_2',
-    resourceId: 'res_2',
-    subjectId: 'grp_1',
-    subjectType: 'GROUP',
-    subjectName: 'Engineering',
-    effect: 'ALLOW',
-    createdAt: '2026-01-20',
-  },
-  {
-    id: 'rule_3',
-    resourceId: 'res_3',
-    subjectId: 'svc_1',
-    subjectType: 'SERVICE',
-    subjectName: 'CI/CD Pipeline',
-    effect: 'ALLOW',
-    createdAt: '2026-01-21',
-  },
-  {
-    id: 'rule_4',
-    resourceId: 'res_2',
-    subjectId: 'svc_2',
-    subjectType: 'SERVICE',
-    subjectName: 'Analytics Sync',
-    effect: 'ALLOW',
-    createdAt: '2026-01-22',
-  },
-];
+// API: Get single connector with details
+export async function getConnector(connectorId: string) {
+  return request<{ connector: Connector | null; network: RemoteNetwork | undefined; logs: any[] }>(
+    `/api/connectors/${connectorId}`
+  );
+}
 
-// Mock Data: Group Membership
-const MOCK_GROUP_MEMBERS: Record<string, GroupMember[]> = {
-  grp_1: [
-    { userId: 'usr_1', userName: 'Alice Johnson', email: 'alice@company.com' },
-    { userId: 'usr_3', userName: 'Charlie Davis', email: 'charlie@company.com' },
-  ],
-  grp_2: [
-    { userId: 'usr_2', userName: 'Bob Smith', email: 'bob@company.com' },
-  ],
-  grp_3: [
-    { userId: 'usr_1', userName: 'Alice Johnson', email: 'alice@company.com' },
-  ],
-};
+// API: Get all remote networks
+export async function getRemoteNetworks(): Promise<RemoteNetwork[]> {
+  return request<RemoteNetwork[]>('/api/remote-networks');
+}
 
-// Utility: Simulate API delay
-const delay = (ms: number = 100) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+export async function addRemoteNetwork(data: { name: string; location: string }): Promise<void> {
+  await request('/api/remote-networks', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// API: Get all connectors
+export async function getConnectors(): Promise<Connector[]> {
+  return request<Connector[]>('/api/connectors');
+}
+
+// API: Get all tunnelers
+export async function getTunnelers(): Promise<Tunneler[]> {
+  return request<Tunneler[]>('/api/tunnelers');
+}
 
 // API: Get all subjects (Users, Groups, Service Accounts)
 export async function getSubjects(): Promise<Subject[]> {
-  await delay();
-  const subjects: Subject[] = [
-    ...MOCK_USERS,
-    ...MOCK_GROUPS,
-    ...MOCK_SERVICE_ACCOUNTS,
-  ];
-  return subjects;
+  return request<Subject[]>('/api/subjects');
 }
 
 // API: Get subjects filtered by type
-export async function getSubjectsByType(
-  type?: 'USER' | 'GROUP' | 'SERVICE'
-): Promise<Subject[]> {
-  const subjects = await getSubjects();
-  if (!type) return subjects;
-  return subjects.filter((s) => s.type === type);
+export async function getSubjectsByType(type?: 'USER' | 'GROUP' | 'SERVICE'): Promise<Subject[]> {
+  if (!type) return getSubjects();
+  return request<Subject[]>(`/api/subjects?type=${encodeURIComponent(type)}`);
 }
 
 // API: Get all groups
 export async function getGroups(): Promise<Group[]> {
-  await delay();
-  return MOCK_GROUPS;
+  return request<Group[]>('/api/groups');
 }
 
 // API: Get single group with members
 export async function getGroup(groupId: string) {
-  await delay();
-  const group = MOCK_GROUPS.find((g) => g.id === groupId);
-  const members = MOCK_GROUP_MEMBERS[groupId] || [];
-  
-  // Get resources this group has access to
-  const groupResources = MOCK_ACCESS_RULES
-    .filter((rule) => rule.subjectId === groupId && rule.subjectType === 'GROUP')
-    .map((rule) => MOCK_RESOURCES.find((r) => r.id === rule.resourceId))
-    .filter(Boolean) as Resource[];
-
-  return { group, members, resources: groupResources };
+  return request<{ group: Group | undefined; members: GroupMember[]; resources: Resource[] }>(
+    `/api/groups/${groupId}`
+  );
 }
 
 // API: Get all users
 export async function getUsers(): Promise<User[]> {
-  await delay();
-  return MOCK_USERS;
+  return request<User[]>('/api/users');
 }
 
 // API: Get all service accounts
 export async function getServiceAccounts(): Promise<ServiceAccount[]> {
-  await delay();
-  return MOCK_SERVICE_ACCOUNTS;
+  return request<ServiceAccount[]>('/api/service-accounts');
 }
 
 // API: Get single resource with access rules
 export async function getResource(resourceId: string) {
-  await delay();
-  const resource = MOCK_RESOURCES.find((r) => r.id === resourceId);
-  const accessRules = MOCK_ACCESS_RULES.filter((r) => r.resourceId === resourceId);
-  return { resource, accessRules };
+  return request<{ resource: Resource | undefined; accessRules: AccessRule[] }>(
+    `/api/resources/${resourceId}`
+  );
 }
 
 // API: Get all resources
 export async function getResources(): Promise<Resource[]> {
-  await delay();
-  return MOCK_RESOURCES;
+  return request<Resource[]>('/api/resources');
+}
+
+// API: Add a new resource
+export async function addResource(data: {
+  network_id: string;
+  name: string;
+  type: ResourceType;
+  address: string;
+  ports: string;
+  alias?: string;
+}): Promise<void> {
+  await request('/api/resources', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// API: Update an existing resource
+export async function updateResource(
+  resourceId: string,
+  data: {
+    network_id: string;
+    name: string;
+    type: ResourceType;
+    address: string;
+    ports: string;
+    alias?: string;
+  }
+): Promise<void> {
+  await request(`/api/resources/${resourceId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+// API: Add a new connector
+export async function addConnector(data: {
+  name: string;
+  remoteNetworkId: string;
+}): Promise<void> {
+  await request('/api/connectors', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// API: Simulate a connector sending a heartbeat (going online)
+export async function simulateConnectorHeartbeat(connectorId: string): Promise<void> {
+  await request(`/api/connectors/${connectorId}/heartbeat`, {
+    method: 'POST',
+  });
+}
+
+// API: Add a new group
+export async function addGroup({
+  name,
+  description,
+}: {
+  name: string;
+  description: string;
+}): Promise<void> {
+  await request('/api/groups', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  });
+}
+
+// API: Add resources to a group (by creating access rules)
+export async function addGroupResources(
+  groupId: string,
+  resourceIds: string[]
+): Promise<void> {
+  await request(`/api/groups/${groupId}/resources`, {
+    method: 'POST',
+    body: JSON.stringify({ resourceIds }),
+  });
 }
 
 // API: Update group membership
@@ -263,14 +197,10 @@ export async function updateGroupMembers(
   groupId: string,
   memberIds: string[]
 ): Promise<void> {
-  await delay(150);
-  // In real implementation, this would POST to backend
-  const members = MOCK_USERS.filter((u) => memberIds.includes(u.id));
-  MOCK_GROUP_MEMBERS[groupId] = members.map((u) => ({
-    userId: u.id,
-    userName: u.name,
-    email: u.email,
-  }));
+  await request(`/api/groups/${groupId}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ memberIds }),
+  });
 }
 
 // API: Create access rule
@@ -279,34 +209,17 @@ export async function createAccessRule(
   subjects: SelectedSubject[],
   effect: 'ALLOW' | 'DENY'
 ): Promise<void> {
-  await delay(150);
-  // In real implementation, this would POST to backend
-  subjects.forEach((subject) => {
-    const subjectName =
-      MOCK_USERS.find((u) => u.id === subject.id)?.name ||
-      MOCK_GROUPS.find((g) => g.id === subject.id)?.name ||
-      MOCK_SERVICE_ACCOUNTS.find((s) => s.id === subject.id)?.name ||
-      subject.label;
-
-    MOCK_ACCESS_RULES.push({
-      id: `rule_${Date.now()}_${subject.id}`,
-      resourceId,
-      subjectId: subject.id,
-      subjectType: subject.type,
-      subjectName,
-      effect,
-      createdAt: new Date().toISOString().split('T')[0],
-    });
+  await request('/api/access-rules', {
+    method: 'POST',
+    body: JSON.stringify({ resourceId, subjects, effect }),
   });
 }
 
 // API: Delete access rule
 export async function deleteAccessRule(ruleId: string): Promise<void> {
-  await delay(150);
-  const index = MOCK_ACCESS_RULES.findIndex((r) => r.id === ruleId);
-  if (index !== -1) {
-    MOCK_ACCESS_RULES.splice(index, 1);
-  }
+  await request(`/api/access-rules/${ruleId}`, {
+    method: 'DELETE',
+  });
 }
 
 // API: Delete group member
@@ -314,10 +227,7 @@ export async function removeGroupMember(
   groupId: string,
   userId: string
 ): Promise<void> {
-  await delay(150);
-  if (MOCK_GROUP_MEMBERS[groupId]) {
-    MOCK_GROUP_MEMBERS[groupId] = MOCK_GROUP_MEMBERS[groupId].filter(
-      (m) => m.userId !== userId
-    );
-  }
+  await request(`/api/groups/${groupId}/members/${userId}`, {
+    method: 'DELETE',
+  });
 }

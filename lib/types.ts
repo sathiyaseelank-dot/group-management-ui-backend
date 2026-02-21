@@ -24,6 +24,7 @@ export interface Group extends Subject {
   type: 'GROUP';
   description: string;
   memberCount: number;
+  resourceCount: number;
   createdAt: string;
 }
 
@@ -42,11 +43,47 @@ export interface GroupMember {
 }
 
 // Resources and Access Control
+export type ResourceType = 'STANDARD' | 'BROWSER' | 'BACKGROUND';
 export interface Resource {
   id: string;
   name: string;
+  type: ResourceType;
   address: string; // e.g., domain, IP, endpoint
+  ports: string;
+  alias?: string;
   description: string;
+  remoteNetworkId?: string;
+}
+
+// Remote Networks (Twingate-style)
+export interface Connector {
+  id: string;
+  name: string;
+  status: 'online' | 'offline';
+  version: string;
+  hostname: string;
+  remoteNetworkId: string;
+  lastSeen: string; // Timestamp of when the connector was last seen online
+  installed: boolean;
+}
+
+export interface RemoteNetwork {
+  id: string;
+  name: string;
+  location: 'AWS' | 'GCP' | 'AZURE' | 'ON_PREM' | 'OTHER';
+  connectorCount: number;
+  onlineConnectorCount: number;
+  resourceCount: number;
+  createdAt: string;
+}
+
+export interface Tunneler {
+  id: string;
+  name: string;
+  status: 'online' | 'offline';
+  version: string;
+  hostname: string;
+  remoteNetworkId: string; // The remote network this tunneler is part of
 }
 
 // Access Rules bind subjects to resources

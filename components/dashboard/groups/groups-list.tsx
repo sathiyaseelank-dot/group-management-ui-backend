@@ -50,8 +50,7 @@ export function GroupsList({ groups }: GroupsListProps) {
                 {group.memberCount}
               </TableCell>
               <TableCell className="text-right text-sm">
-                {/* Will show count of resources this group has access to */}
-                {group.memberCount > 0 ? '-' : '0'}
+                {group.resourceCount}
               </TableCell>
               <TableCell className="text-right text-sm text-muted-foreground">
                 {group.createdAt}

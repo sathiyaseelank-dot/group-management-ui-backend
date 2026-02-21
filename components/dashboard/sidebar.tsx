@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Users, User, Server, Shield, Database } from 'lucide-react';
+import { Users, User, Server, Shield, Database, Globe, Plug, Cable } from 'lucide-react';
 
 const navItems = [
   {
@@ -32,6 +32,27 @@ const navItems = [
     href: '/dashboard/resources',
     icon: Database,
     description: 'Manage network resources',
+  },
+
+  {
+    label: 'Remote Networks',
+    href: '/dashboard/remote-networks',
+    icon: Globe,
+    description: 'Manage remote network connectivity',
+  },
+
+  {
+    label: 'Connectors',
+    href: '/dashboard/connectors',
+    icon: Plug,
+    description: 'Manage network connectors',
+  },
+
+  {
+    label: 'Tunnelers',
+    href: '/dashboard/tunnelers',
+    icon: Cable,
+    description: 'Manage resource tunnelers',
   },
 ];
 

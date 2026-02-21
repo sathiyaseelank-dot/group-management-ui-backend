@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { GroupMembersSection } from '@/components/dashboard/groups/group-members-section';
 import { GroupResourcesSection } from '@/components/dashboard/groups/group-resources-section';
 import { Loader2, ArrowLeft } from 'lucide-react';
+import { AddResourcesModal } from '@/components/dashboard/groups/add-resources-modal';
 
 export default function GroupDetailPage() {
   const { groupId } = useParams();
@@ -17,21 +18,24 @@ export default function GroupDetailPage() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddMembersModal, setShowAddMembersModal] = useState(false);
+  const [showAddResourcesModal, setShowAddResourcesModal] = useState(false);
+
+
+  const loadGroupData = async () => {
+    setLoading(true);
+    try {
+      const { group, members, resources } = await getGroup(groupId as string);
+      setGroup(group);
+      setMembers(members);
+      setResources(resources);
+    } catch (error) {
+      console.error('Failed to load group:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadGroupData = async () => {
-      try {
-        const { group, members, resources } = await getGroup(groupId as string);
-        setGroup(group);
-        setMembers(members);
-        setResources(resources);
-      } catch (error) {
-        console.error('Failed to load group:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (groupId) {
       loadGroupData();
     }
@@ -95,6 +99,15 @@ export default function GroupDetailPage() {
       <GroupResourcesSection
         groupId={group.id}
         resources={resources}
+        onAddResourcesClick={() => setShowAddResourcesModal(true)}
+      />
+
+      {/* Add Resources Modal */}
+      <AddResourcesModal
+        groupId={group.id}
+        isOpen={showAddResourcesModal}
+        onClose={() => setShowAddResourcesModal(false)}
+        onResourcesAdded={loadGroupData} // Reload group data to update resource list
       />
     </div>
   );

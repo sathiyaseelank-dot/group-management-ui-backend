@@ -12,16 +12,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Database, ExternalLink } from 'lucide-react';
+import { Database, ExternalLink, Plus } from 'lucide-react';
 
 interface GroupResourcesSectionProps {
   groupId: string;
   resources: Resource[];
+  onAddResourcesClick: () => void;
 }
 
 export function GroupResourcesSection({
   groupId,
   resources,
+  onAddResourcesClick,
 }: GroupResourcesSectionProps) {
   return (
     <Card>
@@ -36,6 +38,10 @@ export function GroupResourcesSection({
               Resources this group has access to (determined by access policies)
             </CardDescription>
           </div>
+          <Button variant="outline" size="sm" className="gap-2" onClick={onAddResourcesClick}>
+            <Plus className="h-4 w-4" />
+            Add Resources
+          </Button>
         </div>
       </CardHeader>
       <CardContent>
