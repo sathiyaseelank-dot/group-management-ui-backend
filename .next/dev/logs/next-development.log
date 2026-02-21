@@ -1,0 +1,876 @@
+[00:00:00.507] Server  LOG     ✓ Ready in 372ms
+[00:00:10.398] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:00:10.783] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[00:00:10.783] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/dashboard/connectors/con_1771582603767","route":"/dashboard/connectors/[connectorId]"}
+[00:00:10.783] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771582603767 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771582603767","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653066826} /_vercel/insights/view
+[00:00:11.354] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:00:13.225] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/tunnelers color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/tunnelers","o":"http://localhost:3000/dashboard/tunnelers","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653069493} /_vercel/insights/view
+[00:00:14.937] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653071204} /_vercel/insights/view
+[00:00:19.748] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:00:19.788] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:00:19.789] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_5 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_5","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653076044} /_vercel/insights/view
+[00:00:21.993] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653078260} /_vercel/insights/view
+[00:00:23.696] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:00:23.736] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:00:23.738] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_3 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_3","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653080003} /_vercel/insights/view
+[00:00:25.706] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653081975} /_vercel/insights/view
+[00:00:27.825] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:00:27.828] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_3 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_3","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653084088} /_vercel/insights/view
+[00:00:27.880] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:00:31.081] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653087348} /_vercel/insights/view
+[00:01:34.635] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:01:34.690] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[00:01:34.699] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653150921} /_vercel/insights/view
+[00:01:44.288] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653160552} /_vercel/insights/view
+[00:04:03.356] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:04:04.331] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[00:04:04.331] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/dashboard/connectors","route":"/dashboard/connectors"}
+[00:04:04.331] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","r":"","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771653300001} /_vercel/insights/view
+[01:00:27.243] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/tunnelers color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/tunnelers","o":"http://localhost:3000/dashboard/tunnelers","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656683511} /_vercel/insights/view
+[01:00:28.113] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656684381} /_vercel/insights/view
+[01:00:33.650] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:00:33.704] Server  WARN    Error: Route "/api/connectors/[connectorId]" used `params.connectorId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:00:33.711] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_3 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_3","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656689939} /_vercel/insights/view
+[01:00:56.100] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/tunnelers color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/tunnelers","o":"http://localhost:3000/dashboard/tunnelers","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656712368} /_vercel/insights/view
+[01:01:00.597] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656716863} /_vercel/insights/view
+[01:01:03.977] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656720239} /_vercel/insights/view
+[01:01:12.052] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656728279} /_vercel/insights/view
+[01:01:12.503] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:01:12.577] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:01:19.995] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656736262} /_vercel/insights/view
+[01:01:23.459] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:01:23.461] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656739711} /_vercel/insights/view
+[01:01:23.514] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:01:25.226] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656741495} /_vercel/insights/view
+[01:01:26.934] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:01:26.980] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:01:26.985] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_3 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_3","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656743232} /_vercel/insights/view
+[01:01:28.669] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656744938} /_vercel/insights/view
+[01:02:04.021] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[01:02:04.021] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[01:02:04.021] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/dashboard/remote-networks","route":"/dashboard/remote-networks"}
+[01:02:04.021] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656780389} /_vercel/insights/view
+[01:02:08.240] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:02:08.303] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:02:08.312] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656784529} /_vercel/insights/view
+[01:02:20.769] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656797036} /_vercel/insights/view
+[01:02:23.671] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:02:23.734] Server  WARN    Error: Route "/api/remote-networks/[networkId]" used `params.networkId`. `params` is a Promise and must be unwrapped with `await` or `React.use()` before accessing its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+[01:02:23.737] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656799953} /_vercel/insights/view
+[01:02:57.356] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656833624} /_vercel/insights/view
+[01:02:59.819] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656836087} /_vercel/insights/view
+[01:03:17.381] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656853648} /_vercel/insights/view
+[01:03:19.098] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656855366} /_vercel/insights/view
+[01:03:23.487] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656859754} /_vercel/insights/view
+[01:03:25.212] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_5 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_5","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656861479} /_vercel/insights/view
+[01:03:35.279] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656871545} /_vercel/insights/view
+[01:03:36.981] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656873249} /_vercel/insights/view
+[01:03:47.127] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771656881768 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771656881768","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771656883395} /_vercel/insights/view
+[01:07:15.656] Server  LOG     ✓ Compiled in 25ms
+[01:07:27.444] Server  LOG     ✓ Compiled in 59ms
+[01:07:58.830] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657135096} /_vercel/insights/view
+[01:08:02.590] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771656881768 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771656881768","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657138858} /_vercel/insights/view
+[01:08:04.608] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657140871} /_vercel/insights/view
+[01:08:06.410] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_5 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_5","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657142678} /_vercel/insights/view
+[01:08:07.973] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657144236} /_vercel/insights/view
+[01:08:10.254] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_2 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_2","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657146523} /_vercel/insights/view
+[01:08:11.994] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657148257} /_vercel/insights/view
+[01:08:16.287] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657152556} /_vercel/insights/view
+[01:08:17.997] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657154265} /_vercel/insights/view
+[01:08:38.228] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771657172495 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771657172495","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657174497} /_vercel/insights/view
+[01:08:55.205] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657191472} /_vercel/insights/view
+[01:08:58.037] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771657172495 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771657172495","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657194306} /_vercel/insights/view
+[01:09:01.689] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657197955} /_vercel/insights/view
+[01:09:07.884] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771657172495 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771657172495","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657204153} /_vercel/insights/view
+[01:09:20.911] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657217176} /_vercel/insights/view
+[01:09:25.195] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771656881768 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771656881768","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657221463} /_vercel/insights/view
+[01:09:39.972] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657236236} /_vercel/insights/view
+[01:09:43.845] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/tunnelers color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/tunnelers","o":"http://localhost:3000/dashboard/tunnelers","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657240113} /_vercel/insights/view
+[01:10:02.442] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657258707} /_vercel/insights/view
+[01:10:03.286] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657259554} /_vercel/insights/view
+[01:10:05.064] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_2 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_2","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657261332} /_vercel/insights/view
+[01:10:06.818] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771657263085} /_vercel/insights/view
+[03:09:13.779] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664410046} /_vercel/insights/view
+[03:09:21.821] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771657172495 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771657172495","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664418089} /_vercel/insights/view
+[03:09:23.672] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664419940} /_vercel/insights/view
+[03:09:26.340] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_4 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_4","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664422607} /_vercel/insights/view
+[03:09:28.068] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664424336} /_vercel/insights/view
+[03:09:29.820] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771656881768 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771656881768","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664426089} /_vercel/insights/view
+[03:09:34.333] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664430600} /_vercel/insights/view
+[03:09:37.314] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771657172495 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771657172495","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664433582} /_vercel/insights/view
+[03:09:39.319] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664435587} /_vercel/insights/view
+[03:09:44.576] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/tunnelers color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/tunnelers","o":"http://localhost:3000/dashboard/tunnelers","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664440837} /_vercel/insights/view
+[03:09:46.497] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664442759} /_vercel/insights/view
+[03:09:48.247] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664444515} /_vercel/insights/view
+[03:09:55.566] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664451834} /_vercel/insights/view
+[03:09:59.857] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources/res_2 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources/[resourceId]","o":"http://localhost:3000/dashboard/resources/res_2","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664456126} /_vercel/insights/view
+[03:10:12.712] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/groups color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/groups","o":"http://localhost:3000/dashboard/groups","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664468980} /_vercel/insights/view
+[03:10:14.452] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664470720} /_vercel/insights/view
+[03:10:27.587] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/service-accounts color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/service-accounts","o":"http://localhost:3000/dashboard/service-accounts","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664483856} /_vercel/insights/view
+[03:10:37.854] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664494121} /_vercel/insights/view
+[03:10:48.546] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664504813} /_vercel/insights/view
+[03:10:50.300] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664506569} /_vercel/insights/view
+[03:10:52.310] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664508576} /_vercel/insights/view
+[03:11:01.895] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664518159} /_vercel/insights/view
+[03:12:37.892] Server  LOG     ✓ Compiled in 109ms
+[03:12:45.283] Server  LOG     ✓ Compiled in 145ms
+[03:12:45.736] Browser ERROR   ./components/dashboard/remote-networks/add-remote-network-modal.tsx:22:1
+Export addRemoteNetwork doesn't exist in target module
+  20 |   SelectValue,
+  21 | } from '@/components/ui/select';
+> 22 | import { addRemoteNetwork } from '@/lib/mock-api';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  23 | import { Loader2 } from 'lucide-react';
+  24 |
+  25 | interface AddRemoteNetworkModalProps {
+
+The export addRemoteNetwork was not found in module [project]/lib/mock-api.ts [app-client] (ecmascript).
+Did you mean to import getRemoteNetwork?
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+Import traces:
+  Client Component Browser:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+[03:12:45.736] Browser ERROR   ./components/dashboard/remote-networks/add-remote-network-modal.tsx:22:1
+Export addRemoteNetwork doesn't exist in target module
+  20 |   SelectValue,
+  21 | } from '@/components/ui/select';
+> 22 | import { addRemoteNetwork } from '@/lib/mock-api';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  23 | import { Loader2 } from 'lucide-react';
+  24 |
+  25 | interface AddRemoteNetworkModalProps {
+
+The export addRemoteNetwork was not found in module [project]/lib/mock-api.ts [app-ssr] (ecmascript).
+Did you mean to import getRemoteNetwork?
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+Import traces:
+  Client Component Browser:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+[03:12:53.724] Browser ERROR   ./components/dashboard/remote-networks/add-remote-network-modal.tsx:22:1
+Export addRemoteNetwork doesn't exist in target module
+  20 |   SelectValue,
+  21 | } from '@/components/ui/select';
+> 22 | import { addRemoteNetwork } from '@/lib/mock-api';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  23 | import { Loader2 } from 'lucide-react';
+  24 |
+  25 | interface AddRemoteNetworkModalProps {
+
+The export addRemoteNetwork was not found in module [project]/lib/mock-api.ts [app-client] (ecmascript).
+Did you mean to import getRemoteNetwork?
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+Import traces:
+  Client Component Browser:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+[03:12:53.724] Browser ERROR   ./components/dashboard/remote-networks/add-remote-network-modal.tsx:22:1
+Export addRemoteNetwork doesn't exist in target module
+  20 |   SelectValue,
+  21 | } from '@/components/ui/select';
+> 22 | import { addRemoteNetwork } from '@/lib/mock-api';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  23 | import { Loader2 } from 'lucide-react';
+  24 |
+  25 | interface AddRemoteNetworkModalProps {
+
+The export addRemoteNetwork was not found in module [project]/lib/mock-api.ts [app-ssr] (ecmascript).
+Did you mean to import getRemoteNetwork?
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+Import traces:
+  Client Component Browser:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+[03:12:58.161] Browser ERROR   ./components/dashboard/remote-networks/add-remote-network-modal.tsx:22:1
+Export addRemoteNetwork doesn't exist in target module
+  20 |   SelectValue,
+  21 | } from '@/components/ui/select';
+> 22 | import { addRemoteNetwork } from '@/lib/mock-api';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  23 | import { Loader2 } from 'lucide-react';
+  24 |
+  25 | interface AddRemoteNetworkModalProps {
+
+The export addRemoteNetwork was not found in module [project]/lib/mock-api.ts [app-client] (ecmascript).
+Did you mean to import getRemoteNetwork?
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+Import traces:
+  Client Component Browser:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+[03:12:58.161] Browser ERROR   ./components/dashboard/remote-networks/add-remote-network-modal.tsx:22:1
+Export addRemoteNetwork doesn't exist in target module
+  20 |   SelectValue,
+  21 | } from '@/components/ui/select';
+> 22 | import { addRemoteNetwork } from '@/lib/mock-api';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  23 | import { Loader2 } from 'lucide-react';
+  24 |
+  25 | interface AddRemoteNetworkModalProps {
+
+The export addRemoteNetwork was not found in module [project]/lib/mock-api.ts [app-ssr] (ecmascript).
+Did you mean to import getRemoteNetwork?
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+Import traces:
+  Client Component Browser:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/dashboard/remote-networks/add-remote-network-modal.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/page.tsx [Server Component]
+[03:13:42.250] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1771664675842 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1771664675842","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664678518} /_vercel/insights/view
+[03:13:58.933] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771664692814 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771664692814","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664695201} /_vercel/insights/view
+[03:14:00.661] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664696929} /_vercel/insights/view
+[03:14:03.101] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664699368} /_vercel/insights/view
+[03:14:04.839] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1771664675842 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1771664675842","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664701106} /_vercel/insights/view
+[03:14:32.952] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664729220} /_vercel/insights/view
+[03:14:36.077] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664732344} /_vercel/insights/view
+[03:14:37.862] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1771664675842 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1771664675842","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664734131} /_vercel/insights/view
+[03:15:23.505] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664779772} /_vercel/insights/view
+[03:15:26.005] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1771664675842 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1771664675842","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664782273} /_vercel/insights/view
+[03:16:53.390] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771664869657} /_vercel/insights/view
+[03:17:05.034] Server  LOG     ✓ Compiled in 53ms
+[03:17:24.944] Server  LOG     ✓ Compiled in 85ms
+[03:17:40.072] Server  LOG     ✓ Compiled in 76ms
+[03:19:46.679] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.680] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.680] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.681] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.682] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.683] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.684] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.684] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.686] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.687] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.687] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.688] Server  ERROR   ⨯ ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:46.711] Server  LOG     ✓ Compiled in 63ms
+[03:19:47.444] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:19:50.075] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:19:50.075] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:19:50.075] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:19:52.458] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:19:52.458] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:19:52.458] Browser ERROR   uncaughtError: Error: ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[03:19:52.458] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:19:55.996] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:19:59.349] Browser ERROR   ./app/dashboard/remote-networks/[networkId]/page.tsx:14:1
+Module not found: Can't resolve '@/components/dashboard/remote-networks/add-existing-resources-modal'
+  12 | import { NetworkResourcesList } from '@/components/dashboard/remote-networks/network-resources-list';
+  13 | import { AddConnectorModal } from '@/components/dashboard/remote-networks/add-connector-modal';
+> 14 | import { AddExistingResourcesModal } from '@/components/dashboard/remote-networks/add-existing-resources-modal';
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  15 |
+  16 | export default function RemoteNetworkDetailPage() {
+  17 |   const { networkId } = useParams();
+
+Import map: aliased to relative './components/dashboard/remote-networks/add-existing-resources-modal' inside of [project]/
+
+Import traces:
+  Client Component Browser:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component Browser]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Client Component SSR]
+    ./app/dashboard/remote-networks/[networkId]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+[03:20:02.569] Server  LOG     ✓ Compiled in 58ms
+[03:20:02.949] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[03:20:03.847] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[03:20:03.847] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/dashboard/resources","route":"/dashboard/resources"}
+[03:20:03.847] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665059340} /_vercel/insights/view
+[03:20:10.178] Server  LOG     ✓ Compiled in 44ms
+[03:20:13.369] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665069636} /_vercel/insights/view
+[03:23:01.041] Server  LOG     ✓ Compiled in 50ms
+[03:23:06.829] Server  LOG     ✓ Compiled in 49ms
+[03:23:07.810] Browser ERROR   The final argument passed to %s changed size between renders. The order and size of this array must remain constant.
+
+Previous: %s
+Incoming: %s useEffect [false, net_1] [false, net_1, net_1]
+[03:24:06.086] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665302354} /_vercel/insights/view
+[03:24:09.777] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665306044} /_vercel/insights/view
+[03:24:13.194] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_2 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_2","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665309462} /_vercel/insights/view
+[03:24:20.087] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665316354} /_vercel/insights/view
+[03:24:24.653] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1771664675842 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1771664675842","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665320921} /_vercel/insights/view
+[03:24:42.052] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665338317} /_vercel/insights/view
+[03:24:43.843] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/service-accounts color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/service-accounts","o":"http://localhost:3000/dashboard/service-accounts","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665340107} /_vercel/insights/view
+[03:24:44.737] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665341005} /_vercel/insights/view
+[03:24:47.329] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_2 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_2","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665343597} /_vercel/insights/view
+[03:24:55.984] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_3 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_3","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665352252} /_vercel/insights/view
+[03:25:09.843] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665366110} /_vercel/insights/view
+[03:25:15.574] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665371842} /_vercel/insights/view
+[03:25:17.330] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665373598} /_vercel/insights/view
+[03:25:20.238] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_2 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_2","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665376506} /_vercel/insights/view
+[03:25:35.172] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_3 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_3","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665391441} /_vercel/insights/view
+[03:25:41.095] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_2 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_2","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665397364} /_vercel/insights/view
+[03:25:46.899] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources/res_1771665296566 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources/[resourceId]","o":"http://localhost:3000/dashboard/resources/res_1771665296566","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665403165} /_vercel/insights/view
+[03:26:30.479] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665446745} /_vercel/insights/view
+[03:26:35.982] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources/res_1771665296566 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources/[resourceId]","o":"http://localhost:3000/dashboard/resources/res_1771665296566","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665452250} /_vercel/insights/view
+[03:26:41.530] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665457797} /_vercel/insights/view
+[03:26:44.054] Browser LOG     Delete resource: res_1771665296566
+[03:26:56.390] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665472658} /_vercel/insights/view
+[03:27:02.298] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665478565} /_vercel/insights/view
+[03:27:07.289] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665483557} /_vercel/insights/view
+[03:27:09.233] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[03:27:10.109] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[03:27:10.109] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/dashboard/remote-networks","route":"/dashboard/remote-networks"}
+[03:27:10.109] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","r":"","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665485750} /_vercel/insights/view
+[03:27:11.084] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_1771664675842 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_1771664675842","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665487352} /_vercel/insights/view
+[03:27:12.253] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors/con_1771664692814 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors/[connectorId]","o":"http://localhost:3000/dashboard/connectors/con_1771664692814","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665488518} /_vercel/insights/view
+[03:27:14.550] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665490817} /_vercel/insights/view
+[03:27:28.694] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/tunnelers color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/tunnelers","o":"http://localhost:3000/dashboard/tunnelers","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665504961} /_vercel/insights/view
+[03:27:31.936] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks/net_2 color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks/[networkId]","o":"http://localhost:3000/dashboard/remote-networks/net_2","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665508204} /_vercel/insights/view
+[03:27:35.563] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/tunnelers color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/tunnelers","o":"http://localhost:3000/dashboard/tunnelers","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665511828} /_vercel/insights/view
+[03:27:56.294] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665532560} /_vercel/insights/view
+[03:28:01.724] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/service-accounts color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/service-accounts","o":"http://localhost:3000/dashboard/service-accounts","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665537991} /_vercel/insights/view
+[03:28:03.127] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665539396} /_vercel/insights/view
+[03:28:03.820] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/service-accounts color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/service-accounts","o":"http://localhost:3000/dashboard/service-accounts","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665540088} /_vercel/insights/view
+[03:31:55.507] Server  LOG     ✓ Compiled in 163ms
+[03:31:56.213] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[03:31:56.213] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[03:31:56.213] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/dashboard/service-accounts","route":"/dashboard/service-accounts"}
+[03:31:56.213] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/service-accounts color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/service-accounts","o":"http://localhost:3000/dashboard/service-accounts","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665772578} /_vercel/insights/view
+[03:31:57.528] Server  LOG     ✓ Compiled in 86ms
+[03:31:58.577] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[03:31:58.778] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[03:31:58.778] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/dashboard/service-accounts","route":"/dashboard/service-accounts"}
+[03:31:58.778] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/service-accounts color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/service-accounts","o":"http://localhost:3000/dashboard/service-accounts","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665774958} /_vercel/insights/view
+[03:32:09.986] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[03:32:10.256] Browser LOG     %c[Vercel Web Analytics]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit
+[03:32:10.256] Browser LOG     %c[Vercel Web Analytics]%c Running queued event color: rgb(120, 120, 120) color: inherit pageview {"path":"/dashboard/resources","route":"/dashboard/resources"}
+[03:32:10.256] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665786376} /_vercel/insights/view
+[03:32:12.298] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/groups color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/groups","o":"http://localhost:3000/dashboard/groups","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665788566} /_vercel/insights/view
+[03:32:13.502] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/users color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/users","o":"http://localhost:3000/dashboard/users","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665789771} /_vercel/insights/view
+[03:32:14.131] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/groups color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/groups","o":"http://localhost:3000/dashboard/groups","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665790400} /_vercel/insights/view
+[03:32:14.989] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/resources color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/resources","o":"http://localhost:3000/dashboard/resources","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665791254} /_vercel/insights/view
+[03:32:15.629] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/remote-networks color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/remote-networks","o":"http://localhost:3000/dashboard/remote-networks","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665791894} /_vercel/insights/view
+[03:32:16.614] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665792881} /_vercel/insights/view
+[03:34:32.952] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/tunnelers color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/tunnelers","o":"http://localhost:3000/dashboard/tunnelers","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665929220} /_vercel/insights/view
+[03:34:34.969] Browser LOG     %c[Vercel Web Analytics]%c [view] http://localhost:3000/dashboard/connectors color: rgb(120, 120, 120) color: inherit {"dp":"/dashboard/connectors","o":"http://localhost:3000/dashboard/connectors","sdkn":"@vercel/analytics/next","sdkv":"1.6.1","sv":"0.1.3","ts":1771665931237} /_vercel/insights/view
+[03:36:18.210] Server  ERROR   Error: ENOENT: no such file or directory, scandir '/home/inkyank-01/Downloads/group-management-ui/app'
+[03:36:18.218] Server  ERROR   ⨯ "unhandledRejection:" Error: ENOENT: no such file or directory, scandir '/home/inkyank-01/Downloads/group-management-ui/app'
+[03:36:18.231] Server  ERROR   ⨯ "unhandledRejection: " Error: ENOENT: no such file or directory, scandir '/home/inkyank-01/Downloads/group-management-ui/app'
+[03:36:18.298] Server  ERROR   ⨯ PageNotFoundError: Cannot find module for page: route not found /_not-found/page
+[03:36:19.022] Browser ERROR   uncaughtError: PageNotFoundError: Cannot find module for page: route not found /_not-found/page

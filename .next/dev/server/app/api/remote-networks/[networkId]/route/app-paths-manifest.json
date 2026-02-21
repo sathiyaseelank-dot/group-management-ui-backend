@@ -1,0 +1,3 @@
+{
+  "/api/remote-networks/[networkId]/route": "app/api/remote-networks/[networkId]/route.js"
+}
