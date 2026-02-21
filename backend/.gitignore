@@ -1,0 +1,9 @@
+*.key
+*.srl
+*.csr
+*.crt
+
+# build artifacts
+grpcconnector-*
+connector-*
+tunneler-*
