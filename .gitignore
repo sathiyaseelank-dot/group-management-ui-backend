@@ -9,3 +9,5 @@ node_modules/
 .env*.local
 .DS_Store
 ztna.db
+ztna.db-shm
+ztna.db-wal
