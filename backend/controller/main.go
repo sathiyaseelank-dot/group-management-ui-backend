@@ -86,7 +86,7 @@ func main() {
 
 	creds := credentials.NewTLS(tlsConfig)
 
-	db, err := state.OpenSQLite("")
+	db, err := state.OpenSQLite(os.Getenv("DB_PATH"))
 	if err != nil {
 		log.Fatalf("failed to open sqlite db: %v", err)
 	}

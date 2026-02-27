@@ -1,20 +1,65 @@
 import { NextResponse } from 'next/server';
-import { addResource, listResources } from '@/lib/data';
+import { proxyToBackend } from '@/lib/proxy';
 
 export const runtime = 'nodejs';
 
+interface BackendResource {
+  ID: string;
+  Name: string;
+  Type: string;
+  Address: string;
+  Ports?: string;
+  Alias?: string;
+  Description?: string;
+  RemoteNetwork?: string;
+  Protocol?: string;
+  PortFrom?: number;
+  PortTo?: number;
+  Authorizations?: any[];
+}
+
 export async function GET() {
-  const resources = listResources();
-  return NextResponse.json(resources);
+  try {
+    const resources = await proxyToBackend<any[]>('/api/admin/resources');
+    
+    // Handle different response formats from backend
+    let resourceList: any[] = [];
+    if (Array.isArray(resources)) {
+      resourceList = resources;
+    } else if (resources?.Resources) {
+      resourceList = resources.Resources;
+    }
+    
+    // Transform to frontend format
+    const formatted = resourceList.map((r: BackendResource) => ({
+      id: r.ID,
+      name: r.Name,
+      type: r.Type,
+      address: r.Address,
+      ports: r.Ports || '',
+      alias: r.Alias,
+      description: r.Description || '',
+      remoteNetworkId: r.RemoteNetwork,
+      protocol: r.Protocol || 'TCP',
+      portFrom: r.PortFrom,
+      portTo: r.PortTo,
+    }));
+    
+    return NextResponse.json(formatted);
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  const required = ['network_id', 'name', 'type', 'address', 'ports'];
-  const missing = required.filter((key) => !(key in (body ?? {})));
-  if (missing.length > 0) {
-    return NextResponse.json({ error: `Missing fields: ${missing.join(', ')}` }, { status: 400 });
+  try {
+    const body = await req.json();
+    const resource = await proxyToBackend('/api/admin/resources', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    return NextResponse.json(resource);
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
-  addResource(body);
-  return NextResponse.json({ ok: true });
 }

@@ -62,9 +62,8 @@ export function SubjectPicker({
   // Get subjects for current tab, filtered by search
   const filteredSubjects = allSubjects.filter((subject) => {
     const matchesType = subject.type === activeTab;
-    const matchesSearch = subject.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
+    const name = subject.name ?? '';
+    const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase());
     const notExcluded = !excludeSubjects.includes(subject.id);
     return matchesType && matchesSearch && notExcluded;
   });

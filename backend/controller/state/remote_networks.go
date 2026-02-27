@@ -10,6 +10,7 @@ import (
 type RemoteNetwork struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
+	Location   string            `json:"location"`
 	Tags       map[string]string `json:"tags"`
 	Connectors int               `json:"connectors"`
 	CreatedAt  time.Time         `json:"created_at"`
@@ -36,8 +37,8 @@ func (s *RemoteNetworkStore) CreateNetwork(n *RemoteNetwork) error {
 	n.UpdatedAt = time.Now().UTC()
 	tagsJSON, _ := json.Marshal(n.Tags)
 	_, err := s.db.Exec(
-		`INSERT INTO remote_networks (id, name, tags_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-		n.ID, n.Name, string(tagsJSON), n.CreatedAt.Unix(), n.UpdatedAt.Unix(),
+		`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		n.ID, n.Name, n.Location, string(tagsJSON), n.CreatedAt.Unix(), n.UpdatedAt.Unix(),
 	)
 	return err
 }
@@ -47,7 +48,7 @@ func (s *RemoteNetworkStore) ListNetworks() ([]RemoteNetwork, error) {
 		return nil, errors.New("db not configured")
 	}
 	rows, err := s.db.Query(`
-		SELECT r.id, r.name, r.tags_json, r.created_at, r.updated_at,
+		SELECT r.id, r.name, r.location, r.tags_json, r.created_at, r.updated_at,
 		       (SELECT COUNT(1) FROM connector_remote_networks c WHERE c.remote_network_id = r.id) AS connectors
 		FROM remote_networks r
 		ORDER BY r.updated_at DESC`)
@@ -60,7 +61,7 @@ func (s *RemoteNetworkStore) ListNetworks() ([]RemoteNetwork, error) {
 		var n RemoteNetwork
 		var tagsJSON string
 		var created, updated int64
-		if err := rows.Scan(&n.ID, &n.Name, &tagsJSON, &created, &updated, &n.Connectors); err != nil {
+		if err := rows.Scan(&n.ID, &n.Name, &n.Location, &tagsJSON, &created, &updated, &n.Connectors); err != nil {
 			return nil, err
 		}
 		n.CreatedAt = time.Unix(created, 0).UTC()

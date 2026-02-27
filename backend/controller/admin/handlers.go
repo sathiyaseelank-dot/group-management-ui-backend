@@ -32,11 +32,13 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/admin/resources/", s.adminAuth(http.HandlerFunc(s.handleResourceSubroutes)))
 	mux.Handle("/api/admin/audit", s.adminAuth(http.HandlerFunc(s.handleAuditLog)))
 	mux.Handle("/api/admin/users", s.adminAuth(http.HandlerFunc(s.handleUsers)))
+	mux.Handle("/api/admin/users/", s.adminAuth(http.HandlerFunc(s.handleUserSubroutes)))
 	mux.Handle("/api/admin/user-groups", s.adminAuth(http.HandlerFunc(s.handleUserGroups)))
 	mux.Handle("/api/admin/user-groups/", s.adminAuth(http.HandlerFunc(s.handleUserGroupMembers)))
 	mux.Handle("/api/admin/remote-networks", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworks)))
 	mux.Handle("/api/admin/remote-networks/", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworkConnectors)))
 	mux.Handle("/api/internal/consume-token", s.internalAuth(http.HandlerFunc(s.handleConsumeToken)))
+	s.RegisterUIRoutes(mux)
 }
 
 type ACLNotifier interface {

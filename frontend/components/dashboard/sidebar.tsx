@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Users, User, Shield, Database, Globe, Plug, Cable } from 'lucide-react';
+import { Users, User, Shield, Database, Globe, Plug, Cable, FileText } from 'lucide-react';
 
 const navItems = [
   {
@@ -39,6 +39,12 @@ const navItems = [
     href: '/dashboard/connectors',
     icon: Plug,
     description: 'Manage network connectors',
+  },
+  {
+    label: 'Policy',
+    href: '/dashboard/policy',
+    icon: FileText,
+    description: 'Compile and inspect policy snapshots',
   },
 
   {

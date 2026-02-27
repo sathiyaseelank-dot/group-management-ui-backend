@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
-import { listTunnelers } from '@/lib/data';
+import { proxyToBackend } from '@/lib/proxy';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const tunnelers = listTunnelers();
-  return NextResponse.json(tunnelers);
+  try {
+    const tunnelers = await proxyToBackend('/api/admin/tunnelers');
+    return NextResponse.json(tunnelers);
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+  }
 }

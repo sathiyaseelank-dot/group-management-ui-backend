@@ -25,6 +25,7 @@ type UserGroup struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	Members     int       `json:"members"`
+	ResourceCnt int       `json:"resource_count"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -69,6 +70,68 @@ func (s *UserStore) CreateUser(u *User) error {
 	return nil
 }
 
+func (s *UserStore) GetUser(id string) (*User, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("db not configured")
+	}
+	var u User
+	var created, updated int64
+	err := s.db.QueryRow(
+		`SELECT id, name, email, status, role, created_at, updated_at FROM users WHERE id = ?`,
+		id,
+	).Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.Role, &created, &updated)
+	if err != nil {
+		return nil, err
+	}
+	u.CreatedAt = time.Unix(created, 0).UTC()
+	u.UpdatedAt = time.Unix(updated, 0).UTC()
+	return &u, nil
+}
+
+func (s *UserStore) UpdateUser(u *User) error {
+	if s == nil || s.db == nil {
+		return errors.New("db not configured")
+	}
+	if u.ID == "" {
+		return errors.New("user id required")
+	}
+	u.Email = strings.TrimSpace(strings.ToLower(u.Email))
+	if u.Status == "" {
+		u.Status = "Active"
+	}
+	if u.Role == "" {
+		u.Role = "Member"
+	}
+	u.UpdatedAt = time.Now().UTC()
+	_, err := s.db.Exec(
+		`UPDATE users SET name = ?, email = ?, status = ?, role = ?, updated_at = ? WHERE id = ?`,
+		u.Name, u.Email, u.Status, u.Role, u.UpdatedAt.Unix(), u.ID,
+	)
+	return err
+}
+
+func (s *UserStore) DeleteUser(id string) error {
+	if s == nil || s.db == nil {
+		return errors.New("db not configured")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.Exec(`DELETE FROM user_group_members WHERE user_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM users WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *UserStore) ListUsers() ([]User, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("db not configured")
@@ -111,13 +174,77 @@ func (s *UserStore) CreateGroup(g *UserGroup) error {
 	return nil
 }
 
+func (s *UserStore) GetGroup(id string) (*UserGroup, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("db not configured")
+	}
+	var g UserGroup
+	var created, updated int64
+	err := s.db.QueryRow(
+		`SELECT id, name, description, created_at, updated_at,
+		        (SELECT COUNT(1) FROM user_group_members m WHERE m.group_id = user_groups.id) AS members,
+		        (SELECT COUNT(DISTINCT ar.resource_id) FROM access_rules ar JOIN access_rule_groups arg ON arg.rule_id = ar.id WHERE arg.group_id = user_groups.id) AS resource_count
+		 FROM user_groups WHERE id = ?`,
+		id,
+	).Scan(&g.ID, &g.Name, &g.Description, &created, &updated, &g.Members, &g.ResourceCnt)
+	if err != nil {
+		return nil, err
+	}
+	g.CreatedAt = time.Unix(created, 0).UTC()
+	g.UpdatedAt = time.Unix(updated, 0).UTC()
+	return &g, nil
+}
+
+func (s *UserStore) UpdateGroup(g *UserGroup) error {
+	if s == nil || s.db == nil {
+		return errors.New("db not configured")
+	}
+	if g.ID == "" {
+		return errors.New("group id required")
+	}
+	if g.UpdatedAt.IsZero() {
+		g.UpdatedAt = time.Now().UTC()
+	}
+	_, err := s.db.Exec(
+		`UPDATE user_groups SET name = ?, description = ?, updated_at = ? WHERE id = ?`,
+		g.Name, g.Description, g.UpdatedAt.Unix(), g.ID,
+	)
+	return err
+}
+
+func (s *UserStore) DeleteGroup(id string) error {
+	if s == nil || s.db == nil {
+		return errors.New("db not configured")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.Exec(`DELETE FROM user_group_members WHERE group_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM access_rule_groups WHERE group_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM user_groups WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *UserStore) ListGroups() ([]UserGroup, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("db not configured")
 	}
 	rows, err := s.db.Query(`
 		SELECT g.id, g.name, g.description, g.created_at, g.updated_at,
-		       (SELECT COUNT(1) FROM user_group_members m WHERE m.group_id = g.id) AS members
+		       (SELECT COUNT(1) FROM user_group_members m WHERE m.group_id = g.id) AS members,
+		       (SELECT COUNT(DISTINCT ar.resource_id) FROM access_rules ar JOIN access_rule_groups arg ON arg.rule_id = ar.id WHERE arg.group_id = g.id) AS resource_count
 		FROM user_groups g
 		ORDER BY g.updated_at DESC`)
 	if err != nil {
@@ -128,7 +255,7 @@ func (s *UserStore) ListGroups() ([]UserGroup, error) {
 	for rows.Next() {
 		var g UserGroup
 		var created, updated int64
-		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &created, &updated, &g.Members); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &created, &updated, &g.Members, &g.ResourceCnt); err != nil {
 			return nil, err
 		}
 		g.CreatedAt = time.Unix(created, 0).UTC()

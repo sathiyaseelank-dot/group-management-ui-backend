@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getRemoteNetworkDetail } from '@/lib/data';
+import { proxyToBackend } from '@/lib/proxy';
 
 export const runtime = 'nodejs';
 
@@ -7,7 +7,11 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ networkId: string }> }
 ) {
-  const { networkId } = await params;
-  const data = getRemoteNetworkDetail(networkId);
-  return NextResponse.json(data);
+  try {
+    const { networkId } = await params;
+    const network = await proxyToBackend(`/api/admin/remote-networks/${networkId}`);
+    return NextResponse.json(network);
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+  }
 }

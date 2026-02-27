@@ -1,18 +1,13 @@
 import { NextResponse } from 'next/server';
-import { addConnector, listConnectors } from '@/lib/data';
+import { proxyToBackend } from '@/lib/proxy';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const connectors = listConnectors();
-  return NextResponse.json(connectors);
-}
-
-export async function POST(req: Request) {
-  const body = await req.json();
-  if (!body?.name || !body?.remoteNetworkId) {
-    return NextResponse.json({ error: 'name and remoteNetworkId are required' }, { status: 400 });
+  try {
+    const connectors = await proxyToBackend('/api/admin/connectors');
+    return NextResponse.json(connectors);
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
-  addConnector({ name: body.name, remoteNetworkId: body.remoteNetworkId });
-  return NextResponse.json({ ok: true });
 }

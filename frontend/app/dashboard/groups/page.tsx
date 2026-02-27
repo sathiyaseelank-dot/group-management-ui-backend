@@ -2,17 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getGroups } from '@/lib/mock-api';
+import { deleteGroup, getGroups } from '@/lib/mock-api';
 import { Group } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { GroupsList } from '@/components/dashboard/groups/groups-list';
 import { Loader2, Plus } from 'lucide-react';
 import { AddGroupModal } from '@/components/dashboard/groups/add-group-modal';
+import { EditGroupModal } from '@/components/dashboard/groups/edit-group-modal';
 
 export default function GroupsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<Group | null>(null);
 
   const loadGroups = async () => {
     setLoading(true);
@@ -29,6 +32,22 @@ export default function GroupsPage() {
   useEffect(() => {
     loadGroups();
   }, []);
+
+  const handleEditGroup = (group: Group) => {
+    setEditingGroup(group);
+    setIsEditOpen(true);
+  };
+
+  const handleDeleteGroup = async (group: Group) => {
+    const confirmed = window.confirm(`Delete ${group.name}? This cannot be undone.`);
+    if (!confirmed) return;
+    try {
+      await deleteGroup(group.id);
+      await loadGroups();
+    } catch (error) {
+      console.error('Failed to delete group:', error);
+    }
+  };
 
   if (loading) {
     return (
@@ -55,13 +74,23 @@ export default function GroupsPage() {
       </div>
 
       {/* Groups List */}
-      <GroupsList groups={groups} />
+      <GroupsList groups={groups} onEditGroup={handleEditGroup} onDeleteGroup={handleDeleteGroup} />
 
       {/* Add Group Modal */}
       <AddGroupModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onGroupAdded={loadGroups} // Reload groups after a new one is added
+      />
+
+      <EditGroupModal
+        isOpen={isEditOpen}
+        group={editingGroup}
+        onClose={() => {
+          setIsEditOpen(false);
+          setEditingGroup(null);
+        }}
+        onGroupUpdated={loadGroups}
       />
     </div>
   );

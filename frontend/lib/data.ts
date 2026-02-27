@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { getDb } from './db';
 import {
   AccessRule,
@@ -12,7 +13,6 @@ import {
   SubjectType,
   Tunneler,
   User,
-  SelectedSubject,
 } from './types';
 
 export interface ConnectorLog {
@@ -30,6 +30,7 @@ function mapUser(row: any): User {
     email: row.email,
     status: row.status,
     groups: [],
+    certificateIdentity: row.certificate_identity ?? null,
     createdAt: row.created_at,
   };
 }
@@ -44,6 +45,7 @@ function mapGroup(row: any, memberCount: number, resourceCount: number): Group {
     memberCount,
     resourceCount,
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
   };
 }
 
@@ -65,7 +67,9 @@ function mapResource(row: any): Resource {
     name: row.name,
     type: row.type as ResourceType,
     address: row.address,
-    ports: row.ports,
+    protocol: (row.protocol ?? 'TCP') as 'TCP' | 'UDP',
+    portFrom: row.port_from ?? null,
+    portTo: row.port_to ?? null,
     alias: row.alias ?? undefined,
     description: row.description,
     remoteNetworkId: row.remote_network_id ?? undefined,
@@ -82,6 +86,8 @@ function mapConnector(row: any): Connector {
     remoteNetworkId: row.remote_network_id,
     lastSeen: row.last_seen,
     installed: !!row.installed,
+    lastPolicyVersion: row.last_policy_version ?? 0,
+    lastSeenAt: row.last_seen_at ?? null,
   };
 }
 
@@ -100,12 +106,12 @@ function mapRemoteNetwork(row: any): RemoteNetwork {
 function mapAccessRule(row: any): AccessRule {
   return {
     id: row.id,
+    name: row.name,
     resourceId: row.resource_id,
-    subjectId: row.subject_id,
-    subjectType: row.subject_type as SubjectType,
-    subjectName: row.subject_name,
-    effect: row.effect,
+    allowedGroups: row.allowed_groups ?? [],
+    enabled: !!row.enabled,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -212,15 +218,28 @@ export function addConnector(data: { name: string; remoteNetworkId: string }): v
   const id = `con_${Date.now()}`;
   const hostname = `${data.name.toLowerCase().replace(/\s/g, '-')}.local`;
   db.prepare(
-    `INSERT INTO connectors (id, name, status, version, hostname, remote_network_id, last_seen, installed)
-     VALUES (?, ?, 'offline', '1.0.0', ?, ?, ?, 0)`
-  ).run(id, data.name, hostname, data.remoteNetworkId, new Date().toISOString());
+    `INSERT INTO connectors (id, name, status, version, hostname, remote_network_id, last_seen, last_policy_version, last_seen_at, installed)
+     VALUES (?, ?, 'offline', '1.0.0', ?, ?, ?, 0, ?, 0)`
+  ).run(id, data.name, hostname, data.remoteNetworkId, new Date().toISOString(), new Date().toISOString());
 }
 
 export function simulateConnectorHeartbeat(connectorId: string): void {
   const db = getDb();
-  db.prepare('UPDATE connectors SET status = ?, last_seen = ?, installed = 1 WHERE id = ?')
-    .run('online', new Date().toISOString(), connectorId);
+  const now = new Date().toISOString();
+  db.prepare('UPDATE connectors SET status = ?, last_seen = ?, last_seen_at = ?, installed = 1 WHERE id = ?')
+    .run('online', now, now, connectorId);
+}
+
+export function updateConnectorHeartbeat(connectorId: string, lastPolicyVersion: number): { updateAvailable: boolean; currentVersion: number } {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare('UPDATE connectors SET last_seen_at = ?, last_policy_version = ? WHERE id = ?')
+    .run(now, lastPolicyVersion, connectorId);
+
+  const row = db.prepare('SELECT version FROM connector_policy_versions WHERE connector_id = ?').get(connectorId) as { version?: number } | undefined;
+  const currentVersion = row?.version ?? 0;
+  const updateAvailable = lastPolicyVersion < currentVersion;
+  return { updateAvailable, currentVersion };
 }
 
 export function listTunnelers(): Tunneler[] {
@@ -246,6 +265,28 @@ export function listUsers(): User[] {
   });
 }
 
+export function addUser(data: { name: string; email: string; status: 'active' | 'inactive' }): User {
+  const db = getDb();
+  const id = `usr_${Date.now()}`;
+  const certificateIdentity = `identity-${crypto.randomUUID()}`;
+  const createdAt = new Date().toISOString().split('T')[0];
+  db.prepare(
+    'INSERT INTO users (id, name, email, certificate_identity, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, data.name, data.email, certificateIdentity, data.status, createdAt);
+
+  return {
+    id,
+    name: data.name,
+    type: 'USER',
+    displayLabel: `User: ${data.name}`,
+    email: data.email,
+    status: data.status,
+    groups: [],
+    certificateIdentity,
+    createdAt,
+  };
+}
+
 export function listServiceAccounts(): ServiceAccount[] {
   const db = getDb();
   const rows = db.prepare('SELECT * FROM service_accounts ORDER BY name ASC').all();
@@ -257,7 +298,10 @@ export function listGroups(): Group[] {
   const rows = db.prepare('SELECT * FROM groups ORDER BY name ASC').all();
   const memberCountStmt = db.prepare('SELECT COUNT(*) as count FROM group_members WHERE group_id = ?');
   const resourceCountStmt = db.prepare(
-    "SELECT COUNT(*) as count FROM access_rules WHERE subject_type = 'GROUP' AND subject_id = ?"
+    `SELECT COUNT(DISTINCT ar.resource_id) as count
+     FROM access_rules ar
+     JOIN access_rule_groups arg ON arg.rule_id = ar.id
+     WHERE arg.group_id = ?`
   );
   return rows.map((row: any) => {
     const memberCount = memberCountStmt.get(row.id).count as number;
@@ -291,8 +335,9 @@ export function getGroupDetail(groupId: string): {
     `
     SELECT r.*
     FROM access_rules ar
+    JOIN access_rule_groups arg ON arg.rule_id = ar.id
     JOIN resources r ON r.id = ar.resource_id
-    WHERE ar.subject_type = 'GROUP' AND ar.subject_id = ?
+    WHERE arg.group_id = ?
     GROUP BY r.id
     ORDER BY r.name ASC
     `
@@ -332,29 +377,33 @@ export function removeGroupMember(groupId: string, userId: string): void {
 
 export function addGroupResources(groupId: string, resourceIds: string[]): void {
   const db = getDb();
+  if (resourceIds.length === 0) return;
+
   const existingStmt = db.prepare(
-    "SELECT id FROM access_rules WHERE subject_type = 'GROUP' AND subject_id = ? AND resource_id = ?"
+    `SELECT ar.id
+     FROM access_rules ar
+     JOIN access_rule_groups arg ON arg.rule_id = ar.id
+     WHERE ar.resource_id = ? AND arg.group_id = ?`
   );
-  const insertStmt = db.prepare(
-    `INSERT INTO access_rules (id, resource_id, subject_id, subject_type, subject_name, effect, created_at)
-     VALUES (?, ?, ?, 'GROUP', ?, 'ALLOW', ?)`
+  const insertRule = db.prepare(
+    `INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, 1, ?, ?)`
+  );
+  const insertRuleGroup = db.prepare(
+    'INSERT INTO access_rule_groups (rule_id, group_id) VALUES (?, ?)'
   );
 
   const groupNameRow = db.prepare('SELECT name FROM groups WHERE id = ?').get(groupId);
   const groupName = groupNameRow?.name ?? 'Unknown Group';
+  const now = new Date().toISOString().split('T')[0];
 
   const tx = db.transaction(() => {
     resourceIds.forEach((resourceId) => {
-      const existing = existingStmt.get(groupId, resourceId);
-      if (!existing) {
-        insertStmt.run(
-          `rule_${Date.now()}_${groupId}_${resourceId}`,
-          resourceId,
-          groupId,
-          groupName,
-          new Date().toISOString().split('T')[0]
-        );
-      }
+      const existing = existingStmt.get(resourceId, groupId);
+      if (existing) return;
+      const ruleId = `rule_${Date.now()}_${groupId}_${resourceId}`;
+      insertRule.run(ruleId, `${groupName} access`, resourceId, now, now);
+      insertRuleGroup.run(ruleId, groupId);
     });
   });
   tx();
@@ -372,9 +421,15 @@ export function getResourceDetail(resourceId: string): { resource: Resource | un
   const accessRuleRows = db
     .prepare('SELECT * FROM access_rules WHERE resource_id = ? ORDER BY created_at ASC')
     .all(resourceId);
+  const groupStmt = db.prepare(
+    'SELECT group_id FROM access_rule_groups WHERE rule_id = ? ORDER BY group_id ASC'
+  );
   return {
     resource: resourceRow ? mapResource(resourceRow) : undefined,
-    accessRules: accessRuleRows.map(mapAccessRule),
+    accessRules: accessRuleRows.map((row: any) => {
+      const groups = groupStmt.all(row.id).map((g: any) => g.group_id);
+      return mapAccessRule({ ...row, allowed_groups: groups });
+    }),
   };
 }
 
@@ -383,19 +438,29 @@ export function addResource(data: {
   name: string;
   type: ResourceType;
   address: string;
-  ports: string;
+  protocol: 'TCP' | 'UDP';
+  port_from?: number | null;
+  port_to?: number | null;
   alias?: string;
 }): void {
   const db = getDb();
+  const ports = data.port_from && data.port_to
+    ? `${data.port_from}-${data.port_to}`
+    : data.port_from
+      ? `${data.port_from}`
+      : '';
   db.prepare(
-    `INSERT INTO resources (id, name, type, address, ports, alias, description, remote_network_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     `res_${Date.now()}`,
     data.name,
     data.type,
     data.address,
-    data.ports,
+    ports,
+    data.protocol,
+    data.port_from ?? null,
+    data.port_to ?? null,
     data.alias ?? null,
     `A new ${data.type.toLowerCase()} resource`,
     data.network_id
@@ -407,60 +472,63 @@ export function updateResource(resourceId: string, data: {
   name: string;
   type: ResourceType;
   address: string;
-  ports: string;
+  protocol: 'TCP' | 'UDP';
+  port_from?: number | null;
+  port_to?: number | null;
   alias?: string;
 }): void {
   const db = getDb();
+  const ports = data.port_from && data.port_to
+    ? `${data.port_from}-${data.port_to}`
+    : data.port_from
+      ? `${data.port_from}`
+      : '';
   db.prepare(
     `UPDATE resources
-     SET name = ?, type = ?, address = ?, ports = ?, alias = ?, remote_network_id = ?
+     SET name = ?, type = ?, address = ?, ports = ?, protocol = ?, port_from = ?, port_to = ?, alias = ?, remote_network_id = ?
      WHERE id = ?`
   ).run(
     data.name,
     data.type,
     data.address,
-    data.ports,
+    ports,
+    data.protocol,
+    data.port_from ?? null,
+    data.port_to ?? null,
     data.alias ?? null,
     data.network_id,
     resourceId
   );
 }
 
-function resolveSubjectName(subject: SelectedSubject): string {
+export function createAccessRule(resourceId: string, data: { name: string; groupIds: string[]; enabled: boolean }): AccessRule {
   const db = getDb();
-  if (subject.type === 'USER') {
-    const row = db.prepare('SELECT name FROM users WHERE id = ?').get(subject.id);
-    return row?.name ?? subject.label;
-  }
-  if (subject.type === 'GROUP') {
-    const row = db.prepare('SELECT name FROM groups WHERE id = ?').get(subject.id);
-    return row?.name ?? subject.label;
-  }
-  const row = db.prepare('SELECT name FROM service_accounts WHERE id = ?').get(subject.id);
-  return row?.name ?? subject.label;
-}
+  const ruleId = `rule_${Date.now()}`;
+  const now = new Date().toISOString().split('T')[0];
 
-export function createAccessRule(resourceId: string, subjects: SelectedSubject[], effect: 'ALLOW' | 'DENY'): void {
-  const db = getDb();
-  const insertStmt = db.prepare(
-    `INSERT INTO access_rules (id, resource_id, subject_id, subject_type, subject_name, effect, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  const insertRule = db.prepare(
+    `INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
   );
+  const insertRuleGroup = db.prepare(
+    'INSERT INTO access_rule_groups (rule_id, group_id) VALUES (?, ?)'
+  );
+
   const tx = db.transaction(() => {
-    subjects.forEach((subject) => {
-      const subjectName = resolveSubjectName(subject);
-      insertStmt.run(
-        `rule_${Date.now()}_${subject.id}`,
-        resourceId,
-        subject.id,
-        subject.type,
-        subjectName,
-        effect,
-        new Date().toISOString().split('T')[0]
-      );
-    });
+    insertRule.run(ruleId, data.name, resourceId, data.enabled ? 1 : 0, now, now);
+    data.groupIds.forEach((groupId) => insertRuleGroup.run(ruleId, groupId));
   });
   tx();
+
+  return {
+    id: ruleId,
+    name: data.name,
+    resourceId,
+    allowedGroups: data.groupIds,
+    enabled: data.enabled,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export function deleteAccessRule(ruleId: string): void {

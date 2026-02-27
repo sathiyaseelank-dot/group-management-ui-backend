@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AccessRule } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { deleteAccessRule } from '@/lib/mock-api';
+import { deleteAccessRule, getAccessRuleIdentityCount, getGroups } from '@/lib/mock-api';
 import { Lock, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -41,6 +41,54 @@ export function AccessRulesTable({
 }: AccessRulesTableProps) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [groupMap, setGroupMap] = useState<Record<string, string>>({});
+  const [identityCounts, setIdentityCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const loadGroups = async () => {
+      try {
+        const groups = await getGroups();
+        const map: Record<string, string> = {};
+        groups.forEach((g) => {
+          map[g.id] = g.name;
+        });
+        setGroupMap(map);
+      } catch (error) {
+        console.error('Failed to load groups:', error);
+      }
+    };
+    loadGroups();
+  }, []);
+
+  useEffect(() => {
+    const loadCounts = async () => {
+      try {
+        const entries = await Promise.all(
+          accessRules.map(async (rule) => {
+            const count = await getAccessRuleIdentityCount(rule.id);
+            return [rule.id, count] as const;
+          })
+        );
+        const map: Record<string, number> = {};
+        entries.forEach(([id, count]) => {
+          map[id] = count;
+        });
+        setIdentityCounts(map);
+      } catch (error) {
+        console.error('Failed to load identity counts:', error);
+      }
+    };
+    loadCounts();
+  }, [accessRules]);
+
+  const formatGroups = useCallback(
+    (groupIds: string[]) => {
+      if (groupIds.length === 0) return 'No groups';
+      const names = groupIds.map((id) => groupMap[id] || id);
+      return names.join(', ');
+    },
+    [groupMap]
+  );
 
   const handleDeleteRule = useCallback(
     async (ruleId: string) => {
@@ -70,7 +118,7 @@ export function AccessRulesTable({
                 Access Rules
               </CardTitle>
               <CardDescription>
-                Define which subjects (users, groups, services) can access this resource
+                Define which groups can access this resource
               </CardDescription>
             </div>
             <Button onClick={onAddRule}>
@@ -93,9 +141,10 @@ export function AccessRulesTable({
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="font-semibold">Subject</TableHead>
-                    <TableHead className="font-semibold">Type</TableHead>
-                    <TableHead className="font-semibold">Effect</TableHead>
+                    <TableHead className="font-semibold">Name</TableHead>
+                    <TableHead className="font-semibold">Groups</TableHead>
+                    <TableHead className="font-semibold">Status</TableHead>
+                    <TableHead className="text-right font-semibold">Identities</TableHead>
                     <TableHead className="text-right font-semibold">Created</TableHead>
                     <TableHead className="text-right font-semibold">Actions</TableHead>
                   </TableRow>
@@ -104,24 +153,20 @@ export function AccessRulesTable({
                   {accessRules.map((rule) => (
                     <TableRow key={rule.id}>
                       <TableCell className="font-medium">
-                        {rule.subjectName}
+                        {rule.name}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{rule.subjectType}</Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {formatGroups(rule.allowedGroups)}
+                        </span>
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={
-                            rule.effect === 'ALLOW' ? 'default' : 'destructive'
-                          }
-                          className={
-                            rule.effect === 'ALLOW'
-                              ? 'bg-green-100 text-green-800'
-                              : ''
-                          }
-                        >
-                          {rule.effect}
+                        <Badge variant={rule.enabled ? 'default' : 'secondary'}>
+                          {rule.enabled ? 'Enabled' : 'Disabled'}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {identityCounts[rule.id] ?? 0}
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">
                         {rule.createdAt}

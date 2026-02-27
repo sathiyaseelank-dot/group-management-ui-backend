@@ -1,18 +1,26 @@
 import { NextResponse } from 'next/server';
-import { addRemoteNetwork, listRemoteNetworks } from '@/lib/data';
+import { proxyToBackend } from '@/lib/proxy';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
-  const networks = listRemoteNetworks();
-  return NextResponse.json(networks);
+  try {
+    const networks = await proxyToBackend('/api/admin/remote-networks');
+    return NextResponse.json(networks);
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  if (!body?.name || !body?.location) {
-    return NextResponse.json({ error: 'name and location are required' }, { status: 400 });
+  try {
+    const body = await req.json();
+    const network = await proxyToBackend('/api/admin/remote-networks', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    return NextResponse.json(network);
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
-  addRemoteNetwork({ name: body.name, location: body.location });
-  return NextResponse.json({ ok: true });
 }

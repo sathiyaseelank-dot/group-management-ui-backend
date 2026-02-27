@@ -1,3 +1,0 @@
-{
-  "/api/connectors/[connectorId]/heartbeat/route": "app/api/connectors/[connectorId]/heartbeat/route.js"
-}

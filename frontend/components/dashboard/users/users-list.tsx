@@ -2,6 +2,14 @@
 
 import { User } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Table,
   TableBody,
@@ -10,12 +18,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { MoreHorizontal } from 'lucide-react';
 
 interface UsersListProps {
   users: User[];
+  onEditUser: (user: User) => void;
+  onDeactivateUser: (user: User) => void;
+  onDeleteUser: (user: User) => void;
 }
 
-export function UsersList({ users }: UsersListProps) {
+export function UsersList({ users, onEditUser, onDeactivateUser, onDeleteUser }: UsersListProps) {
   if (users.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-12 text-center">
@@ -35,6 +47,7 @@ export function UsersList({ users }: UsersListProps) {
             <TableHead className="font-semibold">Status</TableHead>
             <TableHead className="font-semibold">Groups</TableHead>
             <TableHead className="text-right font-semibold">Created</TableHead>
+            <TableHead className="text-right font-semibold">Activity</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -61,6 +74,31 @@ export function UsersList({ users }: UsersListProps) {
               </TableCell>
               <TableCell className="text-right text-sm text-muted-foreground">
                 {user.createdAt}
+              </TableCell>
+              <TableCell className="text-right">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label="Manage user">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => onEditUser(user)}>Edit</DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onDeactivateUser(user)}
+                      disabled={user.status === 'inactive'}
+                    >
+                      Deactivate
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => onDeleteUser(user)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </TableCell>
             </TableRow>
           ))}

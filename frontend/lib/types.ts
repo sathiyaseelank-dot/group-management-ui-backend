@@ -17,6 +17,7 @@ export interface User extends Subject {
   email: string;
   status: 'active' | 'inactive';
   groups: string[]; // Group IDs this user belongs to
+  certificateIdentity?: string | null;
   createdAt: string;
 }
 
@@ -26,6 +27,7 @@ export interface Group extends Subject {
   memberCount: number;
   resourceCount: number;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ServiceAccount extends Subject {
@@ -49,7 +51,9 @@ export interface Resource {
   name: string;
   type: ResourceType;
   address: string; // e.g., domain, IP, endpoint
-  ports: string;
+  protocol: 'TCP' | 'UDP';
+  portFrom?: number | null;
+  portTo?: number | null;
   alias?: string;
   description: string;
   remoteNetworkId?: string;
@@ -65,6 +69,8 @@ export interface Connector {
   remoteNetworkId: string;
   lastSeen: string; // Timestamp of when the connector was last seen online
   installed: boolean;
+  lastPolicyVersion: number;
+  lastSeenAt?: string | null;
 }
 
 export interface RemoteNetwork {
@@ -89,12 +95,12 @@ export interface Tunneler {
 // Access Rules bind subjects to resources
 export interface AccessRule {
   id: string;
+  name: string;
   resourceId: string;
-  subjectId: string;
-  subjectType: SubjectType;
-  subjectName: string;
-  effect: 'ALLOW' | 'DENY';
+  allowedGroups: string[];
+  enabled: boolean;
   createdAt: string;
+  updatedAt: string;
 }
 
 // Selected Subject for picker

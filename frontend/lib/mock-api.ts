@@ -1,6 +1,6 @@
 /**
  * API client for Zero-Trust Identity Provider
- * Uses Next.js API routes backed by SQLite.
+ * Uses backend API routes backed by SQLite.
  */
 
 import {
@@ -11,24 +11,35 @@ import {
   Resource,
   AccessRule,
   Subject,
-  SelectedSubject,
   RemoteNetwork,
   Connector,
   Tunneler,
   ResourceType,
 } from './types';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
+  console.log(`[mock-api] Request to: ${url}`);
+  
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+  } catch (fetchError) {
+    console.error(`[mock-api] Fetch error:`, fetchError);
+    throw new Error(`Network error: ${fetchError instanceof Error ? fetchError.message : 'unknown'}`);
+  }
 
   if (!res.ok) {
     const message = await res.text();
+    console.error(`[mock-api] Error response (${res.status}): ${message}`);
     throw new Error(message || `Request failed with ${res.status}`);
   }
 
@@ -94,9 +105,63 @@ export async function getGroup(groupId: string) {
   );
 }
 
+export async function updateGroup(
+  groupId: string,
+  data: { name?: string; description?: string }
+): Promise<void> {
+  await request(`/api/groups/${encodeURIComponent(groupId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteGroup(groupId: string): Promise<void> {
+  await request(`/api/groups/${encodeURIComponent(groupId)}`, {
+    method: 'DELETE',
+  });
+}
+
 // API: Get all users
 export async function getUsers(): Promise<User[]> {
   return request<User[]>('/api/users');
+}
+
+export async function addUser(data: {
+  name: string;
+  email: string;
+  status: 'active' | 'inactive';
+}): Promise<void> {
+  await request('/api/users', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateUser(
+  userId: string,
+  data: { name?: string; email?: string; status?: 'active' | 'inactive' }
+): Promise<void> {
+  await request(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getUser(userId: string): Promise<User> {
+  return request<User>(`/api/users/${encodeURIComponent(userId)}`);
+}
+
+export async function deactivateUser(userId: string): Promise<void> {
+  await request(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'inactive' }),
+  });
+}
+
+export async function deleteUser(userId: string): Promise<void> {
+  await request(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
 }
 
 // API: Get all service accounts
@@ -122,7 +187,9 @@ export async function addResource(data: {
   name: string;
   type: ResourceType;
   address: string;
-  ports: string;
+  protocol: 'TCP' | 'UDP';
+  port_from?: number | null;
+  port_to?: number | null;
   alias?: string;
 }): Promise<void> {
   await request('/api/resources', {
@@ -139,7 +206,9 @@ export async function updateResource(
     name: string;
     type: ResourceType;
     address: string;
-    ports: string;
+    protocol: 'TCP' | 'UDP';
+    port_from?: number | null;
+    port_to?: number | null;
     alias?: string;
   }
 ): Promise<void> {
@@ -206,12 +275,11 @@ export async function updateGroupMembers(
 // API: Create access rule
 export async function createAccessRule(
   resourceId: string,
-  subjects: SelectedSubject[],
-  effect: 'ALLOW' | 'DENY'
-): Promise<void> {
-  await request('/api/access-rules', {
+  data: { name: string; groupIds: string[]; enabled: boolean }
+): Promise<AccessRule> {
+  return request<AccessRule>('/api/access-rules', {
     method: 'POST',
-    body: JSON.stringify({ resourceId, subjects, effect }),
+    body: JSON.stringify({ resourceId, ...data }),
   });
 }
 
@@ -220,6 +288,11 @@ export async function deleteAccessRule(ruleId: string): Promise<void> {
   await request(`/api/access-rules/${ruleId}`, {
     method: 'DELETE',
   });
+}
+
+export async function getAccessRuleIdentityCount(ruleId: string): Promise<number> {
+  const res = await request<{ count: number }>(`/api/access-rules/${ruleId}/identity-count`);
+  return res.count;
 }
 
 // API: Delete group member

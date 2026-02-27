@@ -47,7 +47,9 @@ export function AddResourceModal({
   const [name, setName] = useState('');
   const [resourceType, setResourceType] = useState<ResourceType>('STANDARD');
   const [address, setAddress] = useState('');
-  const [ports, setPorts] = useState('');
+  const [protocol, setProtocol] = useState<'TCP' | 'UDP'>('TCP');
+  const [portFrom, setPortFrom] = useState('');
+  const [portTo, setPortTo] = useState('');
   const [alias, setAlias] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -76,7 +78,9 @@ export function AddResourceModal({
     setName('');
     setResourceType('STANDARD');
     setAddress('');
-    setPorts('');
+    setProtocol('TCP');
+    setPortFrom('');
+    setPortTo('');
     setAlias('');
   };
 
@@ -85,7 +89,7 @@ export function AddResourceModal({
     onClose();
   };
 
-  const canSubmit = networkId && name && address && ports;
+  const canSubmit = networkId && name && address && protocol;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -97,7 +101,9 @@ export function AddResourceModal({
         name,
         type: resourceType,
         address,
-        ports,
+        protocol,
+        port_from: portFrom ? Number(portFrom) : null,
+        port_to: portTo ? Number(portTo) : null,
         alias: alias || undefined,
       });
       toast.success('Resource created');
@@ -127,7 +133,7 @@ export function AddResourceModal({
             <Select
               value={networkId}
               onValueChange={setNetworkId}
-              disabled={loadingNetworks}
+              disabled={loadingNetworks || lockNetwork}
             >
               <SelectTrigger className="col-span-3">
                 <SelectValue placeholder={loadingNetworks ? 'Loading networks...' : 'Select a network'} />
@@ -175,15 +181,41 @@ export function AddResourceModal({
             />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="ports" className="text-right">
-              Ports
+            <Label className="text-right">Protocol</Label>
+            <Select value={protocol} onValueChange={(v) => setProtocol(v as 'TCP' | 'UDP')}>
+              <SelectTrigger className="col-span-3">
+                <SelectValue placeholder="Select protocol" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="TCP">TCP</SelectItem>
+                <SelectItem value="UDP">UDP</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="portFrom" className="text-right">
+              Port From
             </Label>
             <Input
-              id="ports"
-              value={ports}
-              onChange={(e) => setPorts(e.target.value)}
+              id="portFrom"
+              value={portFrom}
+              onChange={(e) => setPortFrom(e.target.value.replace(/[^0-9]/g, ''))}
               className="col-span-3"
-              placeholder="e.g., 22, 80, 443, 3000-3010"
+              placeholder="e.g., 443"
+              inputMode="numeric"
+            />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="portTo" className="text-right">
+              Port To
+            </Label>
+            <Input
+              id="portTo"
+              value={portTo}
+              onChange={(e) => setPortTo(e.target.value.replace(/[^0-9]/g, ''))}
+              className="col-span-3"
+              placeholder="Optional"
+              inputMode="numeric"
             />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
