@@ -20,7 +20,7 @@ interface BackendResource {
 
 export async function GET() {
   try {
-    const resources = await proxyToBackend<any[]>('/api/admin/resources');
+    const resources = await proxyToBackend<any[]>('/api/resources');
     
     // Handle different response formats from backend
     let resourceList: any[] = [];
@@ -31,18 +31,18 @@ export async function GET() {
     }
     
     // Transform to frontend format
-    const formatted = resourceList.map((r: BackendResource) => ({
-      id: r.ID,
-      name: r.Name,
-      type: r.Type,
-      address: r.Address,
-      ports: r.Ports || '',
-      alias: r.Alias,
-      description: r.Description || '',
-      remoteNetworkId: r.RemoteNetwork,
-      protocol: r.Protocol || 'TCP',
-      portFrom: r.PortFrom,
-      portTo: r.PortTo,
+    const formatted = resourceList.map((r: any) => ({
+      id: r.id ?? r.ID,
+      name: r.name ?? r.Name,
+      type: r.type ?? r.Type,
+      address: r.address ?? r.Address,
+      ports: r.ports ?? r.Ports ?? '',
+      alias: r.alias ?? r.Alias,
+      description: r.description ?? r.Description ?? '',
+      remoteNetworkId: r.remoteNetworkId ?? r.remote_network_id ?? r.RemoteNetwork,
+      protocol: r.protocol ?? r.Protocol ?? 'TCP',
+      portFrom: r.portFrom ?? r.port_from ?? r.PortFrom,
+      portTo: r.portTo ?? r.port_to ?? r.PortTo,
     }));
     
     return NextResponse.json(formatted);
@@ -54,7 +54,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const resource = await proxyToBackend('/api/admin/resources', {
+    const resource = await proxyToBackend('/api/resources', {
       method: 'POST',
       body: JSON.stringify(body),
     });

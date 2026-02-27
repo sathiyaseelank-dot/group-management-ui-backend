@@ -11,3 +11,16 @@ export async function GET() {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
 }
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const connector = await proxyToBackend('/api/connectors', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    return NextResponse.json(connector);
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+  }
+}

@@ -3,6 +3,7 @@ module controller
 go 1.24.13
 
 require (
+	github.com/google/uuid v1.6.0
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.33.1
@@ -10,7 +11,6 @@ require (
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect

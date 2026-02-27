@@ -25,8 +25,9 @@ func (s *Server) handleRemoteNetworks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, nets)
 	case http.MethodPost:
 		var req struct {
-			Name string            `json:"name"`
-			Tags map[string]string `json:"tags"`
+			Name     string            `json:"name"`
+			Location string            `json:"location"`
+			Tags     map[string]string `json:"tags"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -38,6 +39,7 @@ func (s *Server) handleRemoteNetworks(w http.ResponseWriter, r *http.Request) {
 		}
 		n := state.RemoteNetwork{
 			Name:      req.Name,
+			Location:  req.Location,
 			Tags:      req.Tags,
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),

@@ -47,38 +47,8 @@ export async function GET(
 ) {
   try {
     const { groupId } = await params;
-    
-    // Get all groups and find the one we want
-    const groups = await proxyToBackend<BackendGroup[]>('/api/admin/user-groups');
-    const group = groups.find((g: BackendGroup) => (g.id ?? g.ID) === groupId);
-    
-    if (!group) {
-      return NextResponse.json({ error: 'Group not found' }, { status: 404 });
-    }
-    
-    // Get members for this group
-    let members: GroupMember[] = [];
-    try {
-      members = await proxyToBackend<GroupMember[]>(`/api/admin/user-groups/${groupId}/members`);
-    } catch (e) {
-      // Members endpoint might fail, that's ok
-    }
-    
-    // Format the response to match frontend expectations
-    const formattedGroup = {
-      group: {
-        ...mapBackendGroup(group),
-        memberCount: members.length,
-      },
-      members: members.map((m: GroupMember) => ({
-        userId: m.user_id ?? m.UserID ?? '',
-        userName: m.name ?? m.UserName ?? '',
-        email: m.email ?? m.Email ?? '',
-      })),
-      resources: [],
-    };
-    
-    return NextResponse.json(formattedGroup);
+    const payload = await proxyToBackend(`/api/groups/${groupId}`);
+    return NextResponse.json(payload);
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }

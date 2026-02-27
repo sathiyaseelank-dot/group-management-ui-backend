@@ -174,6 +174,7 @@ func (s *Server) handleUserGroupMembers(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/user-groups/")
+	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 1 || parts[0] == "" {
 		http.Error(w, "group id required", http.StatusBadRequest)

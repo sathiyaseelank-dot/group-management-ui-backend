@@ -81,6 +81,7 @@ export interface RemoteNetwork {
   onlineConnectorCount: number;
   resourceCount: number;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Tunneler {

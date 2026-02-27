@@ -36,7 +36,7 @@ export function RemoteNetworksList({ networks }: RemoteNetworksListProps) {
             <TableHead className="font-semibold">Location</TableHead>
             <TableHead className="text-center font-semibold">Connectors</TableHead>
             <TableHead className="text-center font-semibold">Resources</TableHead>
-            <TableHead className="text-right font-semibold">Created</TableHead>
+            <TableHead className="text-right font-semibold">Updated</TableHead>
             <TableHead className="text-right font-semibold">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -85,7 +85,7 @@ export function RemoteNetworksList({ networks }: RemoteNetworksListProps) {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right text-sm text-muted-foreground">
-                  {network.createdAt}
+                  {network.updatedAt}
                 </TableCell>
                 <TableCell className="text-right">
                   <Link href={`/dashboard/remote-networks/${network.id}`}>

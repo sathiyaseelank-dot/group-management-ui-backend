@@ -151,7 +151,7 @@ func main() {
 	}
 	adminServer.RegisterRoutes(adminMux)
 	go func() {
-		log.Printf("admin HTTP server listening on %s", adminAddr)
+		log.Printf("admin HTTP server listening %s", adminAddr)
 		if err := http.ListenAndServe(adminAddr, adminMux); err != nil {
 			log.Fatalf("admin HTTP server failed: %v", err)
 		}

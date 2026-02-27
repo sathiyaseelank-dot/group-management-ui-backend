@@ -11,8 +11,10 @@ export async function GET(
     const { resourceId } = await params;
     
     // Get all resources and find the one we want
-    const resources = await proxyToBackend<any[]>('/api/admin/resources');
-    const resource = resources.find((r: any) => r.ID === resourceId);
+    const resources = await proxyToBackend<any[]>('/api/resources');
+    const resource = Array.isArray(resources)
+      ? resources.find((r: any) => (r.id ?? r.ID) === resourceId)
+      : undefined;
     
     if (!resource) {
       return NextResponse.json({ error: 'Resource not found' }, { status: 404 });
@@ -20,17 +22,17 @@ export async function GET(
     
     // Transform to frontend format
     const formattedResource = {
-      id: resource.ID,
-      name: resource.Name,
-      type: resource.Type,
-      address: resource.Address,
-      ports: resource.Ports || '',
-      alias: resource.Alias,
-      description: resource.Description || '',
-      remoteNetworkId: resource.RemoteNetwork,
-      protocol: resource.Protocol || 'TCP',
-      portFrom: resource.PortFrom,
-      portTo: resource.PortTo,
+      id: resource.id ?? resource.ID,
+      name: resource.name ?? resource.Name,
+      type: resource.type ?? resource.Type,
+      address: resource.address ?? resource.Address,
+      ports: resource.ports ?? resource.Ports ?? '',
+      alias: resource.alias ?? resource.Alias,
+      description: resource.description ?? resource.Description ?? '',
+      remoteNetworkId: resource.remoteNetworkId ?? resource.remote_network_id ?? resource.RemoteNetwork,
+      protocol: resource.protocol ?? resource.Protocol ?? 'TCP',
+      portFrom: resource.portFrom ?? resource.port_from ?? resource.PortFrom,
+      portTo: resource.portTo ?? resource.port_to ?? resource.PortTo,
     };
     
     // Get access rules (principals) for this resource
@@ -38,13 +40,13 @@ export async function GET(
     if (resource.Authorizations) {
       for (const auth of resource.Authorizations) {
         accessRules.push({
-          id: `rule_${resource.ID}_${auth.PrincipalSPIFFE}`,
+          id: `rule_${formattedResource.id}_${auth.PrincipalSPIFFE}`,
           name: `${auth.PrincipalSPIFFE} access`,
-          resourceId: resource.ID,
+          resourceId: formattedResource.id,
           allowedGroups: [auth.PrincipalSPIFFE],
           enabled: true,
-          createdAt: resource.CreatedAt,
-          updatedAt: resource.UpdatedAt || resource.CreatedAt,
+          createdAt: resource.CreatedAt ?? resource.created_at ?? '',
+          updatedAt: resource.UpdatedAt ?? resource.updated_at ?? resource.CreatedAt ?? '',
         });
       }
     }
@@ -65,11 +67,11 @@ export async function PUT(
   try {
     const { resourceId } = await params;
     const body = await req.json();
-    
-    // The backend doesn't have a PUT for resources
-    // We need to delete and recreate, or add an endpoint
-    // For now, return not implemented
-    return NextResponse.json({ error: 'Update not implemented - use backend API directly' }, { status: 501 });
+    const result = await proxyToBackend(`/api/resources/${resourceId}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }

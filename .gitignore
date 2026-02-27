@@ -11,3 +11,12 @@ node_modules/
 ztna.db
 ztna.db-shm
 ztna.db-wal
+backend/controller/.env
+backend/controller/.air.toml
+backend/controller/tmp/
+backend/controller/ztna.db
+backend/controller/ztna.db-shm
+backend/controller/ztna.db-wal
+backend/controller/controller
+backend/controller/run.sh
+backend/controller/run-air.sh

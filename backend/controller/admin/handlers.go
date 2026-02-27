@@ -280,6 +280,7 @@ func (s *Server) handleResourceSubroutes(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/resources/")
+	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 1 || parts[0] == "" {
 		http.Error(w, "resource id required", http.StatusBadRequest)

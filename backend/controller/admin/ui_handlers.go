@@ -87,6 +87,7 @@ type uiRemoteNetwork struct {
 	OnlineConnectorCount int    `json:"onlineConnectorCount"`
 	ResourceCount        int    `json:"resourceCount"`
 	CreatedAt            string `json:"createdAt"`
+	UpdatedAt            string `json:"updatedAt"`
 }
 
 type uiConnectorLog struct {
@@ -744,6 +745,7 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 		rows, err := db.Query(`
 			SELECT n.id, n.name, n.location,
 				CASE WHEN typeof(n.created_at) = 'integer' THEN strftime('%Y-%m-%d', n.created_at, 'unixepoch') ELSE substr(n.created_at, 1, 10) END as created_at,
+				CASE WHEN typeof(n.updated_at) = 'integer' THEN strftime('%Y-%m-%d', n.updated_at, 'unixepoch') ELSE substr(n.updated_at, 1, 10) END as updated_at,
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id) AS connector_count,
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id AND c.status = 'online') AS online_connector_count,
 				(SELECT COUNT(*) FROM resources r WHERE r.remote_network_id = n.id) AS resource_count
@@ -757,15 +759,19 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 		out := []uiRemoteNetwork{}
 		for rows.Next() {
 			var id, name, location string
-			var created sql.NullString
+			var created, updated sql.NullString
 			var connCount, onlineCount, resCount int
-			if err := rows.Scan(&id, &name, &location, &created, &connCount, &onlineCount, &resCount); err != nil {
+			if err := rows.Scan(&id, &name, &location, &created, &updated, &connCount, &onlineCount, &resCount); err != nil {
 				http.Error(w, "failed to read remote networks", http.StatusInternalServerError)
 				return
 			}
 			createdAt := ""
 			if created.Valid {
 				createdAt = created.String
+			}
+			updatedAt := ""
+			if updated.Valid {
+				updatedAt = updated.String
 			}
 			if location == "" {
 				location = "OTHER"
@@ -778,6 +784,7 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 				OnlineConnectorCount: onlineCount,
 				ResourceCount:        resCount,
 				CreatedAt:            createdAt,
+				UpdatedAt:            updatedAt,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -829,15 +836,16 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 	row := db.QueryRow(`
 		SELECT n.id, n.name, n.location,
 			CASE WHEN typeof(n.created_at) = 'integer' THEN strftime('%Y-%m-%d', n.created_at, 'unixepoch') ELSE substr(n.created_at, 1, 10) END as created_at,
+			CASE WHEN typeof(n.updated_at) = 'integer' THEN strftime('%Y-%m-%d', n.updated_at, 'unixepoch') ELSE substr(n.updated_at, 1, 10) END as updated_at,
 			(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id) AS connector_count,
 			(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id AND c.status = 'online') AS online_connector_count,
 			(SELECT COUNT(*) FROM resources r WHERE r.remote_network_id = n.id) AS resource_count
 		FROM remote_networks n
 		WHERE n.id = ?`, networkID)
 	var id, name, location string
-	var created sql.NullString
+	var created, updated sql.NullString
 	var connCount, onlineCount, resCount int
-	if err := row.Scan(&id, &name, &location, &created, &connCount, &onlineCount, &resCount); err != nil {
+	if err := row.Scan(&id, &name, &location, &created, &updated, &connCount, &onlineCount, &resCount); err != nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"network": nil, "connectors": []uiConnector{}, "resources": []uiResource{}})
 		return
 	}
@@ -848,6 +856,10 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 	if created.Valid {
 		createdAt = created.String
 	}
+	updatedAt := ""
+	if updated.Valid {
+		updatedAt = updated.String
+	}
 	network := uiRemoteNetwork{
 		ID:                   id,
 		Name:                 name,
@@ -856,6 +868,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		OnlineConnectorCount: onlineCount,
 		ResourceCount:        resCount,
 		CreatedAt:            createdAt,
+		UpdatedAt:            updatedAt,
 	}
 	connectorRows, _ := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version FROM connectors WHERE remote_network_id = ? ORDER BY name ASC`, networkID)
 	connectors := []uiConnector{}
@@ -963,6 +976,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 		networkRow := db.QueryRow(`
 			SELECT n.id, n.name, n.location,
 				CASE WHEN typeof(n.created_at) = 'integer' THEN strftime('%Y-%m-%d', n.created_at, 'unixepoch') ELSE substr(n.created_at, 1, 10) END as created_at,
+				CASE WHEN typeof(n.updated_at) = 'integer' THEN strftime('%Y-%m-%d', n.updated_at, 'unixepoch') ELSE substr(n.updated_at, 1, 10) END as updated_at,
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id) AS connector_count,
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id AND c.status = 'online') AS online_connector_count,
 				(SELECT COUNT(*) FROM resources r WHERE r.remote_network_id = n.id) AS resource_count
@@ -971,12 +985,16 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 		var network *uiRemoteNetwork
 		{
 			var id, name, location string
-			var created sql.NullString
+			var created, updated sql.NullString
 			var connCount, onlineCount, resCount int
-			if err := networkRow.Scan(&id, &name, &location, &created, &connCount, &onlineCount, &resCount); err == nil {
+			if err := networkRow.Scan(&id, &name, &location, &created, &updated, &connCount, &onlineCount, &resCount); err == nil {
 				createdAt := ""
 				if created.Valid {
 					createdAt = created.String
+				}
+				updatedAt := ""
+				if updated.Valid {
+					updatedAt = updated.String
 				}
 				if location == "" {
 					location = "OTHER"
@@ -989,6 +1007,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 					OnlineConnectorCount: onlineCount,
 					ResourceCount:        resCount,
 					CreatedAt:            createdAt,
+					UpdatedAt:            updatedAt,
 				}
 				network = &n
 			}

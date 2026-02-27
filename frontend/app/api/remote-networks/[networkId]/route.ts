@@ -9,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { networkId } = await params;
-    const network = await proxyToBackend(`/api/admin/remote-networks/${networkId}`);
+    const network = await proxyToBackend(`/api/remote-networks/${networkId}`);
     return NextResponse.json(network);
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
