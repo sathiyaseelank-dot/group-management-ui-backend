@@ -4,6 +4,6 @@
 *.crt
 
 # build artifacts
-grpcconnector-*
+grpcconnector2-*
 connector-*
 tunneler-*

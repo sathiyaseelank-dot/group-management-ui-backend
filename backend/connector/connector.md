@@ -12,10 +12,10 @@
     TWINGATE_NETWORK="hellothere" 
     TWINGATE_LABEL_DEPLOYED_BY="linux" bash
 
-# grpcconnector
+# grpcconnector2
 
     curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/setup.sh | sudo 
     CONTROLLER_ADDR="127.0.0.1:8443" 
     CONNECTOR_ID="connector-local-01" 
     ENROLLMENT_TOKEN="56ac57dea40aacfa98cb8205fd0f23f2" 
-    CONTROLLER_CA_PATH="/etc/grpcconnector/ca.crt" bash
+    CONTROLLER_CA_PATH="/etc/grpcconnector2/ca.crt" bash

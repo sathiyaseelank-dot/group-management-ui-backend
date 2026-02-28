@@ -6,10 +6,10 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/grpcconnector/connector.conf
-Environment=GRPCCONNECTOR_API_ENDPOINT=/run/grpcconnector/connector.sock
+EnvironmentFile=/etc/grpcconnector2/connector.conf
+Environment=GRPCCONNECTOR_API_ENDPOINT=/run/grpcconnector2/connector.sock
 # Controller CA is provided via systemd credentials (test/dev only)
-LoadCredential=CONTROLLER_CA:/etc/grpcconnector/ca.crt
+LoadCredential=CONTROLLER_CA:/etc/grpcconnector2/ca.crt
 
 # Restart behavior (same semantics as Twingate)
 Restart=always
@@ -17,7 +17,7 @@ RestartSec=10
 
 
 # Start command (watchdog-enabled)
-ExecStart=/usr/bin/grpcconnector run --systemd-watchdog
+ExecStart=/usr/bin/grpcconnector2 run --systemd-watchdog
 
 # Identity & isolation
 DynamicUser=yes
@@ -54,7 +54,7 @@ LockPersonality=yes
 
 # Runtime behavior
 UMask=0777
-RuntimeDirectory=grpcconnector
+RuntimeDirectory=grpcconnector2
 WatchdogSec=30s
 
 [Install]
