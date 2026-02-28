@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -80,15 +83,15 @@ func Run() error {
 		return err
 	}
 	allowlist := newTunnelerAllowlist()
-	aclCache := newACLCache()
+	policyCache := newPolicyCache(cfg.policyKey, cfg.staleGrace)
 	controllerSendCh := make(chan *controllerpb.ControlMessage, 16)
 
 	reloadCh := make(chan struct{}, 1)
-	go controlPlaneLoop(ctx, cfg.controllerAddr, cfg.trustDomain, cfg.connectorID, cfg.privateIP, store, rootPool, allowlist, aclCache, controllerSendCh, reloadCh)
+	go controlPlaneLoop(ctx, cfg.controllerAddr, cfg.trustDomain, cfg.connectorID, cfg.privateIP, store, rootPool, allowlist, policyCache, controllerSendCh, reloadCh)
 	go renewalLoop(ctx, cfg.controllerAddr, cfg.connectorID, cfg.trustDomain, store, rootPool, caPEM, totalTTL)
 
 	if cfg.listenAddr != "" {
-		go serverLoop(ctx, cfg.listenAddr, cfg.trustDomain, store, rootPool, allowlist, aclCache, controllerSendCh, cfg.connectorID)
+		go serverLoop(ctx, cfg.listenAddr, cfg.trustDomain, store, rootPool, allowlist, policyCache, controllerSendCh, cfg.connectorID)
 	}
 
 	<-ctx.Done()
@@ -164,6 +167,8 @@ type runtimeConfig struct {
 	trustDomain    string
 	listenAddr     string
 	privateIP      string
+	policyKey      []byte
+	staleGrace     time.Duration
 }
 
 func configFromEnv() (runtimeConfig, error) {
@@ -171,6 +176,13 @@ func configFromEnv() (runtimeConfig, error) {
 	connectorID := os.Getenv("CONNECTOR_ID")
 	trustDomain := os.Getenv("TRUST_DOMAIN")
 	listenAddr := os.Getenv("CONNECTOR_LISTEN_ADDR")
+	policyKey := os.Getenv("POLICY_SIGNING_KEY")
+	staleGrace := 10 * time.Minute
+	if v := strings.TrimSpace(os.Getenv("POLICY_STALE_GRACE_SECONDS")); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			staleGrace = time.Duration(secs) * time.Second
+		}
+	}
 
 	if trustDomain == "" {
 		trustDomain = "mycorp.internal"
@@ -180,6 +192,9 @@ func configFromEnv() (runtimeConfig, error) {
 	}
 	if connectorID == "" {
 		return runtimeConfig{}, fmt.Errorf("CONNECTOR_ID is not set")
+	}
+	if policyKey == "" {
+		return runtimeConfig{}, fmt.Errorf("POLICY_SIGNING_KEY is not set")
 	}
 
 	privateIP, err := enroll.ResolvePrivateIP(controllerAddr)
@@ -196,10 +211,12 @@ func configFromEnv() (runtimeConfig, error) {
 		trustDomain:    trustDomain,
 		listenAddr:     listenAddr,
 		privateIP:      privateIP,
+		policyKey:      []byte(policyKey),
+		staleGrace:     staleGrace,
 	}, nil
 }
 
-func runConnectorServer(addr, trustDomain string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *aclCache, controllerSendCh chan<- *controllerpb.ControlMessage, connectorID string) error {
+func runConnectorServer(addr, trustDomain string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *policyCache, controllerSendCh chan<- *controllerpb.ControlMessage, connectorID string) error {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -228,7 +245,7 @@ func runConnectorServer(addr, trustDomain string, store *tlsutil.CertStore, root
 	return grpcServer.Serve(lis)
 }
 
-func serverLoop(ctx context.Context, addr, trustDomain string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *aclCache, controllerSendCh chan<- *controllerpb.ControlMessage, connectorID string) {
+func serverLoop(ctx context.Context, addr, trustDomain string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *policyCache, controllerSendCh chan<- *controllerpb.ControlMessage, connectorID string) {
 	backoff := 2 * time.Second
 	for {
 		select {
@@ -254,7 +271,7 @@ func serverLoop(ctx context.Context, addr, trustDomain string, store *tlsutil.Ce
 	}
 }
 
-func controlPlaneLoop(ctx context.Context, controllerAddr, trustDomain, connectorID, privateIP string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *aclCache, controllerSendCh <-chan *controllerpb.ControlMessage, reloadCh <-chan struct{}) {
+func controlPlaneLoop(ctx context.Context, controllerAddr, trustDomain, connectorID, privateIP string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *policyCache, controllerSendCh <-chan *controllerpb.ControlMessage, reloadCh <-chan struct{}) {
 	backoff := 2 * time.Second
 	for {
 		select {
@@ -297,7 +314,7 @@ func controlPlaneLoop(ctx context.Context, controllerAddr, trustDomain, connecto
 	}
 }
 
-func connectControlPlane(ctx context.Context, controllerAddr, trustDomain, connectorID, privateIP string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *aclCache, controllerSendCh <-chan *controllerpb.ControlMessage) error {
+func connectControlPlane(ctx context.Context, controllerAddr, trustDomain, connectorID, privateIP string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *policyCache, controllerSendCh <-chan *controllerpb.ControlMessage) error {
 	tlsConfig := &tls.Config{
 		MinVersion:           tls.VersionTLS13,
 		GetClientCertificate: store.GetClientCertificate,
@@ -521,7 +538,7 @@ type tunnelerInfo struct {
 	SPIFFEID   string `json:"spiffe_id"`
 }
 
-func handleControlMessage(msg *controllerpb.ControlMessage, allowlist *tunnelerAllowlist, acl *aclCache) {
+func handleControlMessage(msg *controllerpb.ControlMessage, allowlist *tunnelerAllowlist, acl *policyCache) {
 	if msg == nil || allowlist == nil {
 		return
 	}
@@ -536,197 +553,253 @@ func handleControlMessage(msg *controllerpb.ControlMessage, allowlist *tunnelerA
 		if err := json.Unmarshal(msg.GetPayload(), &item); err == nil {
 			allowlist.Add(item.SPIFFEID)
 		}
-	case "acl_init":
+	case "policy_snapshot":
 		if acl == nil {
 			return
 		}
-		var state aclState
-		if err := json.Unmarshal(msg.GetPayload(), &state); err == nil {
-			acl.Replace(state)
-		}
-	case "resource_updated":
-		if acl == nil {
-			return
-		}
-		var res aclResource
-		if err := json.Unmarshal(msg.GetPayload(), &res); err == nil {
-			acl.UpsertResource(res)
-		}
-	case "resource_removed":
-		if acl == nil {
-			return
-		}
-		var payload struct {
-			ResourceID string `json:"resource_id"`
-		}
-		if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
-			acl.RemoveResource(payload.ResourceID)
-		}
-	case "authorization_updated":
-		if acl == nil {
-			return
-		}
-		var auth aclAuthorization
-		if err := json.Unmarshal(msg.GetPayload(), &auth); err == nil {
-			acl.UpsertAuthorization(auth)
-		}
-	case "authorization_removed":
-		if acl == nil {
-			return
-		}
-		var payload struct {
-			ResourceID      string `json:"resource_id"`
-			PrincipalSPIFFE string `json:"principal_spiffe"`
-		}
-		if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
-			acl.RemoveAuthorization(payload.ResourceID, payload.PrincipalSPIFFE)
+		var snap policySnapshot
+		if err := json.Unmarshal(msg.GetPayload(), &snap); err == nil {
+			_ = acl.ReplaceSnapshot(snap)
 		}
 	}
 }
 
-type aclResource struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Address string `json:"address"`
+// Policy snapshot enforcement (O(1) ACL lookup)
+type policySnapshot struct {
+	SnapshotMeta snapshotMeta     `json:"snapshot_meta"`
+	Resources    []policyResource `json:"resources"`
 }
 
-type aclFilter struct {
-	Protocol       string `json:"protocol"`
-	PortRangeStart uint16 `json:"port_range_start"`
-	PortRangeEnd   uint16 `json:"port_range_end"`
+type snapshotMeta struct {
+	ConnectorID   string `json:"connector_id"`
+	PolicyVersion int    `json:"policy_version"`
+	CompiledAt    string `json:"compiled_at"`
+	ValidUntil    string `json:"valid_until"`
+	Signature     string `json:"signature"`
 }
 
-type aclAuthorization struct {
-	PrincipalSPIFFE string      `json:"principal_spiffe"`
-	ResourceID      string      `json:"resource_id"`
-	Filters         []aclFilter `json:"filters,omitempty"`
+type policyResource struct {
+	ResourceID        string   `json:"resource_id"`
+	Type              string   `json:"type"`
+	Address           string   `json:"address"`
+	Port              int      `json:"port"`
+	Protocol          string   `json:"protocol"`
+	PortFrom          *int     `json:"port_from,omitempty"`
+	PortTo            *int     `json:"port_to,omitempty"`
+	AllowedIdentities []string `json:"allowed_identities"`
 }
 
-type aclState struct {
-	Resources      []aclResource      `json:"resources"`
-	Authorizations []aclAuthorization `json:"authorizations"`
+type policyCache struct {
+	mu          sync.RWMutex
+	byID        map[string]policyResource
+	byDNS       map[string][]string
+	byIP        map[string][]string
+	byCIDR      []cidrEntry
+	internetIDs []string
+	aclTable    map[string]struct{}
+	meta        snapshotMeta
+	validUntil  time.Time
+	signingKey  []byte
+	staleGrace  time.Duration
+	hasSnapshot bool
 }
 
-type aclCache struct {
-	mu             sync.RWMutex
-	resources      map[string]aclResource
-	authorizations map[string]aclAuthorization
+type cidrEntry struct {
+	Net        *net.IPNet
+	ResourceID string
 }
 
-func newACLCache() *aclCache {
-	return &aclCache{
-		resources:      make(map[string]aclResource),
-		authorizations: make(map[string]aclAuthorization),
+func newPolicyCache(signingKey []byte, staleGrace time.Duration) *policyCache {
+	return &policyCache{
+		byID:       make(map[string]policyResource),
+		byDNS:      make(map[string][]string),
+		byIP:       make(map[string][]string),
+		aclTable:   make(map[string]struct{}),
+		signingKey: signingKey,
+		staleGrace: staleGrace,
 	}
 }
 
-func (a *aclCache) Replace(state aclState) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.resources = make(map[string]aclResource)
-	for _, r := range state.Resources {
-		a.resources[r.ID] = r
+func (p *policyCache) ReplaceSnapshot(snap policySnapshot) bool {
+	if !verifySnapshot(p.signingKey, snap) {
+		p.clear()
+		log.Printf("policy snapshot rejected: invalid signature")
+		return false
 	}
-	a.authorizations = make(map[string]aclAuthorization)
-	for _, auth := range state.Authorizations {
-		key := auth.PrincipalSPIFFE + "|" + auth.ResourceID
-		a.authorizations[key] = auth
+	validUntil, err := time.Parse(time.RFC3339, snap.SnapshotMeta.ValidUntil)
+	if err != nil {
+		p.clear()
+		log.Printf("policy snapshot rejected: invalid valid_until")
+		return false
 	}
-}
+	if time.Now().UTC().After(validUntil.Add(p.staleGrace)) {
+		p.clear()
+		log.Printf("policy snapshot rejected: expired beyond grace")
+		return false
+	}
 
-func (a *aclCache) UpsertResource(r aclResource) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.resources[r.ID] = r
-}
-
-func (a *aclCache) RemoveResource(id string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	delete(a.resources, id)
-	for key, auth := range a.authorizations {
-		if auth.ResourceID == id {
-			delete(a.authorizations, key)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.byID = make(map[string]policyResource)
+	p.byDNS = make(map[string][]string)
+	p.byIP = make(map[string][]string)
+	p.byCIDR = nil
+	p.internetIDs = nil
+	p.aclTable = make(map[string]struct{})
+	for _, res := range snap.Resources {
+		p.byID[res.ResourceID] = res
+		addr := strings.ToLower(strings.TrimSpace(res.Address))
+		switch strings.ToLower(strings.TrimSpace(res.Type)) {
+		case "internet":
+			p.internetIDs = append(p.internetIDs, res.ResourceID)
+		case "cidr":
+			if _, netCIDR, err := net.ParseCIDR(addr); err == nil && netCIDR != nil {
+				p.byCIDR = append(p.byCIDR, cidrEntry{Net: netCIDR, ResourceID: res.ResourceID})
+			}
+		default:
+			if addr != "" {
+				p.byDNS[addr] = append(p.byDNS[addr], res.ResourceID)
+				if ip := net.ParseIP(addr); ip != nil {
+					p.byIP[ip.String()] = append(p.byIP[ip.String()], res.ResourceID)
+				}
+			}
+		}
+		for _, identity := range res.AllowedIdentities {
+			if identity == "" {
+				continue
+			}
+			p.aclTable[identity+"::"+res.ResourceID] = struct{}{}
 		}
 	}
+	p.meta = snap.SnapshotMeta
+	p.validUntil = validUntil
+	p.hasSnapshot = true
+	return true
 }
 
-func (a *aclCache) UpsertAuthorization(auth aclAuthorization) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	key := auth.PrincipalSPIFFE + "|" + auth.ResourceID
-	a.authorizations[key] = auth
-}
+func (p *policyCache) Allowed(identityID, dest, protocol string, port uint16) (bool, string, string) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if !p.hasSnapshot {
+		return false, "", "no_snapshot"
+	}
+	if time.Now().UTC().After(p.validUntil.Add(p.staleGrace)) {
+		log.Printf("policy snapshot expired beyond grace; denying all")
+		return false, "", "snapshot_expired"
+	}
+	key := strings.ToLower(strings.TrimSpace(dest))
+	// NOTE: CIDR resources are matched only when `dest` is an IP literal.
+	// If `dest` is a hostname, we DO NOT resolve DNS here (avoids split-horizon/DNS poisoning and keeps enforcement deterministic).
+	// To allow hostnames, define DNS resources explicitly in policy.
+	resourceIDs := []string{}
 
-func (a *aclCache) RemoveAuthorization(resourceID, principalSPIFFE string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	delete(a.authorizations, principalSPIFFE+"|"+resourceID)
-}
-
-func (a *aclCache) Allowed(principalSPIFFE, dest, protocol string, port uint16) (bool, string, string) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	for _, auth := range a.authorizations {
-		if auth.PrincipalSPIFFE != principalSPIFFE {
+	if ip := net.ParseIP(key); ip != nil {
+		resourceIDs = append(resourceIDs, p.byIP[ip.String()]...)
+		for _, entry := range p.byCIDR {
+			if entry.Net != nil && entry.Net.Contains(ip) {
+				resourceIDs = append(resourceIDs, entry.ResourceID)
+			}
+		}
+	}
+	if len(resourceIDs) == 0 && key != "" {
+		resourceIDs = append(resourceIDs, p.byDNS[key]...)
+	}
+	if len(resourceIDs) == 0 && len(p.internetIDs) > 0 {
+		resourceIDs = append(resourceIDs, p.internetIDs...)
+	}
+	if len(resourceIDs) == 0 {
+		return false, "", "resource_not_found"
+	}
+	seen := make(map[string]struct{}, len(resourceIDs))
+	for _, resourceID := range resourceIDs {
+		if _, ok := seen[resourceID]; ok {
 			continue
 		}
-		res, ok := a.resources[auth.ResourceID]
+		seen[resourceID] = struct{}{}
+		res, ok := p.byID[resourceID]
 		if !ok {
 			continue
 		}
-		if !resourceMatches(res, dest) {
+		if res.Protocol != "" && protocol != "" && !strings.EqualFold(res.Protocol, protocol) {
 			continue
 		}
-		if len(auth.Filters) == 0 {
-			return true, res.ID, "allowed"
+		if !portMatches(res, port) {
+			continue
 		}
-		for _, f := range auth.Filters {
-			if !filterMatches(f, protocol, port) {
-				continue
-			}
-			return true, res.ID, "allowed"
+		if _, ok := p.aclTable[identityID+"::"+res.ResourceID]; ok {
+			return true, res.ResourceID, "allowed"
 		}
-		return false, res.ID, "filter_denied"
 	}
-	return false, "", "no_authorization"
+	return false, "", "not_allowed"
 }
 
-func resourceMatches(res aclResource, dest string) bool {
-	switch res.Type {
-	case "internet":
-		return true
-	case "dns":
-		return strings.EqualFold(res.Address, dest)
-	case "cidr":
-		_, cidr, err := net.ParseCIDR(res.Address)
-		if err != nil {
-			return false
-		}
-		ip := net.ParseIP(dest)
-		if ip == nil {
-			return false
-		}
-		return cidr.Contains(ip)
-	default:
-		return false
-	}
+func (p *policyCache) clear() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.byID = make(map[string]policyResource)
+	p.byDNS = make(map[string][]string)
+	p.byIP = make(map[string][]string)
+	p.byCIDR = nil
+	p.internetIDs = nil
+	p.aclTable = make(map[string]struct{})
+	p.hasSnapshot = false
+	var zero snapshotMeta
+	p.meta = zero
+	p.validUntil = time.Time{}
 }
 
-func filterMatches(f aclFilter, protocol string, port uint16) bool {
-	if protocol != "" && strings.ToLower(f.Protocol) != strings.ToLower(protocol) {
+func verifySnapshot(key []byte, snap policySnapshot) bool {
+	if len(key) == 0 {
 		return false
 	}
-	if f.PortRangeStart == 0 && f.PortRangeEnd == 0 {
+	expected, err := signSnapshot(key, snap)
+	if err != nil {
+		return false
+	}
+	sig := strings.TrimSpace(snap.SnapshotMeta.Signature)
+	sig = strings.TrimPrefix(sig, "sha256:")
+	provided, err := hex.DecodeString(sig)
+	if err != nil {
+		return false
+	}
+	want, _ := hex.DecodeString(expected)
+	return hmac.Equal(want, provided)
+}
+
+func signSnapshot(key []byte, snap policySnapshot) (string, error) {
+	if len(key) == 0 {
+		return "", errors.New("signing key not configured")
+	}
+	snap.SnapshotMeta.Signature = ""
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(data)
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func portMatches(res policyResource, port uint16) bool {
+	if res.PortFrom == nil && res.PortTo == nil {
+		if res.Port == 0 {
+			return true
+		}
+		return port == uint16(res.Port)
+	}
+	start := 0
+	end := 0
+	if res.PortFrom != nil {
+		start = *res.PortFrom
+	}
+	if res.PortTo != nil {
+		end = *res.PortTo
+	}
+	if start == 0 && end == 0 {
 		return true
 	}
-	if port == 0 {
-		return false
-	}
-	start := f.PortRangeStart
-	end := f.PortRangeEnd
 	if end == 0 {
 		end = start
 	}
-	return port >= start && port <= end
+	return int(port) >= start && int(port) <= end
 }

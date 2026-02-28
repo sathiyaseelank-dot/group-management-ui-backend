@@ -1,9 +1,11 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,18 +23,24 @@ type ControlPlaneServer struct {
 	tunnelers      *state.TunnelerRegistry
 	tunnelerStatus *state.TunnelerStatusRegistry
 	acls           *state.ACLStore
+	db             *sql.DB
+	signingKey     []byte
+	snapshotTTL    time.Duration
 	mu             sync.Mutex
 	clients        map[string]*connectorClient
 }
 
 // NewControlPlaneServer creates a new control plane server.
-func NewControlPlaneServer(trustDomain string, registry *state.Registry, tunnelers *state.TunnelerRegistry, tunnelerStatus *state.TunnelerStatusRegistry, acls *state.ACLStore) *ControlPlaneServer {
+func NewControlPlaneServer(trustDomain string, registry *state.Registry, tunnelers *state.TunnelerRegistry, tunnelerStatus *state.TunnelerStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration) *ControlPlaneServer {
 	_ = trustDomain
 	return &ControlPlaneServer{
 		registry:       registry,
 		tunnelers:      tunnelers,
 		tunnelerStatus: tunnelerStatus,
 		acls:           acls,
+		db:             db,
+		signingKey:     signingKey,
+		snapshotTTL:    snapshotTTL,
 		clients:        make(map[string]*connectorClient),
 	}
 }
@@ -46,11 +54,11 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 
 	spiffeID, _ := SPIFFEIDFromContext(stream.Context())
 	log.Printf("control-plane stream connected: %s", spiffeID)
-	client := &connectorClient{stream: stream}
+	client := &connectorClient{stream: stream, connectorID: parseConnectorID(spiffeID)}
 	s.addClient(spiffeID, client)
 	defer s.removeClient(spiffeID)
 	s.sendAllowlist(client)
-	s.sendACLState(client)
+	s.sendPolicySnapshot(client)
 
 	for {
 		msg, err := stream.Recv()
@@ -145,8 +153,9 @@ func (s *ControlPlaneServer) NotifyTunnelerAllowed(tunnelerID, spiffeID string) 
 }
 
 type connectorClient struct {
-	stream controllerpb.ControlPlane_ConnectServer
-	sendMu sync.Mutex
+	stream      controllerpb.ControlPlane_ConnectServer
+	sendMu      sync.Mutex
+	connectorID string
 }
 
 func (s *ControlPlaneServer) addClient(id string, c *connectorClient) {
@@ -195,84 +204,76 @@ func (s *ControlPlaneServer) sendAllowlist(c *connectorClient) {
 
 // ACL notifications
 func (s *ControlPlaneServer) NotifyACLInit() {
-	s.broadcastACLState()
+	s.broadcastPolicySnapshots()
 }
 
 func (s *ControlPlaneServer) NotifyResourceUpsert(res state.Resource) {
-	payload, err := json.Marshal(res)
-	if err != nil {
-		return
-	}
-	s.broadcast(&controllerpb.ControlMessage{
-		Type:    "resource_updated",
-		Payload: payload,
-	})
+	s.broadcastPolicySnapshots()
 }
 
 func (s *ControlPlaneServer) NotifyResourceRemoved(resourceID string) {
-	payload, err := json.Marshal(map[string]string{"resource_id": resourceID})
-	if err != nil {
-		return
-	}
-	s.broadcast(&controllerpb.ControlMessage{
-		Type:    "resource_removed",
-		Payload: payload,
-	})
+	s.broadcastPolicySnapshots()
 }
 
 func (s *ControlPlaneServer) NotifyAuthorizationUpsert(auth state.Authorization) {
-	payload, err := json.Marshal(auth)
-	if err != nil {
-		return
-	}
-	s.broadcast(&controllerpb.ControlMessage{
-		Type:    "authorization_updated",
-		Payload: payload,
-	})
+	s.broadcastPolicySnapshots()
 }
 
 func (s *ControlPlaneServer) NotifyAuthorizationRemoved(resourceID, principalSPIFFE string) {
-	payload, err := json.Marshal(map[string]string{
-		"resource_id":      resourceID,
-		"principal_spiffe": principalSPIFFE,
-	})
-	if err != nil {
-		return
-	}
-	s.broadcast(&controllerpb.ControlMessage{
-		Type:    "authorization_removed",
-		Payload: payload,
-	})
+	s.broadcastPolicySnapshots()
 }
 
-func (s *ControlPlaneServer) broadcastACLState() {
-	if s.acls == nil {
-		return
-	}
-	stateSnap := s.acls.Snapshot()
-	payload, err := json.Marshal(stateSnap)
-	if err != nil {
-		return
-	}
-	s.broadcast(&controllerpb.ControlMessage{
-		Type:    "acl_init",
-		Payload: payload,
-	})
+func (s *ControlPlaneServer) NotifyPolicyChange() {
+	s.broadcastPolicySnapshots()
 }
 
-func (s *ControlPlaneServer) sendACLState(c *connectorClient) {
-	if s.acls == nil {
+func (s *ControlPlaneServer) broadcastPolicySnapshots() {
+	if s.db == nil {
 		return
 	}
-	stateSnap := s.acls.Snapshot()
-	payload, err := json.Marshal(stateSnap)
+	s.mu.Lock()
+	clients := make([]*connectorClient, 0, len(s.clients))
+	for _, c := range s.clients {
+		clients = append(clients, c)
+	}
+	s.mu.Unlock()
+
+	for _, c := range clients {
+		s.sendPolicySnapshot(c)
+	}
+}
+
+func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient) {
+	if s.db == nil || c == nil || c.connectorID == "" {
+		return
+	}
+	snap, err := CompilePolicySnapshot(s.db, c.connectorID, s.snapshotTTL, s.signingKey)
+	if err != nil {
+		log.Printf("failed to compile snapshot for %s: %v", c.connectorID, err)
+		return
+	}
+	payload, err := json.Marshal(snap)
 	if err != nil {
 		return
 	}
 	c.sendMu.Lock()
 	_ = c.stream.Send(&controllerpb.ControlMessage{
-		Type:    "acl_init",
+		Type:    "policy_snapshot",
 		Payload: payload,
 	})
 	c.sendMu.Unlock()
+}
+
+func parseConnectorID(spiffeID string) string {
+	if spiffeID == "" {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(spiffeID, "spiffe://"), "/")
+	if len(parts) < 3 {
+		return ""
+	}
+	if parts[1] != "connector" {
+		return ""
+	}
+	return parts[2]
 }

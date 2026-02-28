@@ -9,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { connectorId } = await params;
-    const connector = await proxyToBackend(`/api/admin/connectors/${connectorId}`);
+    const connector = await proxyToBackend(`/api/connectors/${connectorId}`);
     return NextResponse.json(connector);
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });

@@ -46,6 +46,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function requestLocal<T>(path: string, options: RequestInit = {}): Promise<T> {
+  console.log(`[mock-api] Local request to: ${path}`);
+  const res = await fetch(path, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+
+  if (!res.ok) {
+    const message = await res.text();
+    console.error(`[mock-api] Error response (${res.status}): ${message}`);
+    throw new Error(message || `Request failed with ${res.status}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
 // API: Get single remote network with connectors and resources
 export async function getRemoteNetwork(networkId: string) {
   return request<{ network: RemoteNetwork | undefined; connectors: Connector[]; resources: Resource[] }>(
@@ -164,6 +183,18 @@ export async function deleteUser(userId: string): Promise<void> {
   });
 }
 
+// API: Create enrollment token
+export async function createEnrollmentToken(): Promise<{ token: string; expires_at: string }> {
+  if (API_BASE) {
+    return request<{ token: string; expires_at: string }>('/api/admin/tokens', {
+      method: 'POST',
+    });
+  }
+  return requestLocal<{ token: string; expires_at: string }>('/api/tokens', {
+    method: 'POST',
+  });
+}
+
 // API: Get all service accounts
 export async function getServiceAccounts(): Promise<ServiceAccount[]> {
   return request<ServiceAccount[]>('/api/service-accounts');
@@ -230,9 +261,13 @@ export async function addConnector(data: {
 }
 
 // API: Simulate a connector sending a heartbeat (going online)
-export async function simulateConnectorHeartbeat(connectorId: string): Promise<void> {
+export async function simulateConnectorHeartbeat(
+  connectorId: string,
+  enrollmentToken?: string
+): Promise<void> {
   await request(`/api/connectors/${connectorId}/heartbeat`, {
     method: 'POST',
+    body: JSON.stringify(enrollmentToken ? { enrollmentToken } : {}),
   });
 }
 

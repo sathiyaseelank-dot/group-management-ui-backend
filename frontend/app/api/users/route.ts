@@ -20,7 +20,17 @@ interface BackendUser {
   UpdatedAt?: string;
 }
 
-function mapBackendUser(user: BackendUser) {
+interface BackendGroup {
+  id?: string;
+  ID?: string;
+}
+
+interface BackendGroupMember {
+  user_id?: string;
+  userId?: string;
+}
+
+function mapBackendUser(user: BackendUser, groups: string[]) {
   const name = user.name ?? user.Name ?? '';
   const email = user.email ?? user.Email ?? '';
   const status = (user.status ?? user.Status ?? 'active').toLowerCase();
@@ -33,7 +43,7 @@ function mapBackendUser(user: BackendUser) {
     email,
     status,
     certificateIdentity,
-    groups: [],
+    groups,
     createdAt,
     type: 'USER',
     displayLabel: `User: ${name || email || 'Unknown'}`,
@@ -42,8 +52,35 @@ function mapBackendUser(user: BackendUser) {
 
 export async function GET() {
   try {
-    const users = await proxyToBackend<BackendUser[]>('/api/admin/users');
-    const formattedUsers = users.map(mapBackendUser);
+    const [users, groups] = await Promise.all([
+      proxyToBackend<BackendUser[]>('/api/admin/users'),
+      proxyToBackend<BackendGroup[]>('/api/admin/user-groups'),
+    ]);
+
+    const membershipMap = new Map<string, Set<string>>();
+    await Promise.all(
+      groups.map(async (group) => {
+        const groupId = group.id ?? group.ID;
+        if (!groupId) return;
+        const members = await proxyToBackend<BackendGroupMember[]>(
+          `/api/admin/user-groups/${encodeURIComponent(groupId)}/members`
+        );
+        members.forEach((member) => {
+          const userId = member.user_id ?? member.userId;
+          if (!userId) return;
+          if (!membershipMap.has(userId)) {
+            membershipMap.set(userId, new Set());
+          }
+          membershipMap.get(userId)?.add(groupId);
+        });
+      })
+    );
+
+    const formattedUsers = users.map((user) => {
+      const userId = user.id ?? user.ID ?? '';
+      const groupsForUser = Array.from(membershipMap.get(userId) ?? []);
+      return mapBackendUser(user, groupsForUser);
+    });
     return NextResponse.json(formattedUsers);
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
@@ -57,7 +94,7 @@ export async function POST(req: Request) {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    return NextResponse.json(mapBackendUser(user as BackendUser));
+    return NextResponse.json(mapBackendUser(user as BackendUser, []));
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }

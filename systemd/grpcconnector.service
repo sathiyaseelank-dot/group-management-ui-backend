@@ -1,0 +1,61 @@
+[Unit]
+Description=Zero-Trust gRPC Connector
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/grpcconnector/connector.conf
+Environment=GRPCCONNECTOR_API_ENDPOINT=/run/grpcconnector/connector.sock
+# Controller CA is provided via systemd credentials (test/dev only)
+LoadCredential=CONTROLLER_CA:/etc/grpcconnector/ca.crt
+
+# Restart behavior (same semantics as Twingate)
+Restart=always
+RestartSec=10
+
+
+# Start command (watchdog-enabled)
+ExecStart=/usr/bin/grpcconnector run --systemd-watchdog
+
+# Identity & isolation
+DynamicUser=yes
+PrivateUsers=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+
+# Filesystem & kernel hardening
+ProtectSystem=full
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+
+# Capability & device lockdown
+CapabilityBoundingSet=
+DevicePolicy=closed
+
+# Syscall & namespace restrictions
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+SystemCallFilter=~@clock @debug @module @mount @raw-io @reboot @privileged @resources @cpu-emulation @obsolete
+
+# Memory protections
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+
+# Runtime behavior
+UMask=0777
+RuntimeDirectory=grpcconnector
+WatchdogSec=30s
+
+[Install]
+WantedBy=multi-user.target

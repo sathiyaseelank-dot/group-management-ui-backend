@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,16 @@ func main() {
 	}
 	adminAuthToken := os.Getenv("ADMIN_AUTH_TOKEN")
 	internalAuthToken := os.Getenv("INTERNAL_API_TOKEN")
+	policySigningKey := os.Getenv("POLICY_SIGNING_KEY")
+	if policySigningKey == "" {
+		policySigningKey = internalAuthToken
+	}
+	policyTTL := 10 * time.Minute
+	if v := strings.TrimSpace(os.Getenv("POLICY_SNAPSHOT_TTL_SECONDS")); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			policyTTL = time.Duration(secs) * time.Second
+		}
+	}
 	tokenStorePath := os.Getenv("TOKEN_STORE_PATH")
 	if tokenStorePath == "" {
 		tokenStorePath = "/var/lib/grpccontroller/tokens.json"
@@ -110,7 +121,7 @@ func main() {
 		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "tunneler")),
 	)
 
-	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, tunnelerRegistry, tunnelerStatus, aclStore)
+	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, tunnelerRegistry, tunnelerStatus, aclStore, db, []byte(policySigningKey), policyTTL)
 	_ = state.LoadConnectorsFromDB(db, registry)
 	_ = state.LoadTunnelersFromDB(db, tunnelerStatus)
 	_ = state.LoadACLsFromDB(db, aclStore)

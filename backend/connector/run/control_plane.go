@@ -19,7 +19,7 @@ type controlPlaneServer struct {
 	controllerpb.UnimplementedControlPlaneServer
 	connectorID string
 	sendCh      chan<- *controllerpb.ControlMessage
-	acls        *aclCache
+	acls        *policyCache
 }
 
 func (s *controlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectServer) error {
@@ -104,15 +104,15 @@ func (s *controlPlaneServer) sendDecision(spiffeID, tunnelerID, dest, protocol s
 		Reason      string `json:"reason"`
 		ConnectorID string `json:"connector_id"`
 	}{
-		TunnelerID:   tunnelerID,
-		SPIFFEID:     spiffeID,
-		ResourceID:   resourceID,
-		Destination:  dest,
-		Protocol:     protocol,
-		Port:         port,
-		Decision:     decision,
-		Reason:       reason,
-		ConnectorID:  s.connectorID,
+		TunnelerID:  tunnelerID,
+		SPIFFEID:    spiffeID,
+		ResourceID:  resourceID,
+		Destination: dest,
+		Protocol:    protocol,
+		Port:        port,
+		Decision:    decision,
+		Reason:      reason,
+		ConnectorID: s.connectorID,
 		// ConnectionID: connectionID,
 	}
 	if data, err := json.Marshal(payload); err == nil {

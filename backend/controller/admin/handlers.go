@@ -47,6 +47,7 @@ type ACLNotifier interface {
 	NotifyResourceRemoved(resourceID string)
 	NotifyAuthorizationUpsert(auth state.Authorization)
 	NotifyAuthorizationRemoved(resourceID, principalSPIFFE string)
+	NotifyPolicyChange()
 }
 
 func (s *Server) adminAuth(next http.Handler) http.Handler {
@@ -352,9 +353,9 @@ func (s *Server) handleResourceSubroutes(w http.ResponseWriter, r *http.Request)
 			if s.ACLs != nil && s.ACLs.DB() != nil {
 				_ = state.SaveAuthorizationToDB(s.ACLs.DB(), auth)
 			}
-			if s.ACLNotify != nil {
-				s.ACLNotify.NotifyAuthorizationUpsert(auth)
-			}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyAuthorizationUpsert(auth)
+		}
 			writeJSON(w, http.StatusOK, auth)
 			return
 		}
@@ -364,9 +365,9 @@ func (s *Server) handleResourceSubroutes(w http.ResponseWriter, r *http.Request)
 			if s.ACLs != nil && s.ACLs.DB() != nil {
 				_ = state.DeleteAuthorizationFromDB(s.ACLs.DB(), resourceID, principal)
 			}
-			if s.ACLNotify != nil {
-				s.ACLNotify.NotifyAuthorizationRemoved(resourceID, principal)
-			}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyAuthorizationRemoved(resourceID, principal)
+		}
 			writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 			return
 		}

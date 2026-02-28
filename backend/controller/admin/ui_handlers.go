@@ -1,9 +1,7 @@
 package admin
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"controller/api"
 	"github.com/google/uuid"
 )
 
@@ -413,6 +412,9 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 				stmt.Close()
 			}
 			_ = tx.Commit()
+			if s.ACLNotify != nil {
+				s.ACLNotify.NotifyPolicyChange()
+			}
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		}
@@ -423,6 +425,9 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			}
 			userID := parts[2]
 			_, _ = db.Exec(`DELETE FROM user_group_members WHERE group_id = ? AND user_id = ?`, groupID, userID)
+			if s.ACLNotify != nil {
+				s.ACLNotify.NotifyPolicyChange()
+			}
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		}
@@ -486,6 +491,9 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			insertRuleGroup.Close()
 		}
 		_ = tx.Commit()
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
+		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
@@ -537,6 +545,9 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), req.NetworkID); err != nil {
 			http.Error(w, "failed to create resource", http.StatusBadRequest)
 			return
+		}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
@@ -627,6 +638,9 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "failed to update resource", http.StatusBadRequest)
 			return
 		}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
+		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -681,6 +695,9 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 		stmt.Close()
 	}
 	_ = tx.Commit()
+	if s.ACLNotify != nil {
+		s.ACLNotify.NotifyPolicyChange()
+	}
 	writeJSON(w, http.StatusOK, uiAccessRule{
 		ID:            ruleID,
 		Name:          req.Name,
@@ -711,6 +728,9 @@ func (s *Server) handleUIAccessRulesSubroutes(w http.ResponseWriter, r *http.Req
 			return
 		}
 		_, _ = db.Exec(`DELETE FROM access_rules WHERE id = ?`, ruleID)
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
+		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
@@ -1371,95 +1391,16 @@ func isoStringFromUnix(ts int64) string {
 	return time.Unix(ts, 0).UTC().Format("2006-01-02T15:04:05.000Z")
 }
 
-type policyResource struct {
-	ResourceID        string   `json:"resource_id"`
-	Address           string   `json:"address"`
-	Protocol          string   `json:"protocol"`
-	PortFrom          *int     `json:"port_from"`
-	PortTo            *int     `json:"port_to"`
-	AllowedIdentities []string `json:"allowed_identities"`
-	Note              string   `json:"_note"`
-}
+type policyResource = api.PolicyResource
 
 func policyResources(db *sql.DB, remoteNetworkID string) ([]policyResource, error) {
-	rows, err := db.Query(`SELECT id, address, protocol, port_from, port_to FROM resources WHERE remote_network_id = ? ORDER BY id ASC`, remoteNetworkID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	identityStmt, _ := db.Prepare(`SELECT DISTINCT u.certificate_identity as identity
-		FROM access_rules ar
-		JOIN access_rule_groups arg ON arg.rule_id = ar.id
-		JOIN user_group_members gm ON gm.group_id = arg.group_id
-		JOIN users u ON u.id = gm.user_id
-		WHERE ar.resource_id = ? AND ar.enabled = 1 AND u.certificate_identity IS NOT NULL
-		ORDER BY u.certificate_identity ASC`)
-	resources := []policyResource{}
-	for rows.Next() {
-		var id, address string
-		var protocol sql.NullString
-		var portFrom sql.NullInt64
-		var portTo sql.NullInt64
-		if err := rows.Scan(&id, &address, &protocol, &portFrom, &portTo); err != nil {
-			return nil, err
-		}
-		identities := []string{}
-		if identityStmt != nil {
-			idRows, _ := identityStmt.Query(id)
-			for idRows != nil && idRows.Next() {
-				var identity sql.NullString
-				if err := idRows.Scan(&identity); err == nil && identity.Valid && identity.String != "" {
-					identities = append(identities, identity.String)
-				}
-			}
-			if idRows != nil {
-				idRows.Close()
-			}
-		}
-		res := policyResource{
-			ResourceID:        id,
-			Address:           address,
-			Protocol:          "TCP",
-			AllowedIdentities: identities,
-			Note:              "empty list = deny all - fail closed",
-		}
-		if protocol.Valid && protocol.String != "" {
-			res.Protocol = protocol.String
-		}
-		if portFrom.Valid {
-			v := int(portFrom.Int64)
-			res.PortFrom = &v
-		}
-		if portTo.Valid {
-			v := int(portTo.Int64)
-			res.PortTo = &v
-		}
-		resources = append(resources, res)
-	}
-	if identityStmt != nil {
-		identityStmt.Close()
-	}
-	return resources, nil
+	return api.PolicyResourcesForUI(db, remoteNetworkID)
 }
 
 func policyHash(resources []policyResource) string {
-	payload := struct {
-		Resources []policyResource `json:"resources"`
-	}{Resources: resources}
-	data, _ := json.Marshal(payload)
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return api.PolicyHashForUI(resources)
 }
 
 func policyVersion(db *sql.DB, connectorID, policyHash, compiledAt string) int {
-	var version int
-	var existingHash sql.NullString
-	_ = db.QueryRow(`SELECT version, policy_hash FROM connector_policy_versions WHERE connector_id = ?`, connectorID).Scan(&version, &existingHash)
-	if version == 0 || !existingHash.Valid || existingHash.String != policyHash {
-		version = version + 1
-	}
-	_, _ = db.Exec(`INSERT INTO connector_policy_versions (connector_id, version, compiled_at, policy_hash)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(connector_id) DO UPDATE SET version=excluded.version, compiled_at=excluded.compiled_at, policy_hash=excluded.policy_hash`, connectorID, version, compiledAt, policyHash)
-	return version
+	return api.PolicyVersionForUI(db, connectorID, policyHash, compiledAt)
 }

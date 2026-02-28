@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
+import { createEnrollmentToken, getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Loader2, ArrowLeft, RefreshCw, AlertTriangle, Terminal, Copy, HeartPulse, CheckCircle } from 'lucide-react';
 import { ConnectorInfoSection } from '@/components/dashboard/connectors/connector-info-section';
 import { ConnectorLogs } from '@/components/dashboard/connectors/connector-logs';
@@ -26,16 +27,20 @@ export default function ConnectorDetailPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSimulatingHeartbeat, setIsSimulatingHeartbeat] = useState(false);
+  const [enrollmentToken, setEnrollmentToken] = useState<string>('');
+  const [autoHeartbeatSent, setAutoHeartbeatSent] = useState(false);
 
+  const INSTALL_COMMAND = `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/setup.sh | sudo \\
+  CONTROLLER_ADDR="127.0.0.1:8443" \\
+  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\
+  ENROLLMENT_TOKEN="${enrollmentToken || 'fetching_enrollment_token'}" \\
+  CONTROLLER_CA_PATH="/home/inkyank-01/Downloads/group-management-ui/backend/controller/ca/ca.crt" \\
+  bash`;
 
-  const INSTALL_COMMAND = `docker run -d --restart=always --network=host \\
-  -e TWINGATE_NETWORK_ID="net_123" \\
-  -e TWINGATE_CONNECTOR_ID="${connectorId}" \\
-  -e TWINGATE_ACCESS_TOKEN="your_access_token_here" \\
-  twingate/connector:latest`;
-
-  const loadConnectorData = async () => {
-    setLoading(true);
+  const loadConnectorData = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setLoading(true);
+    }
     try {
       const { connector: fetchedConnector, network: fetchedNetwork, logs: fetchedLogs } = await getConnector(connectorId as string);
       setConnector(fetchedConnector);
@@ -44,7 +49,9 @@ export default function ConnectorDetailPage() {
     } catch (error) {
       console.error('Failed to load connector details:', error);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -53,6 +60,52 @@ export default function ConnectorDetailPage() {
       loadConnectorData();
     }
   }, [connectorId]);
+
+  const didFetchToken = useRef(false);
+  useEffect(() => {
+    if (didFetchToken.current) return;
+    didFetchToken.current = true;
+    let active = true;
+    const loadEnrollmentToken = async () => {
+      try {
+        const { token } = await createEnrollmentToken();
+        if (active) {
+          setEnrollmentToken(token);
+        }
+      } catch (error) {
+        console.error('Failed to create enrollment token:', error);
+      }
+    };
+    loadEnrollmentToken();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!connectorId || !connector || !connector.installed) return;
+    if (connector.status === 'online') return;
+    if (!enrollmentToken || autoHeartbeatSent) return;
+    const sendHeartbeat = async () => {
+      setAutoHeartbeatSent(true);
+      try {
+        await simulateConnectorHeartbeat(connectorId as string, enrollmentToken);
+        await loadConnectorData({ silent: true });
+      } catch (error) {
+        console.error('Failed to auto-send heartbeat:', error);
+      }
+    };
+    sendHeartbeat();
+  }, [autoHeartbeatSent, connector, connectorId, enrollmentToken]);
+
+  useEffect(() => {
+    if (!connectorId) return;
+    if (connector?.installed) return;
+    const interval = setInterval(() => {
+      loadConnectorData({ silent: true });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [connector?.installed, connectorId]);
 
   const handleRevoke = () => {
     toast.warning('This is a placeholder action.', {
@@ -69,9 +122,9 @@ export default function ConnectorDetailPage() {
     if (!connectorId) return;
     setIsSimulatingHeartbeat(true);
     try {
-      await simulateConnectorHeartbeat(connectorId as string);
+      await simulateConnectorHeartbeat(connectorId as string, enrollmentToken);
       toast.success('Connector status updated to online!');
-      loadConnectorData(); // Reload data to reflect changes
+      loadConnectorData({ silent: true }); // Reload data to reflect changes
     } catch (error) {
       toast.error('Failed to simulate heartbeat.');
     } finally {
@@ -112,15 +165,17 @@ export default function ConnectorDetailPage() {
               </CardTitle>
               <CardDescription>
                 Run the following command on your server to install and activate the connector.
-                Replace `your_access_token_here` with a real access token.
               </CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="flex justify-end pb-2">
+                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
+                  <Copy className="h-4 w-4" />
+                  Copy command
+                </Button>
+              </div>
               <div className="relative rounded-md bg-muted p-4 text-left font-mono text-sm text-foreground overflow-x-auto">
                 <pre>{INSTALL_COMMAND}</pre>
-                <Button variant="ghost" size="icon" className="absolute top-2 right-2" onClick={handleCopyCommand}>
-                  <Copy className="h-4 w-4" />
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -153,15 +208,18 @@ export default function ConnectorDetailPage() {
                 Installation Command
               </CardTitle>
               <CardDescription>
-                Replace `your_access_token_here` with a real access token.
+                Run the following command on your server to install and activate the connector.
               </CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="flex justify-end pb-2">
+                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
+                  <Copy className="h-4 w-4" />
+                  Copy command
+                </Button>
+              </div>
               <div className="relative rounded-md bg-muted p-4 text-left font-mono text-sm text-foreground overflow-x-auto">
                 <pre>{INSTALL_COMMAND}</pre>
-                <Button variant="ghost" size="icon" className="absolute top-2 right-2" onClick={handleCopyCommand}>
-                  <Copy className="h-4 w-4" />
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -183,7 +241,15 @@ export default function ConnectorDetailPage() {
             <span>/</span>
             <span>{connector.name}</span>
           </div>
-          <h1 className="text-2xl font-bold">{connector.name}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">{connector.name}</h1>
+            {connector.status === 'online' && (
+              <Badge variant="outline" className="gap-1">
+                <CheckCircle className="h-3 w-3 text-green-500" />
+                Online
+              </Badge>
+            )}
+          </div>
         </div>
         <div className="flex gap-2">
           {connector.status === 'offline' && (
