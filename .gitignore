@@ -13,7 +13,7 @@ ztna.db-shm
 ztna.db-wal
 # backend/controller/.env
 # backend/controller/.air.toml
-# backend/controller/tmp/
+backend/controller/tmp/
 # backend/controller/ztna.db
 # backend/controller/ztna.db-shm
 # backend/controller/ztna.db-wal

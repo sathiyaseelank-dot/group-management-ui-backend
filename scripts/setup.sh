@@ -53,7 +53,7 @@ echo "Downloading connector binary..."
 if command -v curl >/dev/null 2>&1; then
   curl -fsSL "${release_url}" -o "${tmpdir}/grpcconnector2"
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${tmpdir}/grpcconnector" "${release_url}"
+  wget -qO "${tmpdir}/grpcconnector2" "${release_url}"
 else
   echo "ERROR: curl or wget is required for download." >&2
   exit 1
