@@ -34,7 +34,7 @@ export default function ConnectorDetailPage() {
   CONTROLLER_ADDR="127.0.0.1:8443" \\
   CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\
   ENROLLMENT_TOKEN="${enrollmentToken || 'fetching_enrollment_token'}" \\
-  CONTROLLER_CA_PATH="/home/inkyank-01/Downloads/group-management-ui/backend/controller/ca/ca.crt" \\
+  CONTROLLER_CA_PATH="/home/inkyank-02/group-management-ui-backend/backend/controller/ca/ca.crt" \\
   bash`;
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
