@@ -32,14 +32,18 @@ func SaveConnectorToDB(db *sql.DB, rec ConnectorRecord) error {
 	if db == nil {
 		return nil
 	}
+	// Marking a connector as "installed" is driven by controller-observed heartbeats.
+	// The UI reads connectors.installed to decide whether to show "Not installed".
+	lastSeenAt := rec.LastSeen.UTC().Format(time.RFC3339)
 	_, err := db.Exec(
-		`INSERT INTO connectors (id, private_ip, version, last_seen)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET private_ip=excluded.private_ip, version=excluded.version, last_seen=excluded.last_seen`,
+		`INSERT INTO connectors (id, private_ip, version, last_seen, last_seen_at, status, installed)
+VALUES (?, ?, ?, ?, ?, 'online', 1)
+ON CONFLICT(id) DO UPDATE SET private_ip=excluded.private_ip, version=excluded.version, last_seen=excluded.last_seen, last_seen_at=excluded.last_seen_at, status='online', installed=1`,
 		rec.ID,
 		rec.PrivateIP,
 		rec.Version,
 		rec.LastSeen.Unix(),
+		lastSeenAt,
 	)
 	return err
 }

@@ -1325,13 +1325,32 @@ func scanUIResource(scanner interface{ Scan(dest ...any) error }) (uiResource, b
 
 func scanUIConnector(scanner interface{ Scan(dest ...any) error }) (uiConnector, bool) {
 	var c uiConnector
+	var name sql.NullString
+	var status sql.NullString
+	var version sql.NullString
+	var hostname sql.NullString
+	var remoteNetworkID sql.NullString
 	var lastSeen sql.NullString
 	var lastSeenAt sql.NullString
 	var installed sql.NullInt64
 	var lastPolicyVersion sql.NullInt64
-	if err := scanner.Scan(&c.ID, &c.Name, &c.Status, &c.Version, &c.Hostname, &c.RemoteNetworkID, &lastSeen, &lastSeenAt, &installed, &lastPolicyVersion); err != nil {
+	if err := scanner.Scan(&c.ID, &name, &status, &version, &hostname, &remoteNetworkID, &lastSeen, &lastSeenAt, &installed, &lastPolicyVersion); err != nil {
 		return uiConnector{}, false
 	}
+	c.Name = strings.TrimSpace(name.String)
+	if c.Name == "" {
+		c.Name = c.ID
+	}
+	c.Status = strings.TrimSpace(status.String)
+	if c.Status == "" {
+		c.Status = "offline"
+	}
+	c.Version = strings.TrimSpace(version.String)
+	if c.Version == "" {
+		c.Version = "1.0.0"
+	}
+	c.Hostname = strings.TrimSpace(hostname.String)
+	c.RemoteNetworkID = strings.TrimSpace(remoteNetworkID.String)
 	if lastSeenAt.Valid {
 		c.LastSeen = lastSeenAt.String
 		c.LastSeenAt = &lastSeenAt.String
