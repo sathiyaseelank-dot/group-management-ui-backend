@@ -62,17 +62,21 @@ export function TunnelersList({ tunnelers }: TunnelersListProps) {
                 </Badge>
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
-                {tunneler.version}
+                {tunneler.version || '—'}
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
-                {tunneler.hostname}
+                {tunneler.hostname || '—'}
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
-                <Link href={`/dashboard/remote-networks/${tunneler.remoteNetworkId}`}>
-                  <Button variant="link" size="sm" className="px-0">
-                    {tunneler.remoteNetworkId} {/* TODO: Replace with network name */}
-                  </Button>
-                </Link>
+                {tunneler.remoteNetworkId ? (
+                  <Link href={`/dashboard/remote-networks/${tunneler.remoteNetworkId}`}>
+                    <Button variant="link" size="sm" className="px-0">
+                      {tunneler.remoteNetworkId} {/* TODO: Replace with network name */}
+                    </Button>
+                  </Link>
+                ) : (
+                  '—'
+                )}
               </TableCell>
               <TableCell className="text-right">
                 <Link href={`/dashboard/tunnelers/${tunneler.id}`}>

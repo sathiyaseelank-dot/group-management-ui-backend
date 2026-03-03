@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { getTunnelers } from '@/lib/mock-api';
 import { Tunneler } from '@/lib/types';
 import { TunnelersList } from '@/components/dashboard/tunnelers/tunnelers-list';
@@ -8,6 +9,7 @@ import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function TunnelersPage() {
+  const router = useRouter();
   const [tunnelers, setTunnelers] = useState<Tunneler[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -44,7 +46,7 @@ export default function TunnelersPage() {
             Manage resource tunnelers for secure access to network resources
           </p>
         </div>
-        <Button className="gap-2">
+        <Button className="gap-2" onClick={() => router.push('/dashboard/tunnelers/new')}>
           <Plus className="h-4 w-4" />
           Add Tunneler
         </Button>
