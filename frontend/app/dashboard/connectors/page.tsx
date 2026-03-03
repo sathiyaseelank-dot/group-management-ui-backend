@@ -6,25 +6,28 @@ import { Connector } from '@/lib/types';
 import { ConnectorsList } from '@/components/dashboard/connectors/connectors-list';
 import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AddConnectorModal } from '@/components/dashboard/connectors/add-connector-modal';
 
 export default function ConnectorsPage() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAddOpen, setIsAddOpen] = useState(false);
 
   useEffect(() => {
-    const loadConnectors = async () => {
-      try {
-        const data = await getConnectors();
-        setConnectors(data);
-      } catch (error) {
-        console.error('Failed to load connectors:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadConnectors();
+    void loadConnectors();
   }, []);
+
+  const loadConnectors = async () => {
+    setLoading(true);
+    try {
+      const data = await getConnectors();
+      setConnectors(data);
+    } catch (error) {
+      console.error('Failed to load connectors:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -44,7 +47,7 @@ export default function ConnectorsPage() {
             Manage network connectors that provide access to remote networks
           </p>
         </div>
-        <Button className="gap-2">
+        <Button className="gap-2" onClick={() => setIsAddOpen(true)}>
           <Plus className="h-4 w-4" />
           Add Connector
         </Button>
@@ -52,6 +55,12 @@ export default function ConnectorsPage() {
 
       {/* Connectors List */}
       <ConnectorsList connectors={connectors} />
+
+      <AddConnectorModal
+        isOpen={isAddOpen}
+        onClose={() => setIsAddOpen(false)}
+        onConnectorAdded={loadConnectors}
+      />
     </div>
   );
 }
