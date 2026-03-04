@@ -9,11 +9,20 @@ export async function DELETE(
 ) {
   try {
     const { ruleId } = await params;
-
-    await proxyToBackend(`/api/access-rules/${encodeURIComponent(ruleId)}`, {
+    
+    // Rule ID format: rule_{resourceId}_{principalSPIFFE}
+    const parts = ruleId.replace('rule_', '').split('_');
+    if (parts.length < 2) {
+      return NextResponse.json({ error: 'Invalid rule ID format' }, { status: 400 });
+    }
+    
+    const resourceId = parts[0];
+    const principalSPIFFE = parts.slice(1).join('_'); // Rejoin in case SPIFFE has underscores
+    
+    await proxyToBackend(`/api/admin/resources/${resourceId}/assign_principal/${principalSPIFFE}`, {
       method: 'DELETE',
     });
-
+    
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });

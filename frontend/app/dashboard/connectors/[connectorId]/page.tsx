@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { createEnrollmentToken, getConnector, simulateConnectorHeartbeat, revokeConnector } from '@/lib/mock-api';
+import { createEnrollmentToken, getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,17 +28,14 @@ export default function ConnectorDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isSimulatingHeartbeat, setIsSimulatingHeartbeat] = useState(false);
   const [enrollmentToken, setEnrollmentToken] = useState<string>('');
-  const [enrollmentTokenError, setEnrollmentTokenError] = useState<string>('');
   const [autoHeartbeatSent, setAutoHeartbeatSent] = useState(false);
 
-  const INSTALL_COMMAND = enrollmentToken
-    ? `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/setup.sh | sudo \\
+  const INSTALL_COMMAND = `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/setup.sh | sudo \\
   CONTROLLER_ADDR="127.0.0.1:8443" \\
   CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\
-  ENROLLMENT_TOKEN="${enrollmentToken}" \\
-  CONTROLLER_CA_PATH="/home/inkyank-01/Downloads/group-management-ui/backend/controller/ca/ca.crt" \\
-  bash`
-    : 'Generating enrollment token...';
+  ENROLLMENT_TOKEN="${enrollmentToken || 'fetching_enrollment_token'}" \\
+  CONTROLLER_CA_PATH="/home/inkyank-02/group-management-ui-backend/backend/controller/ca/ca.crt" \\
+  bash`;
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -71,16 +68,12 @@ export default function ConnectorDetailPage() {
     let active = true;
     const loadEnrollmentToken = async () => {
       try {
-        setEnrollmentTokenError('');
         const { token } = await createEnrollmentToken();
         if (active) {
           setEnrollmentToken(token);
         }
       } catch (error) {
         console.error('Failed to create enrollment token:', error);
-        if (active) {
-          setEnrollmentTokenError('Failed to generate enrollment token');
-        }
       }
     };
     loadEnrollmentToken();
@@ -88,17 +81,6 @@ export default function ConnectorDetailPage() {
       active = false;
     };
   }, []);
-
-  const handleGenerateToken = async () => {
-    try {
-      setEnrollmentTokenError('');
-      const { token } = await createEnrollmentToken();
-      setEnrollmentToken(token);
-    } catch (error) {
-      console.error('Failed to create enrollment token:', error);
-      setEnrollmentTokenError('Failed to generate enrollment token');
-    }
-  };
 
   useEffect(() => {
     if (!connectorId || !connector || !connector.installed) return;
@@ -125,21 +107,10 @@ export default function ConnectorDetailPage() {
     return () => clearInterval(interval);
   }, [connector?.installed, connectorId]);
 
-  const handleRevoke = async () => {
-    if (!connectorId) return;
-    
-    if (!confirm('Are you sure you want to revoke this connector? This will permanently delete it and disconnect any active sessions.')) {
-      return;
-    }
-
-    try {
-      await revokeConnector(connectorId as string);
-      toast.success('Connector revoked successfully.');
-      window.location.href = '/dashboard/connectors';
-    } catch (error) {
-      console.error('Failed to revoke connector:', error);
-      toast.error('Failed to revoke connector.');
-    }
+  const handleRevoke = () => {
+    toast.warning('This is a placeholder action.', {
+      description: `In a real application, this would revoke the connector's keys.`,
+    });
   };
 
   const handleCopyCommand = () => {
@@ -197,20 +168,8 @@ export default function ConnectorDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-end gap-2 pb-2">
-                {enrollmentTokenError && (
-                  <span className="mr-auto text-xs text-destructive">{enrollmentTokenError}</span>
-                )}
-                <Button variant="outline" size="sm" onClick={handleGenerateToken}>
-                  Generate token
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2"
-                  onClick={handleCopyCommand}
-                  disabled={!enrollmentToken}
-                >
+              <div className="flex justify-end pb-2">
+                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
                   <Copy className="h-4 w-4" />
                   Copy command
                 </Button>
@@ -253,20 +212,8 @@ export default function ConnectorDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-end gap-2 pb-2">
-                {enrollmentTokenError && (
-                  <span className="mr-auto text-xs text-destructive">{enrollmentTokenError}</span>
-                )}
-                <Button variant="outline" size="sm" onClick={handleGenerateToken}>
-                  Generate token
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2"
-                  onClick={handleCopyCommand}
-                  disabled={!enrollmentToken}
-                >
+              <div className="flex justify-end pb-2">
+                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
                   <Copy className="h-4 w-4" />
                   Copy command
                 </Button>
