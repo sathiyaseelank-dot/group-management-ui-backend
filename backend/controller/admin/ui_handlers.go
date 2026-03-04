@@ -76,6 +76,7 @@ type uiConnector struct {
 	Installed         bool    `json:"installed"`
 	LastPolicyVersion int     `json:"lastPolicyVersion"`
 	LastSeenAt        *string `json:"lastSeenAt"`
+	PrivateIP         string  `json:"privateIp"`
 }
 
 type uiRemoteNetwork struct {
@@ -890,7 +891,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		CreatedAt:            createdAt,
 		UpdatedAt:            updatedAt,
 	}
-	connectorRows, _ := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version FROM connectors WHERE remote_network_id = ? ORDER BY name ASC`, networkID)
+	connectorRows, _ := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors WHERE remote_network_id = ? ORDER BY name ASC`, networkID)
 	connectors := []uiConnector{}
 	if connectorRows != nil {
 		for connectorRows.Next() {
@@ -924,7 +925,7 @@ func (s *Server) handleUIConnectors(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version FROM connectors ORDER BY name ASC`)
+		rows, err := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors ORDER BY name ASC`)
 		if err != nil {
 			http.Error(w, "failed to list connectors", http.StatusInternalServerError)
 			return
@@ -983,7 +984,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		row := db.QueryRow(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version FROM connectors WHERE id = ?`, connectorID)
+		row := db.QueryRow(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors WHERE id = ?`, connectorID)
 		connector, ok := scanUIConnector(row)
 		if !ok {
 			writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1334,9 +1335,11 @@ func scanUIConnector(scanner interface{ Scan(dest ...any) error }) (uiConnector,
 	var lastSeenAt sql.NullString
 	var installed sql.NullInt64
 	var lastPolicyVersion sql.NullInt64
-	if err := scanner.Scan(&c.ID, &name, &status, &version, &hostname, &remoteNetworkID, &lastSeen, &lastSeenAt, &installed, &lastPolicyVersion); err != nil {
+	var privateIP sql.NullString
+	if err := scanner.Scan(&c.ID, &name, &status, &version, &hostname, &remoteNetworkID, &lastSeen, &lastSeenAt, &installed, &lastPolicyVersion, &privateIP); err != nil {
 		return uiConnector{}, false
 	}
+	c.PrivateIP = privateIP.String
 	c.Name = strings.TrimSpace(name.String)
 	if c.Name == "" {
 		c.Name = c.ID
