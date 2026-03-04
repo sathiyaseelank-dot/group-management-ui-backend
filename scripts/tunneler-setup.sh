@@ -10,7 +10,7 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-required_envs=(CONTROLLER_ADDR CONNECTOR_ADDR TUNNELER_ID ENROLLMENT_TOKEN CONTROLLER_CA_PATH)
+required_envs=(CONTROLLER_ADDR CONTROLLER_HTTP_ADDR CONNECTOR_ADDR TUNNELER_ID ENROLLMENT_TOKEN)
 for var in "${required_envs[@]}"; do
   if [[ -z "${!var:-}" ]]; then
     echo "ERROR: ${var} is required." >&2
@@ -83,19 +83,22 @@ if [[ -f "${config_file}" ]]; then
   cp "${config_file}" "${config_file}.${ts}.bak"
 fi
 
-echo "Installing controller CA..."
-if [[ ! -f "${CONTROLLER_CA_PATH}" ]]; then
-  echo "ERROR: Controller CA file not found at ${CONTROLLER_CA_PATH}" >&2
+echo "Fetching controller CA from ${CONTROLLER_HTTP_ADDR}..."
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "http://${CONTROLLER_HTTP_ADDR}/ca.crt" -o "${bundled_ca}"
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO "${bundled_ca}" "http://${CONTROLLER_HTTP_ADDR}/ca.crt"
+else
+  echo "ERROR: curl or wget is required." >&2
   exit 1
 fi
-install -m 0644 "${CONTROLLER_CA_PATH}" "${bundled_ca}"
+chmod 0644 "${bundled_ca}"
 
 {
   echo "CONTROLLER_ADDR=${CONTROLLER_ADDR}"
   echo "CONNECTOR_ADDR=${CONNECTOR_ADDR}"
   echo "TUNNELER_ID=${TUNNELER_ID}"
   echo "ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}"
-  echo "CONTROLLER_CA_PATH=${bundled_ca}"
   if [[ -n "${TRUST_DOMAIN:-}" ]]; then
     echo "TRUST_DOMAIN=${TRUST_DOMAIN}"
   fi

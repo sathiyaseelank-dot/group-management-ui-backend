@@ -15,9 +15,9 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
   const [tokenLoading, setTokenLoading] = useState(false);
 
   const [controllerAddr, setControllerAddr] = useState('127.0.0.1:8443');
+  const [controllerHttpAddr, setControllerHttpAddr] = useState('127.0.0.1:8081');
   const [connectorAddr, setConnectorAddr] = useState('');
   const [tunnelerId, setTunnelerId] = useState(initialTunnelerId || 'tunneler-local-01');
-  const [controllerCAPath, setControllerCAPath] = useState('/etc/grpcconnector2/ca.crt');
 
   const didFetchToken = useRef(false);
   useEffect(() => {
@@ -50,13 +50,13 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
     return (
       `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/tunneler-setup.sh | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
+      `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ADDR="${connectorAddr || 'CONNECTOR_ADDR_HERE'}" \\\n` +
       `  TUNNELER_ID="${tunnelerId || 'tunneler-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${safeToken}" \\\n` +
-      `  CONTROLLER_CA_PATH="${controllerCAPath || '/etc/grpcconnector2/ca.crt'}" \\\n` +
       `  bash`
     );
-  }, [connectorAddr, controllerAddr, controllerCAPath, token, tunnelerId]);
+  }, [connectorAddr, controllerAddr, controllerHttpAddr, token, tunnelerId]);
 
   const handleCopyCommand = async () => {
     await navigator.clipboard.writeText(installCommand);
@@ -158,13 +158,16 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="controllerCAPath">Controller CA Path</Label>
+              <Label htmlFor="controllerHttpAddr">Controller HTTP Address</Label>
               <Input
-                id="controllerCAPath"
-                value={controllerCAPath}
-                onChange={(e) => setControllerCAPath(e.target.value)}
-                placeholder="/etc/grpcconnector2/ca.crt"
+                id="controllerHttpAddr"
+                value={controllerHttpAddr}
+                onChange={(e) => setControllerHttpAddr(e.target.value)}
+                placeholder="127.0.0.1:8081"
               />
+              <p className="text-xs text-muted-foreground">
+                The CA certificate is fetched automatically from this address.
+              </p>
             </div>
           </div>
 
