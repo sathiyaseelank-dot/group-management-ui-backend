@@ -185,6 +185,11 @@ export async function deleteUser(userId: string): Promise<void> {
 
 // API: Create enrollment token
 export async function createEnrollmentToken(): Promise<{ token: string; expires_at: string }> {
+  if (API_BASE) {
+    return request<{ token: string; expires_at: string }>('/api/admin/tokens', {
+      method: 'POST',
+    });
+  }
   return requestLocal<{ token: string; expires_at: string }>('/api/tokens', {
     method: 'POST',
   });
@@ -252,13 +257,6 @@ export async function addConnector(data: {
   await request('/api/connectors', {
     method: 'POST',
     body: JSON.stringify(data),
-  });
-}
-
-// API: Revoke (delete) a connector
-export async function revokeConnector(connectorId: string): Promise<void> {
-  await request(`/api/connectors/${connectorId}`, {
-    method: 'DELETE',
   });
 }
 
