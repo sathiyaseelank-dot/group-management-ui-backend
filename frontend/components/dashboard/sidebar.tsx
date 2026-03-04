@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Users, User, Shield, Database, Globe, Plug, Cable, FileText, ChevronDown } from 'lucide-react';
+import { Users, Shield, Database, Globe, Plug, Cable, FileText, ChevronDown } from 'lucide-react';
 
 type NavItem = {
   label: string;
@@ -13,19 +13,16 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   {
-    label: 'Users',
-    href: '/dashboard/users',
+    label: 'Team',
+    href: '/dashboard/team',
     icon: Users,
-    description: 'View all users',
+    description: 'Manage users and groups',
+    children: [
+      { label: 'Users', href: '/dashboard/users' },
+      { label: 'Groups', href: '/dashboard/groups' },
+    ],
   },
 
-  {
-    label: 'Groups',
-    href: '/dashboard/groups',
-    icon: User,
-    description: 'Manage identity groups',
-  },
-  
   {
     label: 'Resources',
     href: '/dashboard/resources',
@@ -46,6 +43,7 @@ const navItems: NavItem[] = [
     icon: Plug,
     description: 'Manage network connectors',
   },
+
   {
     label: 'Policy',
     href: '/dashboard/policy',
@@ -68,15 +66,29 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const { pathname } = useLocation();
-  const policyActive = useMemo(
-    () => pathname === '/dashboard/policy' || pathname.startsWith('/dashboard/policy/'),
-    [pathname],
-  );
-  const [policyExpanded, setPolicyExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  // Auto-expand parent when a child route is active
   useEffect(() => {
-    if (policyActive) setPolicyExpanded(true);
-  }, [policyActive]);
+    const updates: Record<string, boolean> = {};
+    navItems.forEach((item) => {
+      if (item.children) {
+        const childActive = item.children.some(
+          (c) => pathname === c.href || pathname.startsWith(c.href + '/')
+        );
+        if (childActive) {
+          updates[item.href] = true;
+        }
+      }
+    });
+    if (Object.keys(updates).length > 0) {
+      setExpanded((prev) => ({ ...prev, ...updates }));
+    }
+  }, [pathname]);
+
+  const toggleExpanded = (href: string) => {
+    setExpanded((prev) => ({ ...prev, [href]: !prev[href] }));
+  };
 
   return (
     <aside className="flex w-64 flex-col border-r bg-muted/30">
@@ -95,54 +107,60 @@ export function Sidebar() {
       <nav className="flex-1 space-y-2 px-3 py-6">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
           const hasChildren = Array.isArray(item.children) && item.children.length > 0;
-          const expanded = item.href === '/dashboard/policy' ? policyExpanded : false;
+          const isExpanded = expanded[item.href] ?? false;
+
+          // A parent is active if its own href matches OR any child is active
+          const isActive = hasChildren
+            ? item.children!.some(
+                (c) => pathname === c.href || pathname.startsWith(c.href + '/')
+              )
+            : pathname === item.href || pathname.startsWith(item.href + '/');
 
           return (
             <div key={item.href} className="space-y-1">
-              <Link
-                to={item.href}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                )}
-                title={item.description}
-                onClick={() => {
-                  if (item.href === '/dashboard/policy') {
-                    setPolicyExpanded(true);
-                  }
-                }}
-              >
-                {Icon && <Icon className="h-5 w-5" />}
-                <span className="flex-1">{item.label}</span>
-                {hasChildren && (
-                  <button
-                    type="button"
+              {hasChildren ? (
+                <button
+                  type="button"
+                  className={cn(
+                    'flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                  title={item.description}
+                  onClick={() => toggleExpanded(item.href)}
+                >
+                  {Icon && <Icon className="h-5 w-5" />}
+                  <span className="flex-1 text-left">{item.label}</span>
+                  <ChevronDown
                     className={cn(
-                      'rounded-md p-1 transition-colors',
-                      isActive
-                        ? 'hover:bg-primary-foreground/10'
-                        : 'hover:bg-muted'
+                      'h-4 w-4 transition-transform',
+                      isExpanded && 'rotate-180'
                     )}
-                    aria-label={expanded ? 'Collapse policy menu' : 'Expand policy menu'}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setPolicyExpanded((v) => !v);
-                    }}
-                  >
-                    <ChevronDown className={cn('h-4 w-4 transition-transform', expanded && 'rotate-180')} />
-                  </button>
-                )}
-              </Link>
+                  />
+                </button>
+              ) : (
+                <Link
+                  to={item.href}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                  title={item.description}
+                >
+                  {Icon && <Icon className="h-5 w-5" />}
+                  <span className="flex-1">{item.label}</span>
+                </Link>
+              )}
 
-              {hasChildren && expanded && (
+              {hasChildren && isExpanded && (
                 <div className="ml-7 space-y-1">
                   {item.children!.map((child) => {
-                    const childActive = pathname === child.href || pathname.startsWith(child.href + '/');
+                    const childActive =
+                      pathname === child.href || pathname.startsWith(child.href + '/');
                     return (
                       <Link
                         key={child.href}
