@@ -21,8 +21,12 @@ import {
 } from '@/components/ui/select';
 import { RemoteNetwork, ResourceType } from '@/lib/types';
 import { getRemoteNetworks, addResource } from '@/lib/mock-api';
+import { listResourcePolicies, ensureDefaultResourcePolicy, ResourcePolicy } from '@/lib/resource-policies';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+
+type PortMode = 'all' | 'custom' | 'blocked';
+type AccessMode = 'manual' | 'auto-lock' | 'requests';
 
 interface AddResourceModalProps {
   isOpen: boolean;
@@ -41,16 +45,25 @@ export function AddResourceModal({
 }: AddResourceModalProps) {
   const [networks, setNetworks] = useState<RemoteNetwork[]>([]);
   const [loadingNetworks, setLoadingNetworks] = useState(true);
+  const [policies, setPolicies] = useState<ResourcePolicy[]>([]);
 
   // Form state
   const [networkId, setNetworkId] = useState<string>(defaultNetworkId ?? '');
   const [name, setName] = useState('');
   const [resourceType, setResourceType] = useState<ResourceType>('STANDARD');
   const [address, setAddress] = useState('');
-  const [protocol, setProtocol] = useState<'TCP' | 'UDP'>('TCP');
-  const [portFrom, setPortFrom] = useState('');
-  const [portTo, setPortTo] = useState('');
   const [alias, setAlias] = useState('');
+
+  // Protocol port restrictions
+  const [tcpMode, setTcpMode] = useState<PortMode>('all');
+  const [tcpPorts, setTcpPorts] = useState('');
+  const [udpMode, setUdpMode] = useState<PortMode>('all');
+  const [udpPorts, setUdpPorts] = useState('');
+
+  // Policy & access
+  const [policyId, setPolicyId] = useState('');
+  const [accessMode, setAccessMode] = useState<AccessMode>('manual');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -60,28 +73,34 @@ export function AddResourceModal({
         try {
           const data = await getRemoteNetworks();
           setNetworks(data);
-        } catch (error) {
+        } catch {
           toast.error('Failed to load networks');
         } finally {
           setLoadingNetworks(false);
         }
       };
       fetchNetworks();
-      if (!networkId && defaultNetworkId) {
-        setNetworkId(defaultNetworkId);
-      }
+      if (!networkId && defaultNetworkId) setNetworkId(defaultNetworkId);
+
+      ensureDefaultResourcePolicy();
+      const loaded = listResourcePolicies();
+      setPolicies(loaded);
+      if (!policyId && loaded.length > 0) setPolicyId(loaded[0].id);
     }
-  }, [isOpen, defaultNetworkId, networkId]);
+  }, [isOpen, defaultNetworkId]);
 
   const resetForm = () => {
     setNetworkId(defaultNetworkId ?? '');
     setName('');
     setResourceType('STANDARD');
     setAddress('');
-    setProtocol('TCP');
-    setPortFrom('');
-    setPortTo('');
     setAlias('');
+    setTcpMode('all');
+    setTcpPorts('');
+    setUdpMode('all');
+    setUdpPorts('');
+    setPolicyId(policies[0]?.id ?? '');
+    setAccessMode('manual');
   };
 
   const handleClose = () => {
@@ -89,10 +108,14 @@ export function AddResourceModal({
     onClose();
   };
 
-  const canSubmit = networkId && name && address && protocol;
+  const canSubmit = networkId && name && address;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+
+    // Derive the primary protocol/port for backend compatibility
+    const activeTcp = tcpMode !== 'blocked';
+    const protocol = activeTcp ? 'TCP' : 'UDP';
 
     setIsSubmitting(true);
     try {
@@ -102,14 +125,14 @@ export function AddResourceModal({
         type: resourceType,
         address,
         protocol,
-        port_from: portFrom ? Number(portFrom) : null,
-        port_to: portTo ? Number(portTo) : null,
+        port_from: null,
+        port_to: null,
         alias: alias || undefined,
       });
       toast.success('Resource created');
       onResourceAdded();
       handleClose();
-    } catch (error) {
+    } catch {
       toast.error('Failed to create resource');
     } finally {
       setIsSubmitting(false);
@@ -118,39 +141,37 @@ export function AddResourceModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Resource</DialogTitle>
           <DialogDescription>
             Define a private service that users can securely access.
           </DialogDescription>
         </DialogHeader>
+
         <div className="grid gap-4 py-4">
+          {/* Network */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="network" className="text-right">
-              Network
-            </Label>
+            <Label htmlFor="network" className="text-right">Network</Label>
             <Select
               value={networkId}
               onValueChange={setNetworkId}
               disabled={loadingNetworks || lockNetwork}
             >
               <SelectTrigger className="col-span-3">
-                <SelectValue placeholder={loadingNetworks ? 'Loading networks...' : 'Select a network'} />
+                <SelectValue placeholder={loadingNetworks ? 'Loading...' : 'Select a network'} />
               </SelectTrigger>
               <SelectContent>
                 {networks.map((net) => (
-                  <SelectItem key={net.id} value={net.id}>
-                    {net.name}
-                  </SelectItem>
+                  <SelectItem key={net.id} value={net.id}>{net.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+
+          {/* Label */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="name" className="text-right">
-              Label
-            </Label>
+            <Label htmlFor="name" className="text-right">Label</Label>
             <Input
               id="name"
               value={name}
@@ -160,6 +181,8 @@ export function AddResourceModal({
               placeholder="Human-readable name"
             />
           </div>
+
+          {/* Type */}
           <div className="grid grid-cols-4 items-center gap-4">
             <Label className="text-right">Type</Label>
             <div className="col-span-3 flex w-full rounded-md border p-1">
@@ -168,10 +191,10 @@ export function AddResourceModal({
               <Button variant={resourceType === 'BACKGROUND' ? 'secondary' : 'ghost'} onClick={() => setResourceType('BACKGROUND')} className="flex-1 text-xs">BACKGROUND</Button>
             </div>
           </div>
+
+          {/* Address */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="address" className="text-right">
-              Address
-            </Label>
+            <Label htmlFor="address" className="text-right">Address</Label>
             <Input
               id="address"
               value={address}
@@ -180,57 +203,113 @@ export function AddResourceModal({
               placeholder="db.internal.local or 10.0.0.15"
             />
           </div>
+
+          {/* Port Restrictions */}
+          <div className="grid grid-cols-4 gap-4">
+            <Label className="text-right pt-2">Port Restrictions</Label>
+            <div className="col-span-3 space-y-3 rounded-md border p-3 bg-muted/20">
+
+              {/* TCP */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="w-10 text-sm font-medium">TCP</span>
+                  <Select value={tcpMode} onValueChange={(v) => setTcpMode(v as PortMode)}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All ports</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                      <SelectItem value="blocked">Blocked</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {tcpMode === 'custom' && (
+                  <div className="flex items-center gap-3">
+                    <span className="w-10" />
+                    <Input
+                      value={tcpPorts}
+                      onChange={(e) => setTcpPorts(e.target.value)}
+                      placeholder="e.g. 80, 443, 8000-9000"
+                      className="flex-1"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* UDP */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="w-10 text-sm font-medium">UDP</span>
+                  <Select value={udpMode} onValueChange={(v) => setUdpMode(v as PortMode)}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All ports</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                      <SelectItem value="blocked">Blocked</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {udpMode === 'custom' && (
+                  <div className="flex items-center gap-3">
+                    <span className="w-10" />
+                    <Input
+                      value={udpPorts}
+                      onChange={(e) => setUdpPorts(e.target.value)}
+                      placeholder="e.g. 53, 500, 1194"
+                      className="flex-1"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Policy */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label className="text-right">Protocol</Label>
-            <Select value={protocol} onValueChange={(v) => setProtocol(v as 'TCP' | 'UDP')}>
+            <Label htmlFor="policy" className="text-right">Policy</Label>
+            <Select value={policyId} onValueChange={setPolicyId}>
               <SelectTrigger className="col-span-3">
-                <SelectValue placeholder="Select protocol" />
+                <SelectValue placeholder="Select a policy" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="TCP">TCP</SelectItem>
-                <SelectItem value="UDP">UDP</SelectItem>
+                {policies.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
+
+          {/* Access */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="portFrom" className="text-right">
-              Port From
-            </Label>
-            <Input
-              id="portFrom"
-              value={portFrom}
-              onChange={(e) => setPortFrom(e.target.value.replace(/[^0-9]/g, ''))}
-              className="col-span-3"
-              placeholder="e.g., 443"
-              inputMode="numeric"
-            />
+            <Label htmlFor="access" className="text-right">Access</Label>
+            <Select value={accessMode} onValueChange={(v) => setAccessMode(v as AccessMode)}>
+              <SelectTrigger className="col-span-3">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual Access</SelectItem>
+                <SelectItem value="auto-lock">Auto-lock</SelectItem>
+                <SelectItem value="requests">Access Requests</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+
+          {/* Alias */}
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="portTo" className="text-right">
-              Port To
-            </Label>
-            <Input
-              id="portTo"
-              value={portTo}
-              onChange={(e) => setPortTo(e.target.value.replace(/[^0-9]/g, ''))}
-              className="col-span-3"
-              placeholder="Optional"
-              inputMode="numeric"
-            />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="alias" className="text-right">
-              Alias (Optional)
-            </Label>
+            <Label htmlFor="alias" className="text-right">Alias</Label>
             <Input
               id="alias"
               value={alias}
               onChange={(e) => setAlias(e.target.value)}
               className="col-span-3"
-              placeholder="e.g., jira.company.com"
+              placeholder="e.g., jira.company.com (optional)"
             />
           </div>
         </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>
             Cancel

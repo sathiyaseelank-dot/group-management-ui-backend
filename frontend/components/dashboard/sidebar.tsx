@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Users, Shield, Database, Globe, Plug, Cable, FileText, ChevronDown } from 'lucide-react';
+import { Users, Shield, Database, Globe, FileText, ChevronDown } from 'lucide-react';
 
 type NavItem = {
   label: string;
@@ -35,13 +35,11 @@ const navItems: NavItem[] = [
     href: '/dashboard/remote-networks',
     icon: Globe,
     description: 'Manage remote network connectivity',
-  },
-
-  {
-    label: 'Connectors',
-    href: '/dashboard/connectors',
-    icon: Plug,
-    description: 'Manage network connectors',
+    children: [
+      { label: 'Networks', href: '/dashboard/remote-networks' },
+      { label: 'Connectors', href: '/dashboard/connectors' },
+      { label: 'Tunnelers', href: '/dashboard/tunnelers' },
+    ],
   },
 
   {
@@ -56,12 +54,6 @@ const navItems: NavItem[] = [
     ],
   },
 
-  {
-    label: 'Tunnelers',
-    href: '/dashboard/tunnelers',
-    icon: Cable,
-    description: 'Manage resource tunnelers',
-  },
 ];
 
 export function Sidebar() {
