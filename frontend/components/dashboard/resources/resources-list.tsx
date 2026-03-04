@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { Resource, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -67,7 +67,7 @@ export function ResourcesList({ resources, remoteNetworks, onEdit }: ResourcesLi
               </TableCell>
               <TableCell>
                 {resource.remoteNetworkId ? (
-                  <Link href={`/dashboard/remote-networks/${resource.remoteNetworkId}`}>
+                  <Link to={`/dashboard/remote-networks/${resource.remoteNetworkId}`}>
                     <Button variant="link" size="sm" className="px-0 gap-2">
                       <Globe className="h-3 w-3" />
                       {getNetworkName(resource.remoteNetworkId)}
@@ -87,7 +87,7 @@ export function ResourcesList({ resources, remoteNetworks, onEdit }: ResourcesLi
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => onEdit(resource)}>Edit</DropdownMenuItem>
-                    <Link href={`/dashboard/resources/${resource.id}`}>
+                    <Link to={`/dashboard/resources/${resource.id}`}>
                       <DropdownMenuItem>Manage Access</DropdownMenuItem>
                     </Link>
                     <DropdownMenuItem onClick={() => handleDelete(resource.id)}>Delete</DropdownMenuItem>

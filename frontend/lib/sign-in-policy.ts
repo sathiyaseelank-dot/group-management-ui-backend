@@ -1,5 +1,3 @@
-'use client';
-
 export interface SignInPolicyState {
   reauth: {
     days: number;

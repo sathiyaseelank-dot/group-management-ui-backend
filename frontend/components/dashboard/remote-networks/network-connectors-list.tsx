@@ -13,7 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Plug, CircleDotDashed, CircleDot, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 
 interface NetworkConnectorsListProps {
   connectors: Connector[];
@@ -60,7 +60,7 @@ export function NetworkConnectorsList({ connectors, remoteNetworkId, onAddConnec
                 {connectors.map((connector) => (
                   <TableRow key={connector.id}>
                     <TableCell className="font-medium">
-                      <Link href={`/dashboard/connectors/${connector.id}`} className="hover:underline">
+                      <Link to={`/dashboard/connectors/${connector.id}`} className="hover:underline">
                         {connector.name}
                       </Link>
                     </TableCell>

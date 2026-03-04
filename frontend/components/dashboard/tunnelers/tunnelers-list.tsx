@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { Tunneler } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -69,7 +69,7 @@ export function TunnelersList({ tunnelers }: TunnelersListProps) {
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
                 {tunneler.remoteNetworkId ? (
-                  <Link href={`/dashboard/remote-networks/${tunneler.remoteNetworkId}`}>
+                  <Link to={`/dashboard/remote-networks/${tunneler.remoteNetworkId}`}>
                     <Button variant="link" size="sm" className="px-0">
                       {tunneler.remoteNetworkId} {/* TODO: Replace with network name */}
                     </Button>
@@ -79,7 +79,7 @@ export function TunnelersList({ tunnelers }: TunnelersListProps) {
                 )}
               </TableCell>
               <TableCell className="text-right">
-                <Link href={`/dashboard/tunnelers/${tunneler.id}`}>
+                <Link to={`/dashboard/tunnelers/${tunneler.id}`}>
                   <Button
                     variant="ghost"
                     size="sm"

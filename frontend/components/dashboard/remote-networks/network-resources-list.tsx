@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Database, ExternalLink, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 
 interface NetworkResourcesListProps {
   resources: Resource[];
@@ -62,7 +62,7 @@ export function NetworkResourcesList({ resources, remoteNetworkId, onAddResource
                     <TableCell className="font-mono text-xs">{resource.address}</TableCell>
                     <TableCell>{resource.description}</TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/dashboard/resources/${resource.id}`}>
+                      <Link to={`/dashboard/resources/${resource.id}`}>
                         <Button variant="ghost" size="sm" className="gap-2">
                           Manage Access
                           <ExternalLink className="h-4 w-4" />

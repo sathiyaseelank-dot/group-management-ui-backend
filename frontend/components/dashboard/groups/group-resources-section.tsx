@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { Resource } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -76,7 +76,7 @@ export function GroupResourcesSection({
                       {resource.description}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/dashboard/resources/${resource.id}`}>
+                      <Link to={`/dashboard/resources/${resource.id}`}>
                         <Button
                           variant="ghost"
                           size="sm"

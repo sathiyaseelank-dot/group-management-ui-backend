@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { Group } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -80,7 +80,7 @@ export function GroupsList({ groups, onEditGroup, onDeleteGroup }: GroupsListPro
                       Edit
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href={`/dashboard/groups/${group.id}`}>View details</Link>
+                      <Link to={`/dashboard/groups/${group.id}`}>View details</Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem

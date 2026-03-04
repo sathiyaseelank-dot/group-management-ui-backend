@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -88,7 +88,7 @@ export function RemoteNetworksList({ networks }: RemoteNetworksListProps) {
                   {network.updatedAt}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Link href={`/dashboard/remote-networks/${network.id}`}>
+                  <Link to={`/dashboard/remote-networks/${network.id}`}>
                     <Button
                       variant="ghost"
                       size="sm"

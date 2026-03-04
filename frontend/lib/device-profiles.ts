@@ -1,5 +1,3 @@
-'use client';
-
 export type Platform = 'Windows' | 'macOS' | 'iOS' | 'Linux' | 'Android';
 
 export interface DeviceProfilesState {

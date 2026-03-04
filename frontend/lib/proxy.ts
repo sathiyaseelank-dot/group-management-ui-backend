@@ -1,4 +1,4 @@
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8081';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8081';
 const ADMIN_AUTH_TOKEN = process.env.ADMIN_AUTH_TOKEN || '7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4';
 
 export async function proxyToBackend<T = any>(

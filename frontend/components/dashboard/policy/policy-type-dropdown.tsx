@@ -1,7 +1,5 @@
-'use client';
-
 import { useMemo } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Select,
   SelectContent,
@@ -31,15 +29,15 @@ function pathFromView(view: PolicyView): string {
 }
 
 export function PolicyTypeDropdown() {
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
 
   const value = useMemo(() => viewFromPath(pathname), [pathname]);
 
   return (
     <Select
       value={value}
-      onValueChange={(v) => router.push(pathFromView(v as PolicyView))}
+      onValueChange={(v) => navigate(pathFromView(v as PolicyView))}
     >
       <SelectTrigger className="min-w-56">
         <SelectValue placeholder="Select policy type" />

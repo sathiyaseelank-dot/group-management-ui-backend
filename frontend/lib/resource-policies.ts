@@ -1,5 +1,3 @@
-'use client';
-
 export type DeviceSecurityMode = 'any' | 'trusted' | 'custom';
 
 export interface ResourcePolicy {
