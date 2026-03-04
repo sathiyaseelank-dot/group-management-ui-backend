@@ -34,18 +34,20 @@ export default function ConnectorDetailPage() {
   // User-configurable install fields
   const [controllerAddr, setControllerAddr] = useState('127.0.0.1:8443');
   const [controllerHttpAddr, setControllerHttpAddr] = useState('127.0.0.1:8081');
+  const [policySigningKey, setPolicySigningKey] = useState('');
 
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
     return (
-      `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/setup.sh | sudo \\\n` +
+      `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/main/scripts/setup.sh | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
       `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${enrollmentToken}" \\\n` +
+      `  POLICY_SIGNING_KEY="${policySigningKey || 'YOUR_POLICY_SIGNING_KEY'}" \\\n` +
       `  bash`
     );
-  }, [enrollmentToken, controllerAddr, controllerHttpAddr, connectorId]);
+  }, [enrollmentToken, controllerAddr, controllerHttpAddr, policySigningKey, connectorId]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -177,6 +179,18 @@ export default function ConnectorDetailPage() {
             />
             <p className="text-xs text-muted-foreground">
               The CA certificate is fetched automatically from this address.
+            </p>
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="policySigningKey">Policy Signing Key</Label>
+            <Input
+              id="policySigningKey"
+              value={policySigningKey}
+              onChange={(e) => setPolicySigningKey(e.target.value)}
+              placeholder="Same as POLICY_SIGNING_KEY (or INTERNAL_API_TOKEN) on the controller"
+            />
+            <p className="text-xs text-muted-foreground">
+              Found in your controller's environment as <code>POLICY_SIGNING_KEY</code> or <code>INTERNAL_API_TOKEN</code>.
             </p>
           </div>
         </div>
