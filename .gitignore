@@ -21,3 +21,6 @@ backend/controller/tmp/*
 backend/controller/controller
 # backend/controller/run.sh
 # backend/controller/run-air.sh
+
+# Rust build artifacts
+backend/connector-rs/target/
