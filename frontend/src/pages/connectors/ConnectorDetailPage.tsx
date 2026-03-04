@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { createEnrollmentToken, getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
@@ -25,12 +25,14 @@ export default function ConnectorDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isSimulatingHeartbeat, setIsSimulatingHeartbeat] = useState(false);
   const [enrollmentToken, setEnrollmentToken] = useState<string>('');
+  const [tokenLoading, setTokenLoading] = useState(true);
+  const [tokenError, setTokenError] = useState<string>('');
   const [autoHeartbeatSent, setAutoHeartbeatSent] = useState(false);
 
   const INSTALL_COMMAND = `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/setup.sh | sudo \\
   CONTROLLER_ADDR="127.0.0.1:8443" \\
   CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\
-  ENROLLMENT_TOKEN="${enrollmentToken || 'fetching_enrollment_token'}" \\
+  ENROLLMENT_TOKEN="${enrollmentToken}" \\
   CONTROLLER_CA_PATH="/home/inkyank-02/group-management-ui-backend/backend/controller/ca/ca.crt" \\
   bash`;
 
@@ -58,26 +60,26 @@ export default function ConnectorDetailPage() {
     }
   }, [connectorId]);
 
-  const didFetchToken = useRef(false);
-  useEffect(() => {
-    if (didFetchToken.current) return;
-    didFetchToken.current = true;
-    let active = true;
-    const loadEnrollmentToken = async () => {
-      try {
-        const { token } = await createEnrollmentToken();
-        if (active) {
-          setEnrollmentToken(token);
-        }
-      } catch (error) {
-        console.error('Failed to create enrollment token:', error);
-      }
-    };
-    loadEnrollmentToken();
-    return () => {
-      active = false;
-    };
+  const loadEnrollmentToken = useCallback(async () => {
+    setTokenLoading(true);
+    setTokenError('');
+    try {
+      const { token } = await createEnrollmentToken();
+      setEnrollmentToken(token);
+    } catch (error) {
+      console.error('Failed to create enrollment token:', error);
+      setEnrollmentToken('');
+      setTokenError('Failed to generate enrollment token. Check backend connection.');
+      toast.error('Failed to generate enrollment token. Check backend connection.');
+    } finally {
+      setTokenLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!connectorId) return;
+    loadEnrollmentToken();
+  }, [connectorId, loadEnrollmentToken]);
 
   useEffect(() => {
     if (!connectorId || !connector || !connector.installed) return;
@@ -111,6 +113,10 @@ export default function ConnectorDetailPage() {
   };
 
   const handleCopyCommand = () => {
+    if (!enrollmentToken) {
+      toast.error('Enrollment token is not ready yet.');
+      return;
+    }
     navigator.clipboard.writeText(INSTALL_COMMAND);
     toast.success('Installation command copied to clipboard!');
   };
@@ -165,13 +171,27 @@ export default function ConnectorDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="flex justify-end pb-2">
-                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
+                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand} disabled={tokenLoading || !enrollmentToken}>
                   <Copy className="h-4 w-4" />
                   Copy command
                 </Button>
               </div>
               <div className="relative rounded-md bg-muted p-4 text-left font-mono text-sm text-foreground overflow-x-auto">
-                <pre>{INSTALL_COMMAND}</pre>
+                {tokenLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Fetching enrollment token...
+                  </div>
+                ) : !enrollmentToken ? (
+                  <div className="space-y-3 text-muted-foreground">
+                    <p>{tokenError || 'Enrollment token is unavailable.'}</p>
+                    <Button variant="outline" size="sm" onClick={loadEnrollmentToken}>
+                      Retry token generation
+                    </Button>
+                  </div>
+                ) : (
+                  <pre>{INSTALL_COMMAND}</pre>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -208,13 +228,27 @@ export default function ConnectorDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="flex justify-end pb-2">
-                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
+                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand} disabled={tokenLoading || !enrollmentToken}>
                   <Copy className="h-4 w-4" />
                   Copy command
                 </Button>
               </div>
               <div className="relative rounded-md bg-muted p-4 text-left font-mono text-sm text-foreground overflow-x-auto">
-                <pre>{INSTALL_COMMAND}</pre>
+                {tokenLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Fetching enrollment token...
+                  </div>
+                ) : !enrollmentToken ? (
+                  <div className="space-y-3 text-muted-foreground">
+                    <p>{tokenError || 'Enrollment token is unavailable.'}</p>
+                    <Button variant="outline" size="sm" onClick={loadEnrollmentToken}>
+                      Retry token generation
+                    </Button>
+                  </div>
+                ) : (
+                  <pre>{INSTALL_COMMAND}</pre>
+                )}
               </div>
             </CardContent>
           </Card>

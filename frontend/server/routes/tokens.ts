@@ -4,9 +4,9 @@ import { proxyToBackend } from '../../lib/proxy'
 const router = Router()
 
 // POST /api/tokens
-router.post('/', async (_req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
-    const token = await proxyToBackend('/api/admin/tokens', {
+    const token = await proxyToBackend('/api/admin/tokens', req, {
       method: 'POST',
     })
     res.json(token)

@@ -50,11 +50,11 @@ function mapBackendUser(user: BackendUser, groups: string[]) {
 }
 
 // GET /api/users
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const [users, groups] = await Promise.all([
-      proxyToBackend<BackendUser[]>('/api/admin/users'),
-      proxyToBackend<BackendGroup[]>('/api/admin/user-groups'),
+      proxyToBackend<BackendUser[]>('/api/admin/users', req),
+      proxyToBackend<BackendGroup[]>('/api/admin/user-groups', req),
     ])
 
     const membershipMap = new Map<string, Set<string>>()
@@ -63,7 +63,8 @@ router.get('/', async (_req: Request, res: Response) => {
         const groupId = group.id ?? group.ID
         if (!groupId) return
         const members = await proxyToBackend<BackendGroupMember[]>(
-          `/api/admin/user-groups/${encodeURIComponent(groupId)}/members`
+          `/api/admin/user-groups/${encodeURIComponent(groupId)}/members`,
+          req,
         )
         members.forEach((member) => {
           const userId = member.user_id ?? member.userId
@@ -90,11 +91,27 @@ router.get('/', async (_req: Request, res: Response) => {
 // POST /api/users
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const user = await proxyToBackend('/api/admin/users', {
+    const { name = '', email = '' } = req.body || {}
+    if (!email) {
+      return res.status(400).json({ error: 'email is required' })
+    }
+    const invite = await proxyToBackend<{ invite_link: string; email_sent: boolean; expires_at: number }>('/api/admin/invites', req, {
       method: 'POST',
-      body: JSON.stringify(req.body),
+      body: JSON.stringify({ email }),
     })
-    res.json(mapBackendUser(user as BackendUser, []))
+    res.json({
+      id: `invite_${Date.now()}`,
+      name,
+      email,
+      status: 'active',
+      groups: [],
+      createdAt: new Date().toISOString(),
+      inviteLink: invite.invite_link,
+      emailSent: invite.email_sent,
+      inviteExpiresAt: invite.expires_at,
+      type: 'USER',
+      displayLabel: `User: ${name || email}`,
+    })
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
   }
@@ -104,7 +121,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params
-    const user = await proxyToBackend(`/api/admin/users/${userId}`)
+    const user = await proxyToBackend(`/api/admin/users/${userId}`, req)
     res.json(user)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -115,7 +132,7 @@ router.get('/:userId', async (req: Request, res: Response) => {
 router.put('/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params
-    const user = await proxyToBackend(`/api/admin/users/${userId}`, {
+    const user = await proxyToBackend(`/api/admin/users/${userId}`, req, {
       method: 'PUT',
       body: JSON.stringify(req.body),
     })
@@ -129,7 +146,7 @@ router.put('/:userId', async (req: Request, res: Response) => {
 router.patch('/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params
-    const user = await proxyToBackend(`/api/admin/users/${userId}`, {
+    const user = await proxyToBackend(`/api/admin/users/${userId}`, req, {
       method: 'PATCH',
       body: JSON.stringify(req.body),
     })
@@ -143,7 +160,7 @@ router.patch('/:userId', async (req: Request, res: Response) => {
 router.delete('/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params
-    const result = await proxyToBackend(`/api/admin/users/${userId}`, {
+    const result = await proxyToBackend(`/api/admin/users/${userId}`, req, {
       method: 'DELETE',
     })
     res.json(result)

@@ -16,10 +16,83 @@ import tunnelersRouter from './routes/tunnelers'
 import policyRouter from './routes/policy'
 
 const app = express()
+const BACKEND_INTERNAL_URL = process.env.BACKEND_URL || 'http://localhost:8081'
+const BACKEND_PUBLIC_URL =
+  process.env.BACKEND_PUBLIC_URL || process.env.CONTROLLER_PUBLIC_URL || 'http://localhost:8081'
+
+async function backendFetch(req: express.Request, pathName: string, options: RequestInit = {}) {
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string> | undefined),
+  }
+  if (req.headers.cookie) {
+    headers.cookie = req.headers.cookie
+  }
+  const response = await fetch(`${BACKEND_INTERNAL_URL}${pathName}`, {
+    ...options,
+    headers,
+  })
+  return response
+}
+
+async function isAuthenticated(req: express.Request): Promise<boolean> {
+  try {
+    const response = await backendFetch(req, '/api/admin/users')
+    return response.ok
+  } catch {
+    return false
+  }
+}
 
 app.use(cors())
 app.use(compression())
 app.use(express.json())
+
+app.get('/api/auth/login', (req, res) => {
+  const inviteToken = String(req.query.invite_token || '').trim()
+  if (inviteToken) {
+    return res.redirect(`${BACKEND_PUBLIC_URL}/invite?token=${encodeURIComponent(inviteToken)}`)
+  }
+  return res.redirect(`${BACKEND_PUBLIC_URL}/auth/google/login`)
+})
+
+app.get('/api/auth/callback', (req, res) => {
+  return res.redirect('/login')
+})
+
+app.get('/api/auth/session', async (req, res) => {
+  const ok = await isAuthenticated(req)
+  if (!ok) {
+    return res.status(401).json({ authenticated: false, error: 'unauthorized' })
+  }
+  return res.json({ authenticated: true })
+})
+
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const out = await backendFetch(req, '/auth/logout', { method: 'POST' })
+    const setCookie = out.headers.get('set-cookie')
+    if (setCookie) {
+      res.setHeader('Set-Cookie', setCookie)
+    }
+    if (!out.ok) {
+      const text = await out.text()
+      return res.status(out.status).json({ ok: false, error: text || 'logout failed' })
+    }
+    return res.json({ ok: true })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: (error as Error).message })
+  }
+})
+
+app.use('/api', async (req, res, next) => {
+  if (req.path.startsWith('/auth/')) {
+    return next()
+  }
+  if (!(await isAuthenticated(req))) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  return next()
+})
 
 app.use('/api/groups', groupsRouter)
 app.use('/api/users', usersRouter)

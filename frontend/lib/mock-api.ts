@@ -30,6 +30,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         'Content-Type': 'application/json',
         ...(options.headers || {}),
       },
+      credentials: 'include',
       ...options,
     });
   } catch (fetchError) {
@@ -53,6 +54,7 @@ async function requestLocal<T>(path: string, options: RequestInit = {}): Promise
       'Content-Type': 'application/json',
       ...(options.headers || {}),
     },
+    credentials: 'include',
     ...options,
   });
 
@@ -185,14 +187,20 @@ export async function deleteUser(userId: string): Promise<void> {
 
 // API: Create enrollment token
 export async function createEnrollmentToken(): Promise<{ token: string; expires_at: string }> {
-  if (API_BASE) {
+  try {
+    // Preferred path: frontend BFF route that already proxies auth/cookies correctly.
+    return API_BASE
+      ? await request<{ token: string; expires_at: string }>('/api/tokens', { method: 'POST' })
+      : await requestLocal<{ token: string; expires_at: string }>('/api/tokens', { method: 'POST' });
+  } catch (err) {
+    // Backward-compatible fallback for environments that expose only the admin endpoint.
+    if (!API_BASE) {
+      throw err;
+    }
     return request<{ token: string; expires_at: string }>('/api/admin/tokens', {
       method: 'POST',
     });
   }
-  return requestLocal<{ token: string; expires_at: string }>('/api/tokens', {
-    method: 'POST',
-  });
 }
 
 // API: Get all service accounts

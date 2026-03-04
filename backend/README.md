@@ -163,3 +163,36 @@ cd ../tunneler && go build ./...
 ```
 
 The repo root does not contain Go packages, so `go build ./...` there will report no matches.
+
+## Added Identity Features
+
+The controller now includes:
+- Google OAuth invite flow:
+  - `POST /api/admin/invites` (admin token required)
+  - `GET /invite?token=...`
+  - `GET /oauth/google/login`
+  - `GET /oauth/google/callback`
+- Invite email delivery via SMTP (optional; if SMTP is not configured, invite links are still created).
+- Device trust enrollment endpoint:
+  - `POST /api/devices/enroll`
+- Device admin endpoints:
+  - `GET /api/admin/devices`
+  - `PATCH /api/admin/devices/{id}/trust`
+  - `DELETE /api/admin/devices/{id}`
+
+Database:
+- Default remains SQLite (`DB_PATH`).
+- PostgreSQL can be enabled with `DATABASE_URL`.
+
+## Docker Setup
+
+From the repository root:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+This starts:
+- `postgres` on `:5432`
+- `controller` admin HTTP on `:8081` and gRPC/mTLS on `:8443`

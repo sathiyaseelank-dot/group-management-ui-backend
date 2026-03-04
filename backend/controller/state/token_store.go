@@ -187,9 +187,9 @@ func (s *TokenStore) saveLocked() error {
 				used = 1
 			}
 			_, err := tx.Exec(
-				`INSERT INTO tokens (hash, expires_at, used, connector_id)
+				Rebind(`INSERT INTO tokens (hash, expires_at, used, connector_id)
 VALUES (?, ?, ?, ?)
-ON CONFLICT(hash) DO UPDATE SET expires_at=excluded.expires_at, used=excluded.used, connector_id=excluded.connector_id`,
+ON CONFLICT(hash) DO UPDATE SET expires_at=excluded.expires_at, used=excluded.used, connector_id=excluded.connector_id`),
 				rec.Hash,
 				rec.ExpiresAt.Unix(),
 				used,

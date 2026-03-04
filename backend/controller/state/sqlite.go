@@ -24,10 +24,12 @@ func OpenSQLite(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	DBDriver = "sqlite"
 	if err := migrateSQLite(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
+	DB = db
 	return db, nil
 }
 
@@ -167,6 +169,66 @@ func migrateSQLite(db *sql.DB) error {
 			connection_id TEXT,
 			created_at INTEGER NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS devices (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			device_name TEXT,
+			device_fingerprint TEXT NOT NULL,
+			trust_state TEXT NOT NULL,
+			first_seen_at INTEGER NOT NULL,
+			last_seen_at INTEGER,
+			trusted_at INTEGER,
+			public_key_pem TEXT,
+			cert_pem TEXT,
+			device_os TEXT,
+			UNIQUE (user_id, device_fingerprint)
+		);`,
+		`CREATE TABLE IF NOT EXISTS invites (
+			id TEXT PRIMARY KEY,
+			email TEXT NOT NULL,
+			token_hash TEXT NOT NULL UNIQUE,
+			pkce_verifier TEXT,
+			expires_at INTEGER NOT NULL,
+			used_at INTEGER,
+			created_at INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS user_verifications (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			token_hash TEXT NOT NULL UNIQUE,
+			expires_at INTEGER NOT NULL,
+			used_at INTEGER,
+			created_at INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS sessions (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			issued_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL,
+			revoked_at INTEGER,
+			state TEXT NOT NULL DEFAULT 'active',
+			refresh_token_hash TEXT NOT NULL UNIQUE
+		);`,
+		`CREATE TABLE IF NOT EXISTS refresh_token_history (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			token_hash TEXT NOT NULL,
+			revoked_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS admin_browser_sessions (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			user_agent_hash TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL,
+			revoked_at INTEGER
+		);`,
+		`CREATE TABLE IF NOT EXISTS user_roles (
+			user_id TEXT NOT NULL,
+			role TEXT NOT NULL,
+			PRIMARY KEY (user_id, role)
+		);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -251,6 +313,9 @@ func migrateSQLite(db *sql.DB) error {
 	if err := ensureColumn(db, "resources", "description", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "devices", "device_os", "TEXT"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -309,6 +374,6 @@ func PruneAuditLogs(db *sql.DB, olderThan time.Time) error {
 	if db == nil {
 		return nil
 	}
-	_, err := db.Exec(`DELETE FROM audit_logs WHERE created_at < ?`, olderThan.Unix())
+	_, err := db.Exec(Rebind(`DELETE FROM audit_logs WHERE created_at < ?`), olderThan.Unix())
 	return err
 }

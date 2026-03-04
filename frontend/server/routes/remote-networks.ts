@@ -45,9 +45,9 @@ function mapBackendNetwork(n: BackendRemoteNetwork) {
 }
 
 // GET /api/remote-networks
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const networks = await proxyToBackend<BackendRemoteNetwork[]>('/api/remote-networks')
+    const networks = await proxyToBackend<BackendRemoteNetwork[]>('/api/remote-networks', req)
     res.json(networks.map(mapBackendNetwork))
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -57,7 +57,7 @@ router.get('/', async (_req: Request, res: Response) => {
 // POST /api/remote-networks
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const network = await proxyToBackend<BackendRemoteNetwork>('/api/remote-networks', {
+    const network = await proxyToBackend<BackendRemoteNetwork>('/api/remote-networks', req, {
       method: 'POST',
       body: JSON.stringify(req.body),
     })
@@ -71,7 +71,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:networkId', async (req: Request, res: Response) => {
   try {
     const { networkId } = req.params
-    const network = await proxyToBackend(`/api/remote-networks/${networkId}`)
+    const network = await proxyToBackend(`/api/remote-networks/${networkId}`, req)
     res.json(network)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })

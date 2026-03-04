@@ -17,12 +17,16 @@ import ResourcePoliciesPage from './pages/policy/ResourcePoliciesPage'
 import ResourcePolicyDetailPage from './pages/policy/ResourcePolicyDetailPage'
 import SignInPolicyPage from './pages/policy/SignInPolicyPage'
 import DeviceProfilesPage from './pages/policy/DeviceProfilesPage'
+import LoginPage from './pages/LoginPage'
+import RequireAuth from './components/auth/RequireAuth'
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboard/groups" replace />} />
-      <Route path="/dashboard" element={<DashboardLayout />}>
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<RequireAuth />}>
+        <Route path="/dashboard" element={<DashboardLayout />}>
         <Route index element={<Navigate to="groups" replace />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="groups/:groupId" element={<GroupDetailPage />} />
@@ -42,6 +46,7 @@ export default function App() {
           <Route path="resource-policies/:policyId" element={<ResourcePolicyDetailPage />} />
           <Route path="sign-in" element={<SignInPolicyPage />} />
           <Route path="device-profiles" element={<DeviceProfilesPage />} />
+        </Route>
         </Route>
       </Route>
     </Routes>

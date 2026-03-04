@@ -4,9 +4,9 @@ import { proxyToBackend } from '../../lib/proxy'
 const router = Router()
 
 // GET /api/resources
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const resources = await proxyToBackend<any[]>('/api/resources')
+    const resources = await proxyToBackend<any[]>('/api/resources', req)
 
     let resourceList: any[] = []
     if (Array.isArray(resources)) {
@@ -38,7 +38,7 @@ router.get('/', async (_req: Request, res: Response) => {
 // POST /api/resources
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const resource = await proxyToBackend('/api/resources', {
+    const resource = await proxyToBackend('/api/resources', req, {
       method: 'POST',
       body: JSON.stringify(req.body),
     })
@@ -53,7 +53,7 @@ router.get('/:resourceId', async (req: Request, res: Response) => {
   try {
     const { resourceId } = req.params
 
-    const resources = await proxyToBackend<any[]>('/api/resources')
+    const resources = await proxyToBackend<any[]>('/api/resources', req)
     const resource = Array.isArray(resources)
       ? resources.find((r: any) => (r.id ?? r.ID) === resourceId)
       : undefined
@@ -101,7 +101,7 @@ router.get('/:resourceId', async (req: Request, res: Response) => {
 router.put('/:resourceId', async (req: Request, res: Response) => {
   try {
     const { resourceId } = req.params
-    const result = await proxyToBackend(`/api/resources/${resourceId}`, {
+    const result = await proxyToBackend(`/api/resources/${resourceId}`, req, {
       method: 'PUT',
       body: JSON.stringify(req.body),
     })

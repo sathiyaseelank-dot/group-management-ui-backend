@@ -72,9 +72,9 @@ func SaveResourceToDB(db *sql.DB, res Resource) error {
 	}
 	groupJSON, _ := json.Marshal(res.UserGroupIDs)
 	_, err := db.Exec(
-		`INSERT INTO resources (id, type, address, remote_network_id, user_group_ids_json)
+		Rebind(`INSERT INTO resources (id, type, address, remote_network_id, user_group_ids_json)
 		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET type=excluded.type, address=excluded.address, remote_network_id=excluded.remote_network_id, user_group_ids_json=excluded.user_group_ids_json`,
+		ON CONFLICT(id) DO UPDATE SET type=excluded.type, address=excluded.address, remote_network_id=excluded.remote_network_id, user_group_ids_json=excluded.user_group_ids_json`),
 		res.ID, string(res.Type), res.Address, res.RemoteNetworkID, string(groupJSON),
 	)
 	return err
@@ -84,8 +84,8 @@ func DeleteResourceFromDB(db *sql.DB, resourceID string) error {
 	if db == nil {
 		return nil
 	}
-	_, err := db.Exec(`DELETE FROM resources WHERE id = ?`, resourceID)
-	_, _ = db.Exec(`DELETE FROM authorizations WHERE resource_id = ?`, resourceID)
+	_, err := db.Exec(Rebind(`DELETE FROM resources WHERE id = ?`), resourceID)
+	_, _ = db.Exec(Rebind(`DELETE FROM authorizations WHERE resource_id = ?`), resourceID)
 	return err
 }
 
@@ -101,10 +101,10 @@ func SaveAuthorizationToDB(db *sql.DB, auth Authorization) error {
 		expires = nil
 	}
 	_, err := db.Exec(
-		`INSERT INTO authorizations (principal_spiffe, resource_id, filters_json, expires_at, description)
+		Rebind(`INSERT INTO authorizations (principal_spiffe, resource_id, filters_json, expires_at, description)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(principal_spiffe, resource_id)
-		DO UPDATE SET filters_json=excluded.filters_json, expires_at=excluded.expires_at, description=excluded.description`,
+		DO UPDATE SET filters_json=excluded.filters_json, expires_at=excluded.expires_at, description=excluded.description`),
 		auth.PrincipalSPIFFE, auth.ResourceID, string(filtersJSON), expires, auth.Description,
 	)
 	return err
@@ -114,6 +114,6 @@ func DeleteAuthorizationFromDB(db *sql.DB, resourceID, principalSPIFFE string) e
 	if db == nil {
 		return nil
 	}
-	_, err := db.Exec(`DELETE FROM authorizations WHERE resource_id = ? AND principal_spiffe = ?`, resourceID, principalSPIFFE)
+	_, err := db.Exec(Rebind(`DELETE FROM authorizations WHERE resource_id = ? AND principal_spiffe = ?`), resourceID, principalSPIFFE)
 	return err
 }

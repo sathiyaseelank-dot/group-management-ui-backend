@@ -61,7 +61,7 @@ func (s *UserStore) CreateUser(u *User) error {
 	}
 	u.UpdatedAt = time.Now().UTC()
 	_, err := s.db.Exec(
-		`INSERT INTO users (id, name, email, status, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		Rebind(`INSERT INTO users (id, name, email, status, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`),
 		u.ID, u.Name, u.Email, u.Status, u.Role, u.CreatedAt.Unix(), u.UpdatedAt.Unix(),
 	)
 	if err != nil {
@@ -77,7 +77,7 @@ func (s *UserStore) GetUser(id string) (*User, error) {
 	var u User
 	var created, updated int64
 	err := s.db.QueryRow(
-		`SELECT id, name, email, status, role, created_at, updated_at FROM users WHERE id = ?`,
+		Rebind(`SELECT id, name, email, status, role, created_at, updated_at FROM users WHERE id = ?`),
 		id,
 	).Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.Role, &created, &updated)
 	if err != nil {
@@ -104,7 +104,7 @@ func (s *UserStore) UpdateUser(u *User) error {
 	}
 	u.UpdatedAt = time.Now().UTC()
 	_, err := s.db.Exec(
-		`UPDATE users SET name = ?, email = ?, status = ?, role = ?, updated_at = ? WHERE id = ?`,
+		Rebind(`UPDATE users SET name = ?, email = ?, status = ?, role = ?, updated_at = ? WHERE id = ?`),
 		u.Name, u.Email, u.Status, u.Role, u.UpdatedAt.Unix(), u.ID,
 	)
 	return err
@@ -123,10 +123,10 @@ func (s *UserStore) DeleteUser(id string) error {
 			_ = tx.Rollback()
 		}
 	}()
-	if _, err = tx.Exec(`DELETE FROM user_group_members WHERE user_id = ?`, id); err != nil {
+	if _, err = tx.Exec(Rebind(`DELETE FROM user_group_members WHERE user_id = ?`), id); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`DELETE FROM users WHERE id = ?`, id); err != nil {
+	if _, err = tx.Exec(Rebind(`DELETE FROM users WHERE id = ?`), id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -165,7 +165,7 @@ func (s *UserStore) CreateGroup(g *UserGroup) error {
 	}
 	g.UpdatedAt = time.Now().UTC()
 	_, err := s.db.Exec(
-		`INSERT INTO user_groups (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		Rebind(`INSERT INTO user_groups (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`),
 		g.ID, g.Name, g.Description, g.CreatedAt.Unix(), g.UpdatedAt.Unix(),
 	)
 	if err != nil {
@@ -181,10 +181,10 @@ func (s *UserStore) GetGroup(id string) (*UserGroup, error) {
 	var g UserGroup
 	var created, updated int64
 	err := s.db.QueryRow(
-		`SELECT id, name, description, created_at, updated_at,
+		Rebind(`SELECT id, name, description, created_at, updated_at,
 		        (SELECT COUNT(1) FROM user_group_members m WHERE m.group_id = user_groups.id) AS members,
 		        (SELECT COUNT(DISTINCT ar.resource_id) FROM access_rules ar JOIN access_rule_groups arg ON arg.rule_id = ar.id WHERE arg.group_id = user_groups.id) AS resource_count
-		 FROM user_groups WHERE id = ?`,
+		 FROM user_groups WHERE id = ?`),
 		id,
 	).Scan(&g.ID, &g.Name, &g.Description, &created, &updated, &g.Members, &g.ResourceCnt)
 	if err != nil {
@@ -206,7 +206,7 @@ func (s *UserStore) UpdateGroup(g *UserGroup) error {
 		g.UpdatedAt = time.Now().UTC()
 	}
 	_, err := s.db.Exec(
-		`UPDATE user_groups SET name = ?, description = ?, updated_at = ? WHERE id = ?`,
+		Rebind(`UPDATE user_groups SET name = ?, description = ?, updated_at = ? WHERE id = ?`),
 		g.Name, g.Description, g.UpdatedAt.Unix(), g.ID,
 	)
 	return err
@@ -225,13 +225,13 @@ func (s *UserStore) DeleteGroup(id string) error {
 			_ = tx.Rollback()
 		}
 	}()
-	if _, err = tx.Exec(`DELETE FROM user_group_members WHERE group_id = ?`, id); err != nil {
+	if _, err = tx.Exec(Rebind(`DELETE FROM user_group_members WHERE group_id = ?`), id); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`DELETE FROM access_rule_groups WHERE group_id = ?`, id); err != nil {
+	if _, err = tx.Exec(Rebind(`DELETE FROM access_rule_groups WHERE group_id = ?`), id); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`DELETE FROM user_groups WHERE id = ?`, id); err != nil {
+	if _, err = tx.Exec(Rebind(`DELETE FROM user_groups WHERE id = ?`), id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -270,13 +270,13 @@ func (s *UserStore) AddUserToGroup(userID, groupID string) error {
 		return errors.New("db not configured")
 	}
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO user_group_members (user_id, group_id, added_at) VALUES (?, ?, ?)`,
+		Rebind(`INSERT OR IGNORE INTO user_group_members (user_id, group_id, added_at) VALUES (?, ?, ?)`),
 		userID, groupID, time.Now().UTC().Unix(),
 	)
 	if err != nil {
 		return err
 	}
-	_, _ = s.db.Exec(`UPDATE user_groups SET updated_at = ? WHERE id = ?`, time.Now().UTC().Unix(), groupID)
+	_, _ = s.db.Exec(Rebind(`UPDATE user_groups SET updated_at = ? WHERE id = ?`), time.Now().UTC().Unix(), groupID)
 	return nil
 }
 
@@ -284,11 +284,11 @@ func (s *UserStore) RemoveUserFromGroup(userID, groupID string) error {
 	if s == nil || s.db == nil {
 		return errors.New("db not configured")
 	}
-	_, err := s.db.Exec(`DELETE FROM user_group_members WHERE user_id = ? AND group_id = ?`, userID, groupID)
+	_, err := s.db.Exec(Rebind(`DELETE FROM user_group_members WHERE user_id = ? AND group_id = ?`), userID, groupID)
 	if err != nil {
 		return err
 	}
-	_, _ = s.db.Exec(`UPDATE user_groups SET updated_at = ? WHERE id = ?`, time.Now().UTC().Unix(), groupID)
+	_, _ = s.db.Exec(Rebind(`UPDATE user_groups SET updated_at = ? WHERE id = ?`), time.Now().UTC().Unix(), groupID)
 	return nil
 }
 
@@ -296,12 +296,14 @@ func (s *UserStore) ListGroupMembers(groupID string) ([]GroupMember, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("db not configured")
 	}
-	rows, err := s.db.Query(`
-		SELECT u.id, u.name, u.email
+	rows, err := s.db.Query(
+		Rebind(`SELECT u.id, u.name, u.email
 		FROM user_group_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.group_id = ?
-		ORDER BY u.name ASC`, groupID)
+		ORDER BY u.name ASC`),
+		groupID,
+	)
 	if err != nil {
 		return nil, err
 	}

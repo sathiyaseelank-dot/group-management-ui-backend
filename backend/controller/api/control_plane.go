@@ -117,8 +117,8 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 				}
 				if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
 					_, _ = s.acls.DB().Exec(
-						`INSERT INTO audit_logs (principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+						state.Rebind(`INSERT INTO audit_logs (principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 						payload.PrincipalSPIFFE,
 						payload.TunnelerID,
 						payload.ResourceID,

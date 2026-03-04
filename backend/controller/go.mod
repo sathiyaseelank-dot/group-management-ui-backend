@@ -4,13 +4,18 @@ go 1.24.13
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.11.1
+	golang.org/x/oauth2 v0.34.0
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.33.1
 )
 
 require (
+	github.com/coreos/go-oidc/v3 v3.11.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect

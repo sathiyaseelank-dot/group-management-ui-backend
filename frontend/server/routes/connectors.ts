@@ -4,9 +4,9 @@ import { proxyToBackend } from '../../lib/proxy'
 const router = Router()
 
 // GET /api/connectors
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const connectors = await proxyToBackend('/api/connectors')
+    const connectors = await proxyToBackend('/api/connectors', req)
     res.json(connectors)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -16,7 +16,7 @@ router.get('/', async (_req: Request, res: Response) => {
 // POST /api/connectors
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const connector = await proxyToBackend('/api/connectors', {
+    const connector = await proxyToBackend('/api/connectors', req, {
       method: 'POST',
       body: JSON.stringify(req.body),
     })
@@ -30,7 +30,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:connectorId', async (req: Request, res: Response) => {
   try {
     const { connectorId } = req.params
-    const connector = await proxyToBackend(`/api/connectors/${connectorId}`)
+    const connector = await proxyToBackend(`/api/connectors/${connectorId}`, req)
     res.json(connector)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -41,7 +41,7 @@ router.get('/:connectorId', async (req: Request, res: Response) => {
 router.delete('/:connectorId', async (req: Request, res: Response) => {
   try {
     const { connectorId } = req.params
-    const result = await proxyToBackend(`/api/admin/connectors/${connectorId}`, {
+    const result = await proxyToBackend(`/api/admin/connectors/${connectorId}`, req, {
       method: 'DELETE',
     })
     res.json(result)
@@ -54,7 +54,7 @@ router.delete('/:connectorId', async (req: Request, res: Response) => {
 router.post('/:connectorId/heartbeat', async (req: Request, res: Response) => {
   try {
     const { connectorId } = req.params
-    const result = await proxyToBackend(`/api/connectors/${connectorId}/heartbeat`, {
+    const result = await proxyToBackend(`/api/connectors/${connectorId}/heartbeat`, req, {
       method: 'POST',
       body: Object.keys(req.body).length ? JSON.stringify(req.body) : undefined,
     })

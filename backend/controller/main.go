@@ -43,6 +43,10 @@ func main() {
 		adminAddr = ":8081"
 	}
 	adminAuthToken := os.Getenv("ADMIN_AUTH_TOKEN")
+	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if jwtSecret == "" {
+		jwtSecret = adminAuthToken
+	}
 	internalAuthToken := os.Getenv("INTERNAL_API_TOKEN")
 	policySigningKey := os.Getenv("POLICY_SIGNING_KEY")
 	if policySigningKey == "" {
@@ -53,10 +57,6 @@ func main() {
 		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
 			policyTTL = time.Duration(secs) * time.Second
 		}
-	}
-	tokenStorePath := os.Getenv("TOKEN_STORE_PATH")
-	if tokenStorePath == "" {
-		tokenStorePath = "/var/lib/grpccontroller/tokens.json"
 	}
 
 	if len(caCertPEM) == 0 || len(caKeyPEM) == 0 {
@@ -97,11 +97,19 @@ func main() {
 
 	creds := credentials.NewTLS(tlsConfig)
 
-	db, err := state.OpenSQLite(os.Getenv("DB_PATH"))
+	googleClientID := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
+	if googleClientID != "" {
+		if err := admin.InitOIDC(googleClientID); err != nil {
+			log.Printf("warning: OIDC init failed: %v", err)
+		}
+	}
+
+	db, err := state.InitDB(os.Getenv("DB_PATH"), os.Getenv("DATABASE_URL"))
 	if err != nil {
-		log.Fatalf("failed to open sqlite db: %v", err)
+		log.Fatalf("failed to open db: %v", err)
 	}
 	defer db.Close()
+	log.Printf("controller DB initialized with driver=%s", state.DBDriver)
 
 	registry := state.NewRegistry()
 	tunnelerRegistry := state.NewTunnelerRegistry()
@@ -110,6 +118,11 @@ func main() {
 	tokenStore := state.NewTokenStoreWithDB(0, db)
 	userStore := state.NewUserStore(db)
 	remoteNetStore := state.NewRemoteNetworkStore(db)
+	deviceStore := state.NewDeviceStore(db)
+	deviceCACert, deviceCAKey, err := ca.LoadOrGenerateDeviceCA(os.Getenv("DEVICE_CA_DIR"))
+	if err != nil {
+		log.Fatalf("failed to load device CA: %v", err)
+	}
 
 	// ---- gRPC server ----
 	grpcServer := grpc.NewServer(
@@ -150,23 +163,52 @@ func main() {
 	// ---- admin HTTP server ----
 	adminMux := http.NewServeMux()
 	adminServer := &admin.Server{
-		Tokens:            tokenStore,
-		Reg:               registry,
-		Tunnelers:         tunnelerStatus,
-		ACLs:              aclStore,
-		ACLNotify:         controlPlaneServer,
-		Users:             userStore,
-		RemoteNet:         remoteNetStore,
-		AdminAuthToken:    adminAuthToken,
-		InternalAuthToken: internalAuthToken,
+		Tokens:             tokenStore,
+		Reg:                registry,
+		Tunnelers:          tunnelerStatus,
+		ACLs:               aclStore,
+		ACLNotify:          controlPlaneServer,
+		Users:              userStore,
+		RemoteNet:          remoteNetStore,
+		Devices:            deviceStore,
+		AdminAuthToken:     adminAuthToken,
+		InternalAuthToken:  internalAuthToken,
+		JWTSecret:          jwtSecret,
+		GoogleClientID:        googleClientID,
+		GoogleClientSecret:    strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET")),
+		OAuthRedirectURL:      strings.TrimSpace(os.Getenv("USER_OAUTH_REDIRECT_URL")),
+		AdminOAuthRedirectURL: strings.TrimSpace(os.Getenv("ADMIN_OAUTH_REDIRECT_URL")),
+		InviteBaseURL:      strings.TrimSpace(os.Getenv("INVITE_BASE_URL")),
+		SMTPHost:           strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		SMTPPort:           strings.TrimSpace(os.Getenv("SMTP_PORT")),
+		SMTPUser:           strings.TrimSpace(os.Getenv("SMTP_USER")),
+		SMTPPass:           strings.TrimSpace(os.Getenv("SMTP_PASS")),
+		SMTPFrom:           strings.TrimSpace(os.Getenv("SMTP_FROM")),
+		DashboardURL:       strings.TrimSpace(os.Getenv("DASHBOARD_URL")),
+		AdminLoginEmails:   strings.TrimSpace(os.Getenv("ADMIN_LOGIN_EMAILS")),
 	}
 	adminServer.RegisterRoutes(adminMux)
+	admin.RegisterDeviceRoutes(adminMux, deviceStore, deviceCACert, deviceCAKey, adminAuthToken)
 	go func() {
 		log.Printf("admin HTTP server listening %s", adminAddr)
 		if err := http.ListenAndServe(adminAddr, adminMux); err != nil {
 			log.Fatalf("admin HTTP server failed: %v", err)
 		}
 	}()
+
+	// ---- OAuth callback listener ----
+	// Google OAuth apps register specific redirect URIs (e.g. :8080).
+	// If OAUTH_CALLBACK_ADDR is set, start an additional listener on that address
+	// serving the same mux so the registered callback URIs resolve correctly,
+	// while the main admin API stays on adminAddr.
+	if oauthCallbackAddr := strings.TrimSpace(os.Getenv("OAUTH_CALLBACK_ADDR")); oauthCallbackAddr != "" && oauthCallbackAddr != adminAddr {
+		go func() {
+			log.Printf("OAuth callback listener on %s", oauthCallbackAddr)
+			if err := http.ListenAndServe(oauthCallbackAddr, adminMux); err != nil {
+				log.Fatalf("OAuth callback listener failed: %v", err)
+			}
+		}()
+	}
 
 	// ---- listen ----
 	lis, err := net.Listen("tcp", ":8443")

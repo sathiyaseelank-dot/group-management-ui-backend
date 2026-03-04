@@ -5,9 +5,9 @@ import { getDb } from '../../lib/db'
 const router = Router()
 
 // GET /api/access-rules
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const resources = await proxyToBackend<any[]>('/api/admin/resources')
+    const resources = await proxyToBackend<any[]>('/api/admin/resources', req)
     const accessRules: any[] = []
 
     for (const resource of resources) {
@@ -43,7 +43,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     for (const groupId of groupIds) {
       try {
-        await proxyToBackend(`/api/admin/resources/${resourceId}/assign_principal`, {
+        await proxyToBackend(`/api/admin/resources/${resourceId}/assign_principal`, req, {
           method: 'POST',
           body: JSON.stringify({
             principal_spiffe: groupId,
@@ -74,7 +74,7 @@ router.delete('/:ruleId', async (req: Request, res: Response) => {
     const resourceId = parts[0]
     const principalSPIFFE = parts.slice(1).join('_')
 
-    await proxyToBackend(`/api/admin/resources/${resourceId}/assign_principal/${principalSPIFFE}`, {
+    await proxyToBackend(`/api/admin/resources/${resourceId}/assign_principal/${principalSPIFFE}`, req, {
       method: 'DELETE',
     })
 

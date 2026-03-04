@@ -11,9 +11,9 @@ interface BackendAdminTunneler {
 }
 
 // GET /api/tunnelers
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const tunnelers = await proxyToBackend<BackendAdminTunneler[]>('/api/admin/tunnelers')
+    const tunnelers = await proxyToBackend<BackendAdminTunneler[]>('/api/admin/tunnelers', req)
     const formatted = (Array.isArray(tunnelers) ? tunnelers : []).map((t) => ({
       id: t.id,
       name: t.id,

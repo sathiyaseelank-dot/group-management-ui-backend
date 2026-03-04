@@ -10,7 +10,7 @@ router.get('/', async (req: Request, res: Response) => {
     const subjects: any[] = []
 
     if (!typeParam || typeParam === 'USER') {
-      const users = await proxyToBackend<any[]>('/api/admin/users')
+      const users = await proxyToBackend<any[]>('/api/admin/users', req)
       users.forEach((u: any) => {
         const id = u.id ?? u.ID
         const name = u.name ?? u.Name ?? ''
@@ -24,7 +24,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     if (!typeParam || typeParam === 'GROUP') {
-      const groups = await proxyToBackend<any[]>('/api/admin/user-groups')
+      const groups = await proxyToBackend<any[]>('/api/admin/user-groups', req)
       groups.forEach((g: any) => {
         const id = g.id ?? g.ID
         const name = g.name ?? g.Name ?? ''
@@ -39,7 +39,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (!typeParam || typeParam === 'SERVICE') {
       try {
-        const services = await proxyToBackend<any[]>('/api/admin/service-accounts')
+        const services = await proxyToBackend<any[]>('/api/admin/service-accounts', req)
         services.forEach((s: any) => {
           const id = s.id ?? s.ID
           const name = s.name ?? s.Name ?? ''

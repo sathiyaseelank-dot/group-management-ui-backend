@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Twingate-style zero-trust identity and access control management system** with:
+A Twingate-style zero-trust network access (ZTNA) system with:
 - A **Go backend** (gRPC, mTLS, SPIFFE IDs) acting as the control plane
-- A **Next.js frontend** (React 19, TypeScript) for administrative UI
+- A **React + Vite + Express** frontend for administrative UI
 - SQLite for both frontend local state and backend persistence
 
 ## Commands
@@ -14,15 +14,14 @@ This is a **Twingate-style zero-trust identity and access control management sys
 ### Frontend (`cd frontend`)
 
 ```bash
-npm run dev       # Start dev server (default: localhost:3000)
+npm run dev       # Start Vite dev server (port 3000) + Express BFF (port 3001)
 npm run build     # Production build
-npm run start     # Run production build
 npm run lint      # ESLint
 ```
 
 ### Backend (`cd backend`)
 
-Each component is a separate Go module under `backend/`:
+Each component is a separate Go module — `go build ./...` must be run from within `controller/`, `connector/`, or `tunneler/`.
 
 ```bash
 # Build
@@ -30,7 +29,13 @@ cd backend/controller && go build ./...
 cd backend/connector && go build ./...
 cd backend/tunneler && go build ./...
 
-# Run controller (requires env vars)
+# Test (only connector has tests)
+cd backend/connector && go test ./...
+
+# Run a single test
+cd backend/connector && go test ./run/... -run TestPolicyCacheDNSAllow
+
+# Run controller
 sudo TRUST_DOMAIN="mycorp.internal" \
   INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
   INTERNAL_CA_KEY="$(cat ca/ca.pkcs8.key)" \
@@ -39,57 +44,87 @@ sudo TRUST_DOMAIN="mycorp.internal" \
   CONTROLLER_ADDR="<host>:8443" \
   ADMIN_HTTP_ADDR="0.0.0.0:8081" \
   ./controller
-```
 
-The root `backend/` directory has no Go packages — `go build ./...` must be run from within `controller/`, `connector/`, or `tunneler/`.
+# Enroll and run connector
+./connector enroll   # One-time enrollment with controller
+./connector run      # Long-running daemon
+```
 
 ## Architecture
 
 ### Backend (Go)
 
-Three services in `backend/`:
+Three services in `backend/` — each is its own Go module. The root `backend/go.mod` has module name `grpc`.
 
 - **Controller** (`backend/controller/`): Internal CA + enrollment gRPC server on `:8443`, admin HTTP API on `:8081`. Manages SQLite DB, token store, ACLs, and policy distribution.
-- **Connector** (`backend/connector/`): Long-running service that connects outbound to the controller. Accepts inbound tunneler connections on `:9443`.
-- **Tunneler** (`backend/tunneler/`): Client-side service that connects to a connector with mTLS.
+- **Connector** (`backend/connector/`): Enrolls with the controller, maintains a persistent bi-directional gRPC stream to receive policy updates, and listens on `:9443` for inbound tunneler connections.
+- **Tunneler** (`backend/tunneler/`): Client-side service that enrolls and connects outbound to a connector.
 
-All services use SPIFFE IDs under trust domain `spiffe://mycorp.internal`. Identity format:
+All services use SPIFFE IDs under the trust domain:
 - Connector: `spiffe://mycorp.internal/connector/<id>`
 - Tunneler: `spiffe://mycorp.internal/tunneler/<id>`
 
-Admin HTTP API routes live in `backend/controller/admin/` — `handlers.go` for core, `ui_handlers.go` for UI-specific endpoints, and `ui_routes.go` for routing. gRPC implementations are in `backend/controller/api/`.
+**Controller internals:**
+- `admin/handlers.go` — Core admin HTTP endpoints (tokens, connectors, resources, audit)
+- `admin/ui_handlers.go` — UI-specific endpoints with CORS and formatted responses
+- `admin/ui_routes.go` — Route registration
+- `api/control_plane.go` — gRPC ControlPlane service (persistent bi-directional stream)
+- `api/enroll.go` — gRPC EnrollmentService (EnrollConnector, EnrollTunneler, Renew)
+- `state/` — In-memory + SQLite state (ACLs, connector registry, user/group management, token store)
+- `ca/` — Certificate authority: `ca.go` for CA init, `issue.go` for cert issuance
+- `gen/controllerpb/` — Generated gRPC code (from `proto/controller.proto`)
 
-### Frontend (Next.js App Router)
+**gRPC services** (`backend/proto/controller.proto`):
+- `EnrollmentService` — `EnrollConnector`, `EnrollTunneler`, `Renew`
+- `ControlPlane` — `Connect` (bi-directional stream carrying heartbeats, policy snapshots, ACL decisions)
 
-**Data flow:** Next.js API routes (`app/api/`) act as middleware — they either proxy to the Go backend via `lib/proxy.ts` (pointing to `NEXT_PUBLIC_API_BASE_URL`, default `:8081`) or read/write directly to a local SQLite database via `lib/db.ts`.
+### Frontend (React + Express BFF)
 
-Key lib files:
-- `lib/types.ts` — all shared TypeScript types (User, Group, Resource, Connector, etc.)
-- `lib/db.ts` — SQLite schema, migrations, and seeding (via `better-sqlite3`)
-- `lib/proxy.ts` — proxies requests to the Go backend with Bearer token auth
-- `lib/mock-api.ts` — frontend API client that calls `/api/*` routes
-- `lib/sign-in-policy.ts`, `lib/resource-policies.ts`, `lib/device-profiles.ts` — policy management (client-side, persisted to localStorage)
+**Tech stack**: React 19 + Vite (port 3000), Express BFF (port 3001), React Router v6, shadcn/ui, Tailwind CSS v4, better-sqlite3.
 
-**Pages** are under `app/dashboard/` — groups, users, resources, connectors, tunnelers, remote-networks, and policy sub-routes.
+**Data flow:**
+```
+Browser (React/Vite :3000)
+  → Express BFF (:3001) at /api/*
+    → Local SQLite (frontend/ztna.db)   ← for UI-managed entities
+    → Go backend HTTP API (:8081)       ← for controller-authoritative data
+```
 
-**Components** under `components/dashboard/` mirror the page structure. Shared UI primitives are shadcn/ui components in `components/ui/`.
+**Key lib files:**
+- `lib/types.ts` — All shared TypeScript interfaces
+- `lib/db.ts` — SQLite schema, auto-migrations, seeding (via `better-sqlite3`)
+- `lib/proxy.ts` — Proxies requests to Go backend with Bearer token auth
+- `lib/mock-api.ts` — Frontend API client that calls `/api/*` routes
+- `lib/sign-in-policy.ts`, `lib/resource-policies.ts`, `lib/device-profiles.ts` — Policy state persisted to localStorage
+
+**Express BFF routes** (`server/routes/`): `users`, `groups`, `resources`, `access-rules`, `connectors`, `remote-networks`, `tunnelers`, `subjects`, `tokens`, `service-accounts`, `policy`.
+
+**Pages** under `src/pages/`: groups, users, resources, connectors, remote-networks, tunnelers, and policy sub-routes (resource-policies, sign-in, device-profiles).
 
 ### Environment Variables
 
 | Variable | Service | Description |
 |---|---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | Frontend | Go backend URL (default: `http://localhost:8081`) |
+| `VITE_API_BASE_URL` | Frontend | (empty by default — Vite proxy handles `/api`) |
+| `BACKEND_URL` | Frontend BFF | Go backend URL (default: `http://localhost:8081`) |
 | `ADMIN_AUTH_TOKEN` | Frontend + Controller | Bearer token for admin API |
+| `PORT` | Frontend BFF | Express server port (default: 3001) |
 | `INTERNAL_CA_CERT` | Controller/Connector/Tunneler | PEM CA certificate |
 | `INTERNAL_CA_KEY` | Controller | PEM PKCS#8 CA private key |
 | `CONTROLLER_ADDR` | Connector/Tunneler | `host:port` of controller gRPC |
 | `ADMIN_HTTP_ADDR` | Controller | HTTP listen address (default `:8081`) |
-| `DB_PATH` | Controller | SQLite database path |
+| `DB_PATH` | Controller | SQLite database path (default: `ztna.db`) |
 | `TRUST_DOMAIN` | All | SPIFFE trust domain (default: `mycorp.internal`) |
+| `INTERNAL_API_TOKEN` | Controller/Connector | Internal gRPC auth token |
+| `POLICY_SIGNING_KEY` | Controller | HMAC key for policy snapshots (defaults to `INTERNAL_API_TOKEN`) |
+| `POLICY_SNAPSHOT_TTL_SECONDS` | Controller | Policy validity TTL (default: 600s) |
 
 ### Key Design Notes
 
-- **TypeScript errors ignored at build time** — `next.config.mjs` sets `typescript.ignoreBuildErrors: true`
-- **Schema migrations** in `lib/db.ts` handle live upgrades (e.g., adding columns to `access_rules`)
-- **Policy state** (sign-in policy, resource policies, device profiles) is stored in localStorage on the client, not in the database
-- The Go module name for all backend packages is `grpc` (set in `backend/go.mod`)
+- **Policy distribution**: Controller pushes signed policy snapshots over the persistent gRPC stream. Connectors cache these locally; connectors authorize tunneler connections against the cache. HMAC signatures (keyed by `POLICY_SIGNING_KEY`) prevent tampering.
+- **Certificate lifecycle**: Workload certs are short-lived (~5 min); connectors and tunnelers auto-renew by re-calling `Renew` before expiry.
+- **UI-specific HTTP endpoints** in `admin/ui_handlers.go` have CORS enabled and no auth requirement — they serve the frontend BFF. Admin endpoints under `/api/admin/*` require Bearer token auth.
+- **Frontend schema migrations** in `lib/db.ts` run automatically at startup (ALTER TABLE patterns for live upgrades).
+- **Policy state** (sign-in policy, resource policies, device profiles) is stored in localStorage, not the database.
+- **Audit logging**: All access decisions logged to the `audit_logs` table in the controller's SQLite DB.
+- **Systemd units** in `systemd/` harden connectors/tunnelers with `DynamicUser`, `ProtectSystem=full`, and restricted syscalls. Installation scripts are in `scripts/`.

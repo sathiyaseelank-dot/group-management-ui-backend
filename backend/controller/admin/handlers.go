@@ -18,9 +18,25 @@ type Server struct {
 	ACLNotify ACLNotifier
 	Users     *state.UserStore
 	RemoteNet *state.RemoteNetworkStore
+	Devices   *state.DeviceStore
 
 	AdminAuthToken    string
 	InternalAuthToken string
+
+	GoogleClientID     string
+	GoogleClientSecret string
+	OAuthRedirectURL   string
+	InviteBaseURL      string
+	SMTPHost           string
+	SMTPPort           string
+	SMTPUser           string
+	SMTPPass           string
+	SMTPFrom           string
+	SMTPRequireTLS     bool
+	DashboardURL           string
+	AdminLoginEmails       string
+	JWTSecret              string
+	AdminOAuthRedirectURL  string
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
@@ -37,6 +53,14 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/admin/user-groups/", s.adminAuth(http.HandlerFunc(s.handleUserGroupMembers)))
 	mux.Handle("/api/admin/remote-networks", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworks)))
 	mux.Handle("/api/admin/remote-networks/", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworkConnectors)))
+	mux.Handle("/api/admin/invites", s.adminAuth(http.HandlerFunc(s.handleCreateInvite)))
+	mux.Handle("/auth/google/login", http.HandlerFunc(s.handleAdminGoogleLogin))
+	mux.Handle("/auth/google/callback", http.HandlerFunc(s.handleAdminGoogleCallback))
+	mux.Handle("/auth/logout", http.HandlerFunc(s.handleAuthLogout))
+	mux.Handle("/admin/refresh", http.HandlerFunc(s.handleAdminRefresh))
+	mux.Handle("/invite", http.HandlerFunc(s.handleInviteLanding))
+	mux.Handle("/oauth/google/login", http.HandlerFunc(s.handleGoogleOAuthLogin))
+	mux.Handle("/oauth/google/callback", http.HandlerFunc(s.handleGoogleOAuthCallback))
 	mux.Handle("/api/internal/consume-token", s.internalAuth(http.HandlerFunc(s.handleConsumeToken)))
 	s.RegisterUIRoutes(mux)
 }
@@ -52,17 +76,48 @@ type ACLNotifier interface {
 
 func (s *Server) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.AdminAuthToken == "" {
-			http.Error(w, "admin auth not configured", http.StatusServiceUnavailable)
-			return
-		}
-		auth := r.Header.Get("Authorization")
-		if auth != "Bearer "+s.AdminAuthToken {
+		if !s.isAdminAuthorized(r) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) isAdminAuthorized(r *http.Request) bool {
+	// 1. Bearer ADMIN_AUTH_TOKEN — always allow (BFF / internal tooling).
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if s.AdminAuthToken != "" && auth == "Bearer "+s.AdminAuthToken {
+		return true
+	}
+
+	c, err := r.Cookie(adminSessionCookieName)
+	if err != nil || strings.TrimSpace(c.Value) == "" {
+		return false
+	}
+
+	// 2a. JWT path (JWTSecret set) — validate JWT then check DB session.
+	if s.JWTSecret != "" {
+		userID, sessionID, err := validateJWT([]byte(s.JWTSecret), c.Value)
+		if err != nil {
+			return false
+		}
+		db := s.db()
+		if db == nil {
+			return false
+		}
+		if _, err := validateSessionInDB(db, sessionID); err != nil {
+			return false
+		}
+		return IsAdmin(db, userID, "")
+	}
+
+	// 2b. Legacy HMAC-signed session cookie (no JWTSecret configured).
+	email, ok := s.verifyAdminSession(c.Value)
+	if !ok {
+		return false
+	}
+	return s.isAdminAllowed(s.db(), email)
 }
 
 func (s *Server) internalAuth(next http.Handler) http.Handler {
@@ -353,9 +408,9 @@ func (s *Server) handleResourceSubroutes(w http.ResponseWriter, r *http.Request)
 			if s.ACLs != nil && s.ACLs.DB() != nil {
 				_ = state.SaveAuthorizationToDB(s.ACLs.DB(), auth)
 			}
-		if s.ACLNotify != nil {
-			s.ACLNotify.NotifyAuthorizationUpsert(auth)
-		}
+			if s.ACLNotify != nil {
+				s.ACLNotify.NotifyAuthorizationUpsert(auth)
+			}
 			writeJSON(w, http.StatusOK, auth)
 			return
 		}
@@ -365,9 +420,9 @@ func (s *Server) handleResourceSubroutes(w http.ResponseWriter, r *http.Request)
 			if s.ACLs != nil && s.ACLs.DB() != nil {
 				_ = state.DeleteAuthorizationFromDB(s.ACLs.DB(), resourceID, principal)
 			}
-		if s.ACLNotify != nil {
-			s.ACLNotify.NotifyAuthorizationRemoved(resourceID, principal)
-		}
+			if s.ACLNotify != nil {
+				s.ACLNotify.NotifyAuthorizationRemoved(resourceID, principal)
+			}
 			writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 			return
 		}

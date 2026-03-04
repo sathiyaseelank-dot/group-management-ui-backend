@@ -37,7 +37,7 @@ func (s *RemoteNetworkStore) CreateNetwork(n *RemoteNetwork) error {
 	n.UpdatedAt = time.Now().UTC()
 	tagsJSON, _ := json.Marshal(n.Tags)
 	_, err := s.db.Exec(
-		`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		Rebind(`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`),
 		n.ID, n.Name, n.Location, string(tagsJSON), n.CreatedAt.Unix(), n.UpdatedAt.Unix(),
 	)
 	return err
@@ -81,13 +81,13 @@ func (s *RemoteNetworkStore) AssignConnector(networkID, connectorID string) erro
 		return errors.New("db not configured")
 	}
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO connector_remote_networks (connector_id, remote_network_id, assigned_at) VALUES (?, ?, ?)`,
+		Rebind(`INSERT OR IGNORE INTO connector_remote_networks (connector_id, remote_network_id, assigned_at) VALUES (?, ?, ?)`),
 		connectorID, networkID, time.Now().UTC().Unix(),
 	)
 	if err != nil {
 		return err
 	}
-	_, _ = s.db.Exec(`UPDATE remote_networks SET updated_at = ? WHERE id = ?`, time.Now().UTC().Unix(), networkID)
+	_, _ = s.db.Exec(Rebind(`UPDATE remote_networks SET updated_at = ? WHERE id = ?`), time.Now().UTC().Unix(), networkID)
 	return nil
 }
 
@@ -95,11 +95,11 @@ func (s *RemoteNetworkStore) RemoveConnector(networkID, connectorID string) erro
 	if s == nil || s.db == nil {
 		return errors.New("db not configured")
 	}
-	_, err := s.db.Exec(`DELETE FROM connector_remote_networks WHERE connector_id = ? AND remote_network_id = ?`, connectorID, networkID)
+	_, err := s.db.Exec(Rebind(`DELETE FROM connector_remote_networks WHERE connector_id = ? AND remote_network_id = ?`), connectorID, networkID)
 	if err != nil {
 		return err
 	}
-	_, _ = s.db.Exec(`UPDATE remote_networks SET updated_at = ? WHERE id = ?`, time.Now().UTC().Unix(), networkID)
+	_, _ = s.db.Exec(Rebind(`UPDATE remote_networks SET updated_at = ? WHERE id = ?`), time.Now().UTC().Unix(), networkID)
 	return nil
 }
 
@@ -107,7 +107,7 @@ func (s *RemoteNetworkStore) ListNetworkConnectors(networkID string) ([]string, 
 	if s == nil || s.db == nil {
 		return nil, errors.New("db not configured")
 	}
-	rows, err := s.db.Query(`SELECT connector_id FROM connector_remote_networks WHERE remote_network_id = ?`, networkID)
+	rows, err := s.db.Query(Rebind(`SELECT connector_id FROM connector_remote_networks WHERE remote_network_id = ?`), networkID)
 	if err != nil {
 		return nil, err
 	}
