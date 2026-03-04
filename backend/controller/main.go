@@ -159,6 +159,7 @@ func main() {
 		RemoteNet:         remoteNetStore,
 		AdminAuthToken:    adminAuthToken,
 		InternalAuthToken: internalAuthToken,
+		CACertPEM:         caCertPEM,
 	}
 	adminServer.RegisterRoutes(adminMux)
 	go func() {

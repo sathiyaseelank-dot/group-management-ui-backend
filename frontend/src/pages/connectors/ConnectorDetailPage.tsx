@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { createEnrollmentToken, getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowLeft, AlertTriangle, Terminal, Copy, HeartPulse, CheckCircle } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, ArrowLeft, AlertTriangle, Terminal, Copy, HeartPulse, CheckCircle, RefreshCw } from 'lucide-react';
 import { ConnectorInfoSection } from '@/components/dashboard/connectors/connector-info-section';
 import { ConnectorLogs } from '@/components/dashboard/connectors/connector-logs';
 import { toast } from 'sonner';
@@ -25,14 +27,25 @@ export default function ConnectorDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isSimulatingHeartbeat, setIsSimulatingHeartbeat] = useState(false);
   const [enrollmentToken, setEnrollmentToken] = useState<string>('');
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
   const [autoHeartbeatSent, setAutoHeartbeatSent] = useState(false);
 
-  const INSTALL_COMMAND = `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/setup.sh | sudo \\
-  CONTROLLER_ADDR="127.0.0.1:8443" \\
-  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\
-  ENROLLMENT_TOKEN="${enrollmentToken || 'fetching_enrollment_token'}" \\
-  CONTROLLER_CA_PATH="/home/inkyank-02/group-management-ui-backend/backend/controller/ca/ca.crt" \\
-  bash`;
+  // User-configurable install fields
+  const [controllerAddr, setControllerAddr] = useState('127.0.0.1:8443');
+  const [controllerHttpAddr, setControllerHttpAddr] = useState('127.0.0.1:8081');
+
+  const INSTALL_COMMAND = useMemo(() => {
+    if (!enrollmentToken) return null;
+    return (
+      `curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/grpccontroller/main/scripts/setup.sh | sudo \\\n` +
+      `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
+      `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
+      `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
+      `  ENROLLMENT_TOKEN="${enrollmentToken}" \\\n` +
+      `  bash`
+    );
+  }, [enrollmentToken, controllerAddr, controllerHttpAddr, connectorId]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -59,24 +72,25 @@ export default function ConnectorDetailPage() {
   }, [connectorId]);
 
   const didFetchToken = useRef(false);
+
+  const fetchEnrollmentToken = async () => {
+    setTokenLoading(true);
+    setTokenError(null);
+    try {
+      const { token } = await createEnrollmentToken();
+      setEnrollmentToken(token);
+    } catch (error) {
+      console.error('Failed to create enrollment token:', error);
+      setTokenError('Failed to generate enrollment token. Check that the backend is running.');
+    } finally {
+      setTokenLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (didFetchToken.current) return;
     didFetchToken.current = true;
-    let active = true;
-    const loadEnrollmentToken = async () => {
-      try {
-        const { token } = await createEnrollmentToken();
-        if (active) {
-          setEnrollmentToken(token);
-        }
-      } catch (error) {
-        console.error('Failed to create enrollment token:', error);
-      }
-    };
-    loadEnrollmentToken();
-    return () => {
-      active = false;
-    };
+    fetchEnrollmentToken();
   }, []);
 
   useEffect(() => {
@@ -111,6 +125,7 @@ export default function ConnectorDetailPage() {
   };
 
   const handleCopyCommand = () => {
+    if (!INSTALL_COMMAND) return;
     navigator.clipboard.writeText(INSTALL_COMMAND);
     toast.success('Installation command copied to clipboard!');
   };
@@ -128,6 +143,75 @@ export default function ConnectorDetailPage() {
       setIsSimulatingHeartbeat(false);
     }
   };
+
+  // Shared install card used in both the "not found" and "not installed" states
+  const installCard = (
+    <Card className="mt-8 mx-auto max-w-2xl text-left">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Terminal className="h-5 w-5" />
+          Installation Command
+        </CardTitle>
+        <CardDescription>
+          Fill in the fields below, then copy and run the command on your server.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="controllerAddr">Controller gRPC Address</Label>
+            <Input
+              id="controllerAddr"
+              value={controllerAddr}
+              onChange={(e) => setControllerAddr(e.target.value)}
+              placeholder="127.0.0.1:8443"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="controllerHttpAddr">Controller HTTP Address</Label>
+            <Input
+              id="controllerHttpAddr"
+              value={controllerHttpAddr}
+              onChange={(e) => setControllerHttpAddr(e.target.value)}
+              placeholder="127.0.0.1:8081"
+            />
+            <p className="text-xs text-muted-foreground">
+              The CA certificate is fetched automatically from this address.
+            </p>
+          </div>
+        </div>
+
+        {tokenLoading && (
+          <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Generating enrollment token...
+          </div>
+        )}
+        {tokenError && (
+          <div className="space-y-2 py-2">
+            <p className="text-sm text-destructive">{tokenError}</p>
+            <Button variant="outline" size="sm" className="gap-2" onClick={fetchEnrollmentToken}>
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </Button>
+          </div>
+        )}
+        {INSTALL_COMMAND && (
+          <>
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
+                <Copy className="h-4 w-4" />
+                Copy command
+              </Button>
+            </div>
+            <div className="relative rounded-md bg-muted p-4 font-mono text-sm text-foreground overflow-x-auto">
+              <pre>{INSTALL_COMMAND}</pre>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 
   if (loading) {
     return (
@@ -152,29 +236,7 @@ export default function ConnectorDetailPage() {
           <p className="mt-2 text-muted-foreground">
             It looks like this connector is not registered.
           </p>
-
-          <Card className="mt-8 mx-auto max-w-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Terminal className="h-5 w-5" />
-                Installation Command
-              </CardTitle>
-              <CardDescription>
-                Run the following command on your server to install and activate the connector.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex justify-end pb-2">
-                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
-                  <Copy className="h-4 w-4" />
-                  Copy command
-                </Button>
-              </div>
-              <div className="relative rounded-md bg-muted p-4 text-left font-mono text-sm text-foreground overflow-x-auto">
-                <pre>{INSTALL_COMMAND}</pre>
-              </div>
-            </CardContent>
-          </Card>
+          {installCard}
         </div>
       </div>
     );
@@ -195,29 +257,7 @@ export default function ConnectorDetailPage() {
           <p className="mt-2 text-muted-foreground">
             This connector is registered but not installed yet. Run the command below on your server.
           </p>
-
-          <Card className="mt-8 mx-auto max-w-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Terminal className="h-5 w-5" />
-                Installation Command
-              </CardTitle>
-              <CardDescription>
-                Run the following command on your server to install and activate the connector.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex justify-end pb-2">
-                <Button variant="ghost" size="sm" className="gap-2" onClick={handleCopyCommand}>
-                  <Copy className="h-4 w-4" />
-                  Copy command
-                </Button>
-              </div>
-              <div className="relative rounded-md bg-muted p-4 text-left font-mono text-sm text-foreground overflow-x-auto">
-                <pre>{INSTALL_COMMAND}</pre>
-              </div>
-            </CardContent>
-          </Card>
+          {installCard}
         </div>
       </div>
     );

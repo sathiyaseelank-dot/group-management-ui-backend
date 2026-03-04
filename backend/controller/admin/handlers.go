@@ -21,9 +21,14 @@ type Server struct {
 
 	AdminAuthToken    string
 	InternalAuthToken string
+	CACertPEM         []byte
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
+	// CA cert is public — no auth required. Connectors and tunnelers fetch it
+	// during bootstrap before any trust is established (same pattern as Vault
+	// /v1/pki/ca/pem, Consul /v1/connect/ca/roots, Teleport, etc.)
+	mux.HandleFunc("/ca.crt", s.handleCACert)
 	mux.Handle("/api/admin/tokens", s.adminAuth(http.HandlerFunc(s.handleCreateToken)))
 	mux.Handle("/api/admin/connectors", s.adminAuth(http.HandlerFunc(s.handleListConnectors)))
 	mux.Handle("/api/admin/connectors/", s.adminAuth(http.HandlerFunc(s.handleConnectorSubroutes)))
@@ -375,6 +380,21 @@ func (s *Server) handleResourceSubroutes(w http.ResponseWriter, r *http.Request)
 	default:
 		http.Error(w, "unknown subresource", http.StatusNotFound)
 	}
+}
+
+func (s *Server) handleCACert(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if len(s.CACertPEM) == 0 {
+		http.Error(w, "CA cert not available", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	w.Header().Set("Content-Disposition", `attachment; filename="ca.crt"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(s.CACertPEM)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
