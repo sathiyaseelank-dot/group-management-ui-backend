@@ -7,17 +7,30 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createEnrollmentToken } from '@/lib/mock-api';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { createEnrollmentToken, getConnectors } from '@/lib/mock-api';
+import { Connector } from '@/lib/types';
 import { toast } from 'sonner';
 
 export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: string }) {
   const [token, setToken] = useState<string>('');
   const [tokenLoading, setTokenLoading] = useState(false);
 
-  const [controllerAddr, setControllerAddr] = useState('127.0.0.1:8443');
-  const [controllerHttpAddr, setControllerHttpAddr] = useState('127.0.0.1:8081');
+  // Auto-detect controller IP from the browser's current hostname.
+  const detectedHost = window.location.hostname || '127.0.0.1';
+  const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
+  const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
   const [connectorAddr, setConnectorAddr] = useState('');
   const [tunnelerId, setTunnelerId] = useState(initialTunnelerId || 'tunneler-local-01');
+
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string>('');
 
   const didFetchToken = useRef(false);
   useEffect(() => {
@@ -28,9 +41,28 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
   }, []);
 
   useEffect(() => {
+    getConnectors()
+      .then((list) => {
+        const installed = list.filter((c) => c.installed);
+        setConnectors(installed);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (!initialTunnelerId) return;
     setTunnelerId(initialTunnelerId);
   }, [initialTunnelerId]);
+
+  const handleConnectorSelect = (id: string) => {
+    setSelectedConnectorId(id);
+    const connector = connectors.find((c) => c.id === id);
+    if (connector?.privateIp) {
+      setConnectorAddr(`${connector.privateIp}:9443`);
+    } else {
+      setConnectorAddr('');
+    }
+  };
 
   const handleCreateToken = async () => {
     setTokenLoading(true);
@@ -136,15 +168,40 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="connectorAddr">Connector Address</Label>
-              <Input
-                id="connectorAddr"
-                value={connectorAddr}
-                onChange={(e) => setConnectorAddr(e.target.value)}
-                placeholder="127.0.0.1:9443"
-              />
+              <Label htmlFor="connectorSelect">Connector</Label>
+              {connectors.length > 0 ? (
+                <>
+                  <Select value={selectedConnectorId} onValueChange={handleConnectorSelect}>
+                    <SelectTrigger id="connectorSelect">
+                      <SelectValue placeholder="Select a connector..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {connectors.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                          {c.privateIp ? (
+                            <span className="ml-2 text-muted-foreground font-mono text-xs">
+                              ({c.privateIp}:9443)
+                            </span>
+                          ) : null}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {connectorAddr && (
+                    <p className="text-xs text-muted-foreground font-mono">{connectorAddr}</p>
+                  )}
+                </>
+              ) : (
+                <Input
+                  id="connectorAddr"
+                  value={connectorAddr}
+                  onChange={(e) => setConnectorAddr(e.target.value)}
+                  placeholder="127.0.0.1:9443"
+                />
+              )}
               <p className="text-xs text-muted-foreground">
-                The connector’s listen address that tunnelers connect to (host:port).
+                The connector this tunneler will connect to.
               </p>
             </div>
             <div className="space-y-2">
@@ -186,4 +243,3 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
     </div>
   );
 }
-

@@ -71,6 +71,7 @@ export interface Connector {
   installed: boolean;
   lastPolicyVersion: number;
   lastSeenAt?: string | null;
+  privateIp?: string;
 }
 
 export interface RemoteNetwork {

@@ -31,9 +31,11 @@ export default function ConnectorDetailPage() {
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [autoHeartbeatSent, setAutoHeartbeatSent] = useState(false);
 
-  // User-configurable install fields
-  const [controllerAddr, setControllerAddr] = useState('127.0.0.1:8443');
-  const [controllerHttpAddr, setControllerHttpAddr] = useState('127.0.0.1:8081');
+  // Auto-detect controller IP from the browser's current hostname.
+  // When accessed from another machine (e.g. 192.168.1.x), this gives the correct LAN IP.
+  const detectedHost = window.location.hostname || '127.0.0.1';
+  const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
+  const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
   const [policySigningKey, setPolicySigningKey] = useState('');
 
   const INSTALL_COMMAND = useMemo(() => {
