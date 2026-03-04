@@ -51,7 +51,7 @@ MemoryDenyWriteExecute=yes
 LockPersonality=yes
 
 # Runtime behavior
-UMask=0777
+UMask=0077
 RuntimeDirectory=grpctunneler
 
 [Install]

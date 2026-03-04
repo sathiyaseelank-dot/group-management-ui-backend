@@ -53,8 +53,9 @@ MemoryDenyWriteExecute=yes
 LockPersonality=yes
 
 # Runtime behavior
-UMask=0777
+UMask=0077
 RuntimeDirectory=grpcconnector2
+NotifyAccess=main
 WatchdogSec=30s
 
 [Install]
