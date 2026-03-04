@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { GroupMembersSection } from '@/components/dashboard/groups/group-members-section';
 import { GroupResourcesSection } from '@/components/dashboard/groups/group-resources-section';
 import { Loader2, ArrowLeft } from 'lucide-react';
-import { AddResourcesModal } from '@/components/dashboard/groups/add-resources-modal';
+import { AddResourceModal } from '@/components/dashboard/resources/add-resource-modal';
 
 export default function GroupDetailPage() {
   const { groupId } = useParams();
@@ -100,12 +100,11 @@ export default function GroupDetailPage() {
         onAddResourcesClick={() => setShowAddResourcesModal(true)}
       />
 
-      {/* Add Resources Modal */}
-      <AddResourcesModal
-        groupId={group.id}
+      {/* Add Resource Modal */}
+      <AddResourceModal
         isOpen={showAddResourcesModal}
         onClose={() => setShowAddResourcesModal(false)}
-        onResourcesAdded={loadGroupData}
+        onResourceAdded={loadGroupData}
       />
     </div>
   );
