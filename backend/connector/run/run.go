@@ -176,7 +176,7 @@ func configFromEnv() (runtimeConfig, error) {
 	connectorID := os.Getenv("CONNECTOR_ID")
 	trustDomain := os.Getenv("TRUST_DOMAIN")
 	listenAddr := os.Getenv("CONNECTOR_LISTEN_ADDR")
-	policyKey := os.Getenv("POLICY_SIGNING_KEY")
+	policyKey := ""
 	staleGrace := 10 * time.Minute
 	if v := strings.TrimSpace(os.Getenv("POLICY_STALE_GRACE_SECONDS")); v != "" {
 		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
@@ -192,9 +192,6 @@ func configFromEnv() (runtimeConfig, error) {
 	}
 	if connectorID == "" {
 		return runtimeConfig{}, fmt.Errorf("CONNECTOR_ID is not set")
-	}
-	if policyKey == "" {
-		return runtimeConfig{}, fmt.Errorf("POLICY_SIGNING_KEY is not set")
 	}
 
 	privateIP, err := enroll.ResolvePrivateIP(controllerAddr)
@@ -314,6 +311,8 @@ func controlPlaneLoop(ctx context.Context, controllerAddr, trustDomain, connecto
 	}
 }
 
+const policyKeyLabel = "ztna-policy-signing-v1"
+
 func connectControlPlane(ctx context.Context, controllerAddr, trustDomain, connectorID, privateIP string, store *tlsutil.CertStore, roots *x509.CertPool, allowlist *tunnelerAllowlist, acl *policyCache, controllerSendCh <-chan *controllerpb.ControlMessage) error {
 	tlsConfig := &tls.Config{
 		MinVersion:           tls.VersionTLS13,
@@ -323,11 +322,22 @@ func connectControlPlane(ctx context.Context, controllerAddr, trustDomain, conne
 			return tlsutil.VerifyPeerSPIFFE(rawCerts, verifiedChains, trustDomain, "controller")
 		},
 	}
+	creds := newExportingCreds(
+		credentials.NewTLS(tlsConfig),
+		policyKeyLabel,
+		[]byte(connectorID),
+		func(key []byte) {
+			if acl != nil {
+				acl.SetSigningKey(key)
+			}
+			log.Printf("derived policy signing key from mTLS")
+		},
+	)
 
 	conn, err := grpc.DialContext(
 		ctx,
 		controllerAddr,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second,
 			Timeout:             10 * time.Second,
@@ -390,6 +400,59 @@ func connectControlPlane(ctx context.Context, controllerAddr, trustDomain, conne
 			}
 		}
 	}
+}
+
+type exportingCreds struct {
+	base    credentials.TransportCredentials
+	label   string
+	context []byte
+	onKey   func([]byte)
+}
+
+func newExportingCreds(base credentials.TransportCredentials, label string, context []byte, onKey func([]byte)) *exportingCreds {
+	return &exportingCreds{
+		base:    base,
+		label:   label,
+		context: append([]byte(nil), context...),
+		onKey:   onKey,
+	}
+}
+
+func (e *exportingCreds) ClientHandshake(ctx context.Context, addr string, conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	c, info, err := e.base.ClientHandshake(ctx, addr, conn)
+	if err != nil {
+		return c, info, err
+	}
+	tlsInfo, ok := info.(credentials.TLSInfo)
+	if !ok {
+		return c, info, nil
+	}
+	key, err := tlsInfo.State.ExportKeyingMaterial(e.label, e.context, 32)
+	if err == nil && e.onKey != nil {
+		e.onKey(key)
+	}
+	return c, info, nil
+}
+
+func (e *exportingCreds) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	return e.base.ServerHandshake(conn)
+}
+
+func (e *exportingCreds) Info() credentials.ProtocolInfo {
+	return e.base.Info()
+}
+
+func (e *exportingCreds) Clone() credentials.TransportCredentials {
+	return &exportingCreds{
+		base:    e.base.Clone(),
+		label:   e.label,
+		context: append([]byte(nil), e.context...),
+		onKey:   e.onKey,
+	}
+}
+
+func (e *exportingCreds) OverrideServerName(name string) error {
+	return e.base.OverrideServerName(name)
 }
 
 func renewalLoop(ctx context.Context, controllerAddr, connectorID, trustDomain string, store *tlsutil.CertStore, roots *x509.CertPool, caPEM []byte, totalTTL time.Duration) {
@@ -559,7 +622,12 @@ func handleControlMessage(msg *controllerpb.ControlMessage, allowlist *tunnelerA
 		}
 		var snap policySnapshot
 		if err := json.Unmarshal(msg.GetPayload(), &snap); err == nil {
-			_ = acl.ReplaceSnapshot(snap)
+			if acl.ReplaceSnapshot(snap) {
+				log.Printf("policy snapshot applied: version=%d resources=%d", snap.SnapshotMeta.PolicyVersion, len(snap.Resources))
+				if payload, err := json.MarshalIndent(snap, "", "  "); err == nil {
+					log.Printf("policy snapshot payload:\n%s", string(payload))
+				}
+			}
 		}
 	}
 }
@@ -618,6 +686,16 @@ func newPolicyCache(signingKey []byte, staleGrace time.Duration) *policyCache {
 		signingKey: signingKey,
 		staleGrace: staleGrace,
 	}
+}
+
+func (p *policyCache) SetSigningKey(key []byte) {
+	p.mu.Lock()
+	if len(key) == 0 {
+		p.signingKey = nil
+	} else {
+		p.signingKey = append([]byte(nil), key...)
+	}
+	p.mu.Unlock()
 }
 
 func (p *policyCache) ReplaceSnapshot(snap policySnapshot) bool {

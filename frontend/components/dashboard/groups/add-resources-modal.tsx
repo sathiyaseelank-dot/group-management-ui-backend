@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,7 +10,6 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Plus } from 'lucide-react';
 import { getResources, addGroupResources } from '@/lib/mock-api'; // Assuming addGroupResources will be implemented
 import { Resource } from '@/lib/types';
@@ -107,29 +104,27 @@ export function AddResourcesModal({
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <ScrollArea className="h-72 w-full rounded-md border">
-              <div className="p-4">
-                {filteredResources.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center">No resources found.</p>
-                ) : (
-                  filteredResources.map((resource) => (
-                    <div key={resource.id} className="flex items-center space-x-2 py-2">
-                      <Checkbox
-                        id={resource.id}
-                        checked={selectedResourceIds.has(resource.id)}
-                        onCheckedChange={(checked) =>
-                          handleCheckboxChange(resource.id, checked as boolean)
-                        }
-                      />
-                      <Label htmlFor={resource.id} className="flex flex-col text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                        {resource.name}
-                        <span className="text-xs text-muted-foreground">{resource.address}</span>
-                      </Label>
-                    </div>
-                  ))
-                )}
-              </div>
-            </ScrollArea>
+            <div className="h-72 w-full overflow-y-auto rounded-md border p-4">
+              {filteredResources.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center">No resources found.</p>
+              ) : (
+                filteredResources.map((resource) => (
+                  <div key={resource.id} className="flex items-center space-x-2 py-2">
+                    <Checkbox
+                      id={resource.id}
+                      checked={selectedResourceIds.has(resource.id)}
+                      onCheckedChange={(checked) =>
+                        handleCheckboxChange(resource.id, checked as boolean)
+                      }
+                    />
+                    <Label htmlFor={resource.id} className="flex flex-col text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                      {resource.name}
+                      <span className="text-xs text-muted-foreground">{resource.address}</span>
+                    </Label>
+                  </div>
+                ))
+              )}
+            </div>
           )}
         </div>
         <DialogFooter>

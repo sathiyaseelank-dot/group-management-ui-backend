@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createEnrollmentToken } from '@/lib/mock-api';
+import { createEnrollmentToken, getConnectors } from '@/lib/mock-api';
 import { toast } from 'sonner';
 
 export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: string }) {
@@ -24,6 +24,12 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
     if (didFetchToken.current) return;
     didFetchToken.current = true;
     void handleCreateToken();
+    void getConnectors().then((connectors) => {
+      const online = connectors.find((c) => c.status === 'online' && c.privateIp);
+      if (online?.privateIp) {
+        setConnectorAddr(`${online.privateIp}:9443`);
+      }
+    }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

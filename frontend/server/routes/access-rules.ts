@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express'
 import { proxyToBackend } from '../../lib/proxy'
-import { getDb } from '../../lib/db'
 
 const router = Router()
 
@@ -85,19 +84,14 @@ router.delete('/:ruleId', async (req: Request, res: Response) => {
 })
 
 // GET /api/access-rules/:ruleId/identity-count
-router.get('/:ruleId/identity-count', (req: Request, res: Response) => {
-  const { ruleId } = req.params
-  const db = getDb()
-
-  const row = db.prepare(
-    `SELECT COUNT(DISTINCT u.id) as count
-     FROM access_rule_groups arg
-     JOIN group_members gm ON gm.group_id = arg.group_id
-     JOIN users u ON u.id = gm.user_id
-     WHERE arg.rule_id = ? AND u.certificate_identity IS NOT NULL`
-  ).get(ruleId) as { count?: number } | undefined
-
-  res.json({ count: row?.count ?? 0 })
+router.get('/:ruleId/identity-count', async (req: Request, res: Response) => {
+  try {
+    const { ruleId } = req.params
+    const result = await proxyToBackend<{ count: number }>(`/api/access-rules/${ruleId}/identity-count`)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
 })
 
 export default router

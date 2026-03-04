@@ -66,6 +66,7 @@ export interface Connector {
   status: 'online' | 'offline';
   version: string;
   hostname: string;
+  privateIp?: string;
   remoteNetworkId: string;
   lastSeen: string; // Timestamp of when the connector was last seen online
   installed: boolean;
