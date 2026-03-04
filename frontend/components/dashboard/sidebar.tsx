@@ -1,7 +1,4 @@
-'use client';
-
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { Link, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Users, User, Shield, Database, Globe, Plug, Cable, FileText, ChevronDown } from 'lucide-react';
@@ -70,7 +67,7 @@ const navItems: NavItem[] = [
 ];
 
 export function Sidebar() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const policyActive = useMemo(
     () => pathname === '/dashboard/policy' || pathname.startsWith('/dashboard/policy/'),
     [pathname],
@@ -105,7 +102,7 @@ export function Sidebar() {
           return (
             <div key={item.href} className="space-y-1">
               <Link
-                href={item.href}
+                to={item.href}
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
                   isActive
@@ -149,7 +146,7 @@ export function Sidebar() {
                     return (
                       <Link
                         key={child.href}
-                        href={child.href}
+                        to={child.href}
                         className={cn(
                           'block rounded-md px-3 py-2 text-sm transition-colors',
                           childActive

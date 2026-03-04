@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy, KeyRound, Loader2, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -65,7 +65,7 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
 
   return (
     <div className="space-y-6 p-6">
-      <Link href="/dashboard/tunnelers">
+      <Link to="/dashboard/tunnelers">
         <Button variant="ghost" className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           Back to Tunnelers

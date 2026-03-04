@@ -17,7 +17,7 @@ import {
   ResourceType,
 } from './types';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;

@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Plug, CircleDot, CircleDotDashed, Globe } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 
 interface ConnectorInfoSectionProps {
   connector: Connector;
@@ -56,7 +56,7 @@ export function ConnectorInfoSection({ connector, network }: ConnectorInfoSectio
         <div className="flex flex-col space-y-1.5">
           <Label htmlFor="network">Remote Network</Label>
           {network ? (
-            <Link href={`/dashboard/remote-networks/${network.id}`}>
+            <Link to={`/dashboard/remote-networks/${network.id}`}>
               <Button variant="link" className="p-0 h-auto justify-start gap-1">
                 <Globe className="h-3 w-3" />
                 {network.name}

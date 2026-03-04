@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { Connector } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -73,7 +73,7 @@ export function ConnectorsList({ connectors }: ConnectorsListProps) {
                 {connector.installed ? connector.hostname : '—'}
               </TableCell>
               <TableCell className="text-right">
-                <Link href={`/dashboard/connectors/${connector.id}`}>
+                <Link to={`/dashboard/connectors/${connector.id}`}>
                   <Button
                     variant="ghost"
                     size="sm"
