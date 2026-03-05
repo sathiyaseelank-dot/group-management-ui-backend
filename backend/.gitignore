@@ -6,4 +6,5 @@
 # build artifacts
 grpcconnector2-*
 connector-*
+!connector-rs/
 tunneler-*
