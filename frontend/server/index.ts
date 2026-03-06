@@ -2,18 +2,8 @@ import express from 'express'
 import cors from 'cors'
 import compression from 'compression'
 import path from 'path'
-
-import groupsRouter from './routes/groups'
-import usersRouter from './routes/users'
-import resourcesRouter from './routes/resources'
-import connectorsRouter from './routes/connectors'
-import remoteNetworksRouter from './routes/remote-networks'
-import accessRulesRouter from './routes/access-rules'
-import subjectsRouter from './routes/subjects'
-import tokensRouter from './routes/tokens'
-import serviceAccountsRouter from './routes/service-accounts'
-import tunnelersRouter from './routes/tunnelers'
-import policyRouter from './routes/policy'
+import { Request, Response } from 'express'
+import { ADMIN_AUTH_TOKEN, BACKEND_URL } from '../lib/proxy'
 
 const app = express()
 
@@ -21,17 +11,28 @@ app.use(cors())
 app.use(compression())
 app.use(express.json())
 
-app.use('/api/groups', groupsRouter)
-app.use('/api/users', usersRouter)
-app.use('/api/resources', resourcesRouter)
-app.use('/api/connectors', connectorsRouter)
-app.use('/api/remote-networks', remoteNetworksRouter)
-app.use('/api/access-rules', accessRulesRouter)
-app.use('/api/subjects', subjectsRouter)
-app.use('/api/tokens', tokensRouter)
-app.use('/api/service-accounts', serviceAccountsRouter)
-app.use('/api/tunnelers', tunnelersRouter)
-app.use('/api/policy', policyRouter)
+app.use('/api', async (req: Request, res: Response) => {
+  try {
+    const url = `${BACKEND_URL}${req.originalUrl}`;
+    const method = req.method.toUpperCase();
+    const hasBody = !['GET', 'HEAD'].includes(method);
+
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${ADMIN_AUTH_TOKEN}`,
+      },
+      body: hasBody ? JSON.stringify(req.body ?? {}) : undefined,
+    });
+
+    const contentType = response.headers.get('content-type') || 'application/json';
+    const payload = await response.text();
+    res.status(response.status).set('Content-Type', contentType).send(payload);
+  } catch (error) {
+    res.status(502).json({ error: (error as Error).message || 'Backend proxy error' });
+  }
+});
 
 // Serve built Vite app in production
 if (process.env.NODE_ENV === 'production') {
