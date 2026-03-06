@@ -39,9 +39,9 @@ case "${arch}" in
     ;;
 esac
 
-binary="grpctunneler-${os}-${arch}"
+binary="tunneler-${os}-${arch}"
 release_url="https://github.com/vairabarath/zero-trust/releases/latest/download/${binary}"
-unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/main/systemd/grpctunneler.service"
+unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/main/systemd/tunneler.service"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -51,17 +51,17 @@ trap cleanup EXIT
 
 echo "Downloading tunneler binary..."
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "${release_url}" -o "${tmpdir}/grpctunneler"
+  curl -fsSL "${release_url}" -o "${tmpdir}/tunneler"
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${tmpdir}/grpctunneler" "${release_url}"
+  wget -qO "${tmpdir}/tunneler" "${release_url}"
 else
   echo "ERROR: curl or wget is required for download." >&2
   exit 1
 fi
 
-install -m 0755 "${tmpdir}/grpctunneler" /usr/bin/grpctunneler
+install -m 0755 "${tmpdir}/tunneler" /usr/bin/tunneler
 
-config_dir="/etc/grpctunneler"
+config_dir="/etc/tunneler"
 config_file="${config_dir}/tunneler.conf"
 bundled_ca="${config_dir}/ca.crt"
 
@@ -106,23 +106,23 @@ chmod 0644 "${bundled_ca}"
 
 chmod 0600 "${config_file}"
 
-systemd_dst="/etc/systemd/system/grpctunneler.service"
+systemd_dst="/etc/systemd/system/tunneler.service"
 
 echo "Downloading systemd unit..."
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "${unit_url}" -o "${tmpdir}/grpctunneler.service"
+  curl -fsSL "${unit_url}" -o "${tmpdir}/tunneler.service"
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${tmpdir}/grpctunneler.service" "${unit_url}"
+  wget -qO "${tmpdir}/tunneler.service" "${unit_url}"
 else
   echo "ERROR: curl or wget is required for download." >&2
   exit 1
 fi
 
-install -m 0644 "${tmpdir}/grpctunneler.service" "${systemd_dst}"
+install -m 0644 "${tmpdir}/tunneler.service" "${systemd_dst}"
 
 systemctl daemon-reload
-systemctl enable grpctunneler.service
-systemctl start grpctunneler.service
+systemctl enable tunneler.service
+systemctl start tunneler.service
 
 unset ENROLLMENT_TOKEN
 

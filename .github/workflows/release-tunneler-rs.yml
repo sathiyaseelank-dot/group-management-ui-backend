@@ -49,14 +49,14 @@ jobs:
       - name: Prepare artifact
         run: |
           mkdir -p dist
-          cp services/tunneler/target/${{ matrix.target }}/release/grpctunneler2 \
-             dist/grpctunneler-linux-${{ matrix.arch }}
+          cp services/tunneler/target/${{ matrix.target }}/release/tunneler \
+             dist/tunneler-linux-${{ matrix.arch }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: grpctunneler-linux-${{ matrix.arch }}
-          path: dist/grpctunneler-linux-${{ matrix.arch }}
+          name: tunneler-linux-${{ matrix.arch }}
+          path: dist/tunneler-linux-${{ matrix.arch }}
 
   release:
     needs: build
@@ -73,5 +73,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/grpctunneler-linux-amd64/grpctunneler-linux-amd64
-            artifacts/grpctunneler-linux-arm64/grpctunneler-linux-arm64
+            artifacts/tunneler-linux-amd64/tunneler-linux-amd64
+            artifacts/tunneler-linux-arm64/tunneler-linux-arm64

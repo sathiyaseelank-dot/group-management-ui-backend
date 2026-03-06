@@ -1,32 +1,26 @@
 [Unit]
-Description=Zero-Trust gRPC Connector
+Description=Zero-Trust Connector
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/grpcconnector2/connector.conf
-Environment=GRPCCONNECTOR_API_ENDPOINT=/run/grpcconnector2/connector.sock
-# Controller CA is provided via systemd credentials (test/dev only)
-LoadCredential=CONTROLLER_CA:/etc/grpcconnector2/ca.crt
+EnvironmentFile=/etc/connector/connector.conf
+Environment=CONNECTOR_API_ENDPOINT=/run/connector/connector.sock
+LoadCredential=CONTROLLER_CA:/etc/connector/ca.crt
 
-# Restart behavior (same semantics as Twingate)
 Restart=always
 RestartSec=10
 
+ExecStart=/usr/bin/connector run --systemd-watchdog
 
-# Start command (watchdog-enabled)
-ExecStart=/usr/bin/grpcconnector2 run --systemd-watchdog
-
-# Identity & isolation
 DynamicUser=yes
 PrivateUsers=yes
 PrivateTmp=yes
 PrivateDevices=yes
 NoNewPrivileges=yes
 
-# Filesystem & kernel hardening
 ProtectSystem=full
 ProtectHome=yes
 ProtectKernelLogs=yes
@@ -36,11 +30,9 @@ ProtectControlGroups=yes
 ProtectHostname=yes
 ProtectClock=yes
 
-# Capability & device lockdown
 CapabilityBoundingSet=
 DevicePolicy=closed
 
-# Syscall & namespace restrictions
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictNamespaces=yes
 RestrictSUIDSGID=yes
@@ -48,13 +40,11 @@ RestrictRealtime=yes
 SystemCallArchitectures=native
 SystemCallFilter=~@clock @debug @module @mount @raw-io @reboot @privileged @resources @cpu-emulation @obsolete
 
-# Memory protections
 MemoryDenyWriteExecute=yes
 LockPersonality=yes
 
-# Runtime behavior
 UMask=0077
-RuntimeDirectory=grpcconnector2
+RuntimeDirectory=connector
 NotifyAccess=main
 WatchdogSec=30s
 
