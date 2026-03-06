@@ -8,3 +8,4 @@ grpcconnector2-*
 connector-*
 !connector-rs/
 tunneler-*
+!tunneler-rs/
