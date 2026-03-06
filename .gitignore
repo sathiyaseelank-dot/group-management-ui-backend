@@ -1,0 +1,56 @@
+# v0 runtime files (should only exist in preview, not in git)
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+
+# Common ignores
+node_modules/
+.next/
+dist/
+.env*.local
+.DS_Store
+
+# Database files
+ztna.db
+ztna.db-shm
+ztna.db-wal
+*.db
+*.sqlite
+*.sqlite3
+
+# Service-specific
+services/controller/tmp/*
+services/controller/controller
+services/controller/ztna.db*
+services/controller/ca/
+services/controller/tls/
+services/controller/state/
+
+# Rust build artifacts
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/
+.grok/
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.csr
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak

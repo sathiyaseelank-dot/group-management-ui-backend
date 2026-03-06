@@ -1,0 +1,74 @@
+use anyhow::{bail, Result};
+use x509_parser::prelude::*;
+
+/// Extract SPIFFE URI from a DER-encoded X.509 certificate.
+pub fn extract_spiffe_id(cert_der: &[u8]) -> Result<String> {
+    let (_, cert) = X509Certificate::from_der(cert_der)
+        .map_err(|e| anyhow::anyhow!("failed to parse X.509 cert: {}", e))?;
+
+    let san_ext = cert
+        .get_extension_unique(&oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)
+        .map_err(|_| anyhow::anyhow!("duplicate SAN extension"))?;
+
+    let ext = match san_ext {
+        Some(e) => e,
+        None => bail!("certificate has no SAN extension"),
+    };
+
+    let san = match ext.parsed_extension() {
+        ParsedExtension::SubjectAlternativeName(san) => san,
+        _ => bail!("could not parse SAN extension"),
+    };
+
+    let mut spiffe_uris: Vec<String> = Vec::new();
+    for name in &san.general_names {
+        if let GeneralName::URI(uri) = name {
+            if uri.starts_with("spiffe://") {
+                spiffe_uris.push(uri.to_string());
+            }
+        }
+    }
+
+    if spiffe_uris.len() != 1 {
+        bail!(
+            "certificate must contain exactly one SPIFFE URI SAN, found {}",
+            spiffe_uris.len()
+        );
+    }
+
+    Ok(spiffe_uris.into_iter().next().unwrap())
+}
+
+/// Verify a SPIFFE URI matches trust domain and expected role.
+pub fn verify_spiffe_uri(uri: &str, trust_domain: &str, expected_role: &str) -> Result<String> {
+    let rest = uri
+        .strip_prefix("spiffe://")
+        .ok_or_else(|| anyhow::anyhow!("SPIFFE ID must use spiffe:// scheme"))?;
+
+    let slash = rest
+        .find('/')
+        .ok_or_else(|| anyhow::anyhow!("invalid SPIFFE ID format"))?;
+    let host = &rest[..slash];
+    let path = &rest[slash + 1..];
+
+    if host != trust_domain {
+        bail!(
+            "SPIFFE trust domain mismatch: got '{}', want '{}'",
+            host,
+            trust_domain
+        );
+    }
+
+    let parts: Vec<&str> = path.splitn(2, '/').collect();
+    let role = parts[0];
+
+    if !expected_role.is_empty() && role != expected_role {
+        bail!(
+            "unexpected SPIFFE role: got '{}', want '{}'",
+            role,
+            expected_role
+        );
+    }
+
+    Ok(uri.to_string())
+}

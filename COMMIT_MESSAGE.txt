@@ -1,0 +1,59 @@
+refactor: reorganize repository structure for team collaboration
+
+## Changes
+
+### Structure
+- Move services to `services/` directory (controller, connector, tunneler)
+- Move frontend to `apps/` directory
+- Create `shared/` for proto files and configs
+- Create `docs/` for documentation
+- Remove old Go connector and tunneler implementations
+
+### CI/CD
+- Update `.github/workflows/release-connector-rs.yml` paths
+- Add `.github/workflows/release-tunneler-rs.yml`
+- Both workflows now use `services/` directory
+
+### Development Tools
+- Add `Makefile` with build, dev, test, and clean commands
+- Add comprehensive documentation:
+  - `README.md` - Project overview
+  - `QUICKSTART.md` - Quick start guide
+  - `docs/development.md` - Development workflow
+  - `docs/architecture.md` - System architecture
+  - `REORGANIZATION_SUMMARY.md` - Summary of changes
+  - `POST_REORGANIZATION_CHECKLIST.md` - Next steps
+
+### Configuration
+- Update `.gitignore` for new structure
+- Add `shared/configs/.env.example` for configuration templates
+
+### Removed
+- `backend/connector/` - Old Go implementation
+- `backend/tunneler/` - Old Go implementation
+- `backend/go.mod` and `backend/go.sum`
+
+## Benefits
+
+- Clear component separation for 4-member team
+- No confusion between old Go and new Rust implementations
+- Unified build system with Makefile
+- Comprehensive documentation for onboarding
+- Better CI/CD organization
+- Parallel development workflow
+
+## Breaking Changes
+
+None - deployment scripts and binary names remain unchanged
+
+## Migration
+
+Team members should:
+1. Pull latest changes
+2. Run `make build-all` to verify
+3. Read `QUICKSTART.md` for new workflow
+4. Update local development setup
+
+## Backup
+
+Original structure backed up at: `../ztna-backup-20260306-125031/`

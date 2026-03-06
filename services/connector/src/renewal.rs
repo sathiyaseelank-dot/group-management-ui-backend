@@ -1,0 +1,67 @@
+use crate::tls::cert_store::CertStore;
+use std::time::{Duration, SystemTime};
+use tracing::{info, warn};
+
+/// Background task: renews the workload certificate before it expires.
+pub async fn renewal_loop(
+    controller_addr: String,
+    connector_id: String,
+    trust_domain: String,
+    store: CertStore,
+    ca_pem: Vec<u8>,
+) {
+    loop {
+        let sleep_dur = next_renewal_delay(store.not_after(), store.total_ttl());
+        tokio::time::sleep(sleep_dur).await;
+
+        match crate::enroll::renew(
+            &controller_addr,
+            &connector_id,
+            &trust_domain,
+            &store,
+            &ca_pem,
+        )
+        .await
+        {
+            Ok(result) => {
+                let (not_before, not_after) =
+                    crate::enroll::cert_validity(&result.cert_der).unwrap_or((
+                        SystemTime::now(),
+                        SystemTime::now() + Duration::from_secs(3600),
+                    ));
+                let total_ttl = not_after
+                    .duration_since(not_before)
+                    .unwrap_or(Duration::from_secs(3600));
+                store.update(result.cert_der, result.key_der.to_vec(), not_after, total_ttl);
+                info!("certificate renewed successfully");
+            }
+            Err(e) => {
+                warn!("certificate renewal failed: {}", e);
+            }
+        }
+    }
+}
+
+fn next_renewal_delay(not_after: SystemTime, total_ttl: Duration) -> Duration {
+    let now = SystemTime::now();
+    let remaining = not_after.duration_since(now).unwrap_or(Duration::ZERO);
+
+    if remaining.is_zero() {
+        return Duration::from_secs(10);
+    }
+
+    let ttl = if total_ttl.is_zero() { remaining } else { total_ttl };
+
+    // Renew at 70% of TTL (i.e. 30% before expiry)
+    let renew_offset = ttl * 30 / 100;
+    let renew_at = not_after
+        .checked_sub(renew_offset)
+        .unwrap_or(not_after);
+
+    let delay = renew_at.duration_since(now).unwrap_or(Duration::ZERO);
+    if delay < Duration::from_secs(10) {
+        Duration::from_secs(10)
+    } else {
+        delay
+    }
+}

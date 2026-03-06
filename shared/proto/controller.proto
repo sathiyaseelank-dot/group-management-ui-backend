@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package controller.v1;
+
+option go_package = "controller/gen/controllerpb;controllerpb";
+
+service EnrollmentService {
+  rpc EnrollConnector(EnrollRequest) returns (EnrollResponse);
+  rpc EnrollTunneler(EnrollRequest) returns (EnrollResponse);
+  rpc Renew(EnrollRequest) returns (EnrollResponse);
+}
+
+service ControlPlane {
+  rpc Connect(stream ControlMessage)
+      returns (stream ControlMessage);
+}
+
+message EnrollRequest {
+  string id = 1;
+  bytes public_key = 2;
+  string token = 3;
+  string private_ip = 4;
+  string version = 5;
+}
+
+message EnrollResponse {
+  bytes certificate = 1;
+  bytes ca_certificate = 2;
+}
+
+message ControlMessage {
+  string type = 1;
+  bytes payload = 2;
+  string connector_id = 3;
+  string private_ip = 4;
+  string status = 5;
+}
