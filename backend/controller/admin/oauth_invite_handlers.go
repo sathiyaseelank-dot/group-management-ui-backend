@@ -76,7 +76,7 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	if base == "" {
 		base = "http://localhost:8081"
 	}
-	inviteLink := base + "/login?invite_token=" + inviteToken
+	inviteLink := base + "/invite?token=" + inviteToken
 
 	delivered := false
 	if err := s.sendInviteEmail(req.Email, inviteLink); err == nil {
