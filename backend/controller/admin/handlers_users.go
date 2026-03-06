@@ -56,6 +56,9 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("failed to create user: %v", err), http.StatusBadRequest)
 			return
 		}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
+		}
 		writeJSON(w, http.StatusOK, user)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -114,11 +117,17 @@ func (s *Server) handleUserSubroutes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("failed to update user: %v", err), http.StatusBadRequest)
 			return
 		}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
+		}
 		writeJSON(w, http.StatusOK, existing)
 	case http.MethodDelete:
 		if err := s.Users.DeleteUser(userID); err != nil {
 			http.Error(w, fmt.Sprintf("failed to delete user: %v", err), http.StatusBadRequest)
 			return
+		}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 	default:
@@ -161,6 +170,9 @@ func (s *Server) handleUserGroups(w http.ResponseWriter, r *http.Request) {
 		if err := s.Users.CreateGroup(&group); err != nil {
 			http.Error(w, fmt.Sprintf("failed to create group: %v", err), http.StatusBadRequest)
 			return
+		}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
 		}
 		writeJSON(w, http.StatusOK, group)
 	default:
@@ -215,11 +227,17 @@ func (s *Server) handleUserGroupMembers(w http.ResponseWriter, r *http.Request) 
 				http.Error(w, fmt.Sprintf("failed to update group: %v", err), http.StatusBadRequest)
 				return
 			}
+			if s.ACLNotify != nil {
+				s.ACLNotify.NotifyPolicyChange()
+			}
 			writeJSON(w, http.StatusOK, group)
 		case http.MethodDelete:
 			if err := s.Users.DeleteGroup(groupID); err != nil {
 				http.Error(w, fmt.Sprintf("failed to delete group: %v", err), http.StatusBadRequest)
 				return
+			}
+			if s.ACLNotify != nil {
+				s.ACLNotify.NotifyPolicyChange()
 			}
 			writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 		default:
@@ -255,6 +273,9 @@ func (s *Server) handleUserGroupMembers(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, fmt.Sprintf("failed to add member: %v", err), http.StatusBadRequest)
 			return
 		}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		var req struct {
@@ -271,6 +292,9 @@ func (s *Server) handleUserGroupMembers(w http.ResponseWriter, r *http.Request) 
 		if err := s.Users.RemoveUserFromGroup(req.UserID, groupID); err != nil {
 			http.Error(w, fmt.Sprintf("failed to remove member: %v", err), http.StatusBadRequest)
 			return
+		}
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	default:

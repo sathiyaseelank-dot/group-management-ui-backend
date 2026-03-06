@@ -121,10 +121,17 @@ func lookupConnectorNetwork(db *sql.DB, connectorID string) (string, error) {
 	if err := db.QueryRow(`SELECT remote_network_id FROM connectors WHERE id = ?`, connectorID).Scan(&networkID); err != nil {
 		return "", err
 	}
-	if !networkID.Valid || strings.TrimSpace(networkID.String) == "" {
-		return "", fmt.Errorf("connector %s has no network", connectorID)
+	if networkID.Valid && strings.TrimSpace(networkID.String) != "" {
+		return networkID.String, nil
 	}
-	return networkID.String, nil
+	var assigned sql.NullString
+	if err := db.QueryRow(`SELECT remote_network_id FROM connector_remote_networks WHERE connector_id = ? ORDER BY assigned_at DESC LIMIT 1`, connectorID).Scan(&assigned); err != nil {
+		return "", err
+	}
+	if assigned.Valid && strings.TrimSpace(assigned.String) != "" {
+		return assigned.String, nil
+	}
+	return "", fmt.Errorf("connector %s has no network", connectorID)
 }
 
 func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, error) {
