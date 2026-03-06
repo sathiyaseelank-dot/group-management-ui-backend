@@ -22,9 +22,7 @@ ztna.db-wal
 services/controller/tmp/*
 services/controller/controller
 services/controller/ztna.db*
-services/controller/ca/
 services/controller/tls/
-services/controller/state/
 
 # Rust build artifacts
 **/target/
