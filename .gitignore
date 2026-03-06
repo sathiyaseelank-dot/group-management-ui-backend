@@ -23,4 +23,6 @@ backend/controller/controller
 # backend/controller/run-air.sh
 
 # Rust build artifacts
-backend/connector-rs/target/
+**/target/
+**/*.rs.bk
+Cargo.lock
