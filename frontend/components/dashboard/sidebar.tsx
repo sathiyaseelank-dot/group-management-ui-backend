@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Users, Shield, Database, Globe, FileText, ChevronDown } from 'lucide-react';
+import { Users, Shield, Database, Globe, FileText, ChevronDown, Activity } from 'lucide-react';
 
 type NavItem = {
   label: string;
@@ -40,6 +40,13 @@ const navItems: NavItem[] = [
       { label: 'Connectors', href: '/dashboard/connectors' },
       { label: 'Tunnelers', href: '/dashboard/tunnelers' },
     ],
+  },
+
+  {
+    label: 'Network Diagnostics',
+    href: '/dashboard/diagnostics',
+    icon: Activity,
+    description: 'Monitor connectivity and trace access paths',
   },
 
   {

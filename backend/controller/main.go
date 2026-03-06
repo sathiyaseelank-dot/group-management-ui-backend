@@ -157,6 +157,7 @@ func main() {
 		ACLNotify:         controlPlaneServer,
 		Users:             userStore,
 		RemoteNet:         remoteNetStore,
+		StreamChecker:     controlPlaneServer,
 		AdminAuthToken:    adminAuthToken,
 		InternalAuthToken: internalAuthToken,
 		CACertPEM:         caCertPEM,

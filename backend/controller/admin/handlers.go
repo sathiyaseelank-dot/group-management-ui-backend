@@ -10,14 +10,21 @@ import (
 	"controller/state"
 )
 
+// ConnectorStreamChecker allows the admin server to query whether a connector
+// has an active gRPC control-plane stream without importing the api package.
+type ConnectorStreamChecker interface {
+	IsStreamActive(id string) bool
+}
+
 type Server struct {
-	Tokens    *state.TokenStore
-	Reg       *state.Registry
-	Tunnelers *state.TunnelerStatusRegistry
-	ACLs      *state.ACLStore
-	ACLNotify ACLNotifier
-	Users     *state.UserStore
-	RemoteNet *state.RemoteNetworkStore
+	Tokens        *state.TokenStore
+	Reg           *state.Registry
+	Tunnelers     *state.TunnelerStatusRegistry
+	ACLs          *state.ACLStore
+	ACLNotify     ACLNotifier
+	Users         *state.UserStore
+	RemoteNet     *state.RemoteNetworkStore
+	StreamChecker ConnectorStreamChecker
 
 	AdminAuthToken    string
 	InternalAuthToken string

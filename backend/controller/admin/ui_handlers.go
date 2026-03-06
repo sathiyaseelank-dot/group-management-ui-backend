@@ -657,61 +657,109 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if r.Method != http.MethodPost {
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := db.Query(`
+			SELECT ar.id, ar.name, ar.resource_id, ar.enabled, ar.created_at, ar.updated_at, arg.group_id
+			FROM access_rules ar
+			LEFT JOIN access_rule_groups arg ON arg.rule_id = ar.id
+			ORDER BY ar.created_at DESC
+		`)
+		if err != nil {
+			http.Error(w, "failed to list access rules", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := []uiAccessRule{}
+		byID := map[string]*uiAccessRule{}
+		for rows.Next() {
+			var ruleID, name, resourceID, createdAt, updatedAt string
+			var enabled int
+			var groupID sql.NullString
+			if err := rows.Scan(&ruleID, &name, &resourceID, &enabled, &createdAt, &updatedAt, &groupID); err != nil {
+				http.Error(w, "failed to read access rules", http.StatusInternalServerError)
+				return
+			}
+			rule, exists := byID[ruleID]
+			if !exists {
+				rule = &uiAccessRule{
+					ID:            ruleID,
+					Name:          name,
+					ResourceID:    resourceID,
+					Enabled:       enabled == 1,
+					CreatedAt:     createdAt,
+					UpdatedAt:     updatedAt,
+					AllowedGroups: []string{},
+				}
+				byID[ruleID] = rule
+				out = append(out, *rule)
+			}
+			if groupID.Valid {
+				rule.AllowedGroups = append(rule.AllowedGroups, groupID.String)
+			}
+		}
+		// Preserve ordering from query by rebuilding slice from map-augmented entries.
+		for i := range out {
+			if rule, ok := byID[out[i].ID]; ok {
+				out[i] = *rule
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
+	case http.MethodPost:
+		var req struct {
+			ResourceID string   `json:"resourceId"`
+			Name       string   `json:"name"`
+			GroupIDs   []string `json:"groupIds"`
+			Enabled    bool     `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if req.ResourceID == "" || req.Name == "" || req.GroupIDs == nil {
+			http.Error(w, "resourceId, name, and groupIds are required", http.StatusBadRequest)
+			return
+		}
+		ruleID := fmt.Sprintf("rule_%d", time.Now().UTC().UnixMilli())
+		now := dateStringNow()
+		enabled := 1
+		if !req.Enabled {
+			enabled = 0
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			http.Error(w, "failed to create access rule", http.StatusInternalServerError)
+			return
+		}
+		_, err = tx.Exec(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, ruleID, req.Name, req.ResourceID, enabled, now, now)
+		if err != nil {
+			_ = tx.Rollback()
+			http.Error(w, "failed to create access rule", http.StatusBadRequest)
+			return
+		}
+		stmt, _ := tx.Prepare(`INSERT INTO access_rule_groups (rule_id, group_id) VALUES (?, ?)`)
+		for _, gid := range req.GroupIDs {
+			_, _ = stmt.Exec(ruleID, gid)
+		}
+		if stmt != nil {
+			stmt.Close()
+		}
+		_ = tx.Commit()
+		if s.ACLNotify != nil {
+			s.ACLNotify.NotifyPolicyChange()
+		}
+		writeJSON(w, http.StatusOK, uiAccessRule{
+			ID:            ruleID,
+			Name:          req.Name,
+			ResourceID:    req.ResourceID,
+			AllowedGroups: req.GroupIDs,
+			Enabled:       req.Enabled,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		})
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
-	var req struct {
-		ResourceID string   `json:"resourceId"`
-		Name       string   `json:"name"`
-		GroupIDs   []string `json:"groupIds"`
-		Enabled    bool     `json:"enabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-	if req.ResourceID == "" || req.Name == "" || req.GroupIDs == nil {
-		http.Error(w, "resourceId, name, and groupIds are required", http.StatusBadRequest)
-		return
-	}
-	ruleID := fmt.Sprintf("rule_%d", time.Now().UTC().UnixMilli())
-	now := dateStringNow()
-	enabled := 1
-	if !req.Enabled {
-		enabled = 0
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		http.Error(w, "failed to create access rule", http.StatusInternalServerError)
-		return
-	}
-	_, err = tx.Exec(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, ruleID, req.Name, req.ResourceID, enabled, now, now)
-	if err != nil {
-		_ = tx.Rollback()
-		http.Error(w, "failed to create access rule", http.StatusBadRequest)
-		return
-	}
-	stmt, _ := tx.Prepare(`INSERT INTO access_rule_groups (rule_id, group_id) VALUES (?, ?)`)
-	for _, gid := range req.GroupIDs {
-		_, _ = stmt.Exec(ruleID, gid)
-	}
-	if stmt != nil {
-		stmt.Close()
-	}
-	_ = tx.Commit()
-	if s.ACLNotify != nil {
-		s.ACLNotify.NotifyPolicyChange()
-	}
-	writeJSON(w, http.StatusOK, uiAccessRule{
-		ID:            ruleID,
-		Name:          req.Name,
-		ResourceID:    req.ResourceID,
-		AllowedGroups: req.GroupIDs,
-		Enabled:       req.Enabled,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	})
 }
 
 func (s *Server) handleUIAccessRulesSubroutes(w http.ResponseWriter, r *http.Request) {
@@ -1467,4 +1515,374 @@ func policyHash(resources []policyResource) string {
 
 func policyVersion(db *sql.DB, connectorID, policyHash, compiledAt string) int {
 	return api.PolicyVersionForUI(db, connectorID, policyHash, compiledAt)
+}
+
+// ── Diagnostics handlers ──────────────────────────────────────────────────────
+
+type uiConnectorDiagnostic struct {
+	ID               string  `json:"id"`
+	Name             string  `json:"name"`
+	Status           string  `json:"status"`
+	StreamActive     bool    `json:"streamActive"`
+	StalenessSeconds float64 `json:"stalenessSeconds"`
+	LastSeenAt       *string `json:"lastSeenAt"`
+	RemoteNetworkID  string  `json:"remoteNetworkId"`
+}
+
+type uiTunnelerDiagnostic struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Status     string  `json:"status"`
+	LastSeenAt *string `json:"lastSeenAt"`
+}
+
+// handleUIDiagnostics returns aggregate health for all connectors and tunnelers.
+func (s *Server) handleUIDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	db, ok := s.uiDB(w)
+	if !ok {
+		return
+	}
+
+	rows, err := db.Query(`SELECT id, name, status, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at FROM connectors ORDER BY name ASC`)
+	if err != nil {
+		http.Error(w, "failed to list connectors", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	connectors := []uiConnectorDiagnostic{}
+	now := time.Now().UTC()
+	for rows.Next() {
+		var id, status string
+		var name, remoteNetworkID, lastSeen, lastSeenAt sql.NullString
+		if err := rows.Scan(&id, &name, &status, &remoteNetworkID, &lastSeen, &lastSeenAt); err != nil {
+			http.Error(w, "failed to read connectors", http.StatusInternalServerError)
+			return
+		}
+		var stalenessSeconds float64
+		var lastSeenAtPtr *string
+		if lastSeenAt.Valid && lastSeenAt.String != "" {
+			lastSeenAtPtr = &lastSeenAt.String
+			if t, err := time.Parse("2006-01-02T15:04:05.000Z", lastSeenAt.String); err == nil {
+				stalenessSeconds = now.Sub(t).Seconds()
+			}
+		} else if lastSeen.Valid && lastSeen.String != "" {
+			if ts, err := strconv.ParseInt(lastSeen.String, 10, 64); err == nil && ts > 0 {
+				iso := isoStringFromUnix(ts)
+				lastSeenAtPtr = &iso
+				stalenessSeconds = float64(now.Unix() - ts)
+			}
+		}
+		streamActive := false
+		if s.StreamChecker != nil {
+			streamActive = s.StreamChecker.IsStreamActive(id)
+		}
+		connectors = append(connectors, uiConnectorDiagnostic{
+			ID:               id,
+			Name:             strings.TrimSpace(name.String),
+			Status:           strings.TrimSpace(status),
+			StreamActive:     streamActive,
+			StalenessSeconds: stalenessSeconds,
+			LastSeenAt:       lastSeenAtPtr,
+			RemoteNetworkID:  strings.TrimSpace(remoteNetworkID.String),
+		})
+	}
+
+	// Tunnelers
+	tRows, err := db.Query(`SELECT id, name, status, last_seen_at FROM tunnelers ORDER BY name ASC`)
+	if err != nil {
+		// Tunnelers table may not exist; just return empty.
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"connectors": connectors,
+			"tunnelers":  []uiTunnelerDiagnostic{},
+		})
+		return
+	}
+	defer tRows.Close()
+
+	tunnelers := []uiTunnelerDiagnostic{}
+	for tRows.Next() {
+		var id, status string
+		var name, lastSeenAt sql.NullString
+		if err := tRows.Scan(&id, &name, &status, &lastSeenAt); err != nil {
+			continue
+		}
+		var lastSeenAtPtr *string
+		if lastSeenAt.Valid && lastSeenAt.String != "" {
+			lastSeenAtPtr = &lastSeenAt.String
+		}
+		tunnelers = append(tunnelers, uiTunnelerDiagnostic{
+			ID:         id,
+			Name:       strings.TrimSpace(name.String),
+			Status:     strings.TrimSpace(status),
+			LastSeenAt: lastSeenAtPtr,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"connectors": connectors,
+		"tunnelers":  tunnelers,
+	})
+}
+
+// handleUIDiagnosticsPing checks the gRPC stream status for one connector.
+func (s *Server) handleUIDiagnosticsPing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	db, ok := s.uiDB(w)
+	if !ok {
+		return
+	}
+	connectorID := strings.TrimPrefix(r.URL.Path, "/api/diagnostics/ping/")
+	connectorID = strings.Trim(connectorID, "/")
+	if connectorID == "" {
+		http.Error(w, "connector id required", http.StatusBadRequest)
+		return
+	}
+
+	var status string
+	var lastSeen, lastSeenAt sql.NullString
+	err := db.QueryRow(`SELECT status, CAST(last_seen AS TEXT) as last_seen, last_seen_at FROM connectors WHERE id = ?`, connectorID).
+		Scan(&status, &lastSeen, &lastSeenAt)
+	if err == sql.ErrNoRows {
+		http.Error(w, "connector not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to query connector", http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now().UTC()
+	var stalenessSeconds float64
+	var lastSeenAtPtr *string
+	if lastSeenAt.Valid && lastSeenAt.String != "" {
+		lastSeenAtPtr = &lastSeenAt.String
+		if t, err := time.Parse("2006-01-02T15:04:05.000Z", lastSeenAt.String); err == nil {
+			stalenessSeconds = now.Sub(t).Seconds()
+		}
+	} else if lastSeen.Valid && lastSeen.String != "" {
+		if ts, err := strconv.ParseInt(lastSeen.String, 10, 64); err == nil && ts > 0 {
+			iso := isoStringFromUnix(ts)
+			lastSeenAtPtr = &iso
+			stalenessSeconds = float64(now.Unix() - ts)
+		}
+	}
+
+	streamActive := false
+	if s.StreamChecker != nil {
+		streamActive = s.StreamChecker.IsStreamActive(connectorID)
+	}
+
+	message := "stream inactive"
+	if streamActive {
+		message = "stream active"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"connectorId":      connectorID,
+		"streamActive":     streamActive,
+		"stalenessSeconds": stalenessSeconds,
+		"lastSeenAt":       lastSeenAtPtr,
+		"message":          message,
+	})
+}
+
+type traceHop struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Healthy bool   `json:"healthy"`
+}
+
+// handleUIDiagnosticsTrace evaluates the access path from a user to a resource.
+func (s *Server) handleUIDiagnosticsTrace(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	db, ok := s.uiDB(w)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		UserID     string `json:"userId"`
+		ResourceID string `json:"resourceId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.UserID == "" || req.ResourceID == "" {
+		http.Error(w, "userId and resourceId are required", http.StatusBadRequest)
+		return
+	}
+
+	// Fetch user.
+	var userName, userEmail, userStatus string
+	if err := db.QueryRow(`SELECT name, email, status FROM users WHERE id = ?`, req.UserID).
+		Scan(&userName, &userEmail, &userStatus); err == sql.ErrNoRows {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "failed to query user", http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch user's groups.
+	groupRows, err := db.Query(`SELECT ug.id, ug.name FROM user_group_members ugm JOIN user_groups ug ON ug.id = ugm.group_id WHERE ugm.user_id = ?`, req.UserID)
+	if err != nil {
+		http.Error(w, "failed to query user groups", http.StatusInternalServerError)
+		return
+	}
+	defer groupRows.Close()
+	type simpleGroup struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	userGroups := []simpleGroup{}
+	userGroupIDs := map[string]string{} // id -> name
+	for groupRows.Next() {
+		var gid, gname string
+		if err := groupRows.Scan(&gid, &gname); err == nil {
+			userGroups = append(userGroups, simpleGroup{ID: gid, Name: gname})
+			userGroupIDs[gid] = gname
+		}
+	}
+
+	// Fetch resource.
+	var resName, resAddress, resType string
+	var resRemoteNetID sql.NullString
+	if err := db.QueryRow(`SELECT name, address, type, remote_network_id FROM resources WHERE id = ?`, req.ResourceID).
+		Scan(&resName, &resAddress, &resType, &resRemoteNetID); err == sql.ErrNoRows {
+		http.Error(w, "resource not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "failed to query resource", http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch access rules for the resource.
+	ruleRows, err := db.Query(`SELECT ar.id, ar.name, ar.enabled FROM access_rules ar WHERE ar.resource_id = ?`, req.ResourceID)
+	if err != nil {
+		http.Error(w, "failed to query access rules", http.StatusInternalServerError)
+		return
+	}
+	defer ruleRows.Close()
+
+	type simpleRule struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Enabled bool   `json:"enabled"`
+	}
+	type ruleWithGroups struct {
+		simpleRule
+		groups []string
+	}
+	var allRules []ruleWithGroups
+	for ruleRows.Next() {
+		var rid, rname string
+		var enabled int
+		if err := ruleRows.Scan(&rid, &rname, &enabled); err == nil {
+			allRules = append(allRules, ruleWithGroups{
+				simpleRule: simpleRule{ID: rid, Name: rname, Enabled: enabled != 0},
+			})
+		}
+	}
+	// Fetch groups per rule.
+	for i := range allRules {
+		argRows, err := db.Query(`SELECT group_id FROM access_rule_groups WHERE rule_id = ?`, allRules[i].ID)
+		if err == nil {
+			for argRows.Next() {
+				var gid string
+				if err := argRows.Scan(&gid); err == nil {
+					allRules[i].groups = append(allRules[i].groups, gid)
+				}
+			}
+			argRows.Close()
+		}
+	}
+
+	// Determine access.
+	allowed := false
+	reason := "No matching access rules found"
+	matchedRulesOut := []simpleRule{}
+	matchedGroupName := ""
+	matchedRuleName := ""
+	for _, rule := range allRules {
+		if !rule.Enabled {
+			continue
+		}
+		for _, gid := range rule.groups {
+			if gname, ok := userGroupIDs[gid]; ok {
+				allowed = true
+				matchedGroupName = gname
+				matchedRuleName = rule.Name
+				matchedRulesOut = append(matchedRulesOut, rule.simpleRule)
+				break
+			}
+		}
+	}
+	if allowed {
+		reason = fmt.Sprintf("Group '%s' has access via rule '%s'", matchedGroupName, matchedRuleName)
+	} else if len(allRules) > 0 {
+		reason = "User is not in any group that has access to this resource"
+	}
+
+	// Build path.
+	userHealthy := strings.ToLower(userStatus) == "active"
+	path := []traceHop{
+		{Type: "user", ID: req.UserID, Name: userName, Status: strings.ToLower(userStatus), Healthy: userHealthy},
+	}
+	// Add the first matched group (or first user group).
+	if len(userGroups) > 0 {
+		g := userGroups[0]
+		path = append(path, traceHop{Type: "group", ID: g.ID, Name: g.Name, Status: "member", Healthy: true})
+	}
+	path = append(path, traceHop{Type: "resource", ID: req.ResourceID, Name: resName, Status: func() string {
+		if allowed {
+			return "allowed"
+		}
+		return "denied"
+	}(), Healthy: allowed})
+
+	// Remote network and connectors.
+	if resRemoteNetID.Valid && resRemoteNetID.String != "" {
+		var rnName string
+		rnErr := db.QueryRow(`SELECT name FROM remote_networks WHERE id = ?`, resRemoteNetID.String).Scan(&rnName)
+		if rnErr == nil {
+			path = append(path, traceHop{Type: "remote_network", ID: resRemoteNetID.String, Name: rnName, Status: "active", Healthy: true})
+		}
+		// Online connectors for this network.
+		cRows, err := db.Query(`SELECT id, name, status FROM connectors WHERE remote_network_id = ? AND status = 'online' LIMIT 1`, resRemoteNetID.String)
+		if err == nil {
+			defer cRows.Close()
+			for cRows.Next() {
+				var cid, cname, cstatus string
+				if err := cRows.Scan(&cid, &cname, &cstatus); err == nil {
+					streamActive := false
+					if s.StreamChecker != nil {
+						streamActive = s.StreamChecker.IsStreamActive(cid)
+					}
+					path = append(path, traceHop{Type: "connector", ID: cid, Name: cname, Status: cstatus, Healthy: streamActive})
+				}
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"allowed":      allowed,
+		"reason":       reason,
+		"path":         path,
+		"userGroups":   userGroups,
+		"matchedRules": matchedRulesOut,
+	})
 }

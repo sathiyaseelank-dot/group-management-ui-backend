@@ -17,6 +17,7 @@ import ResourcePoliciesPage from './pages/policy/ResourcePoliciesPage'
 import ResourcePolicyDetailPage from './pages/policy/ResourcePolicyDetailPage'
 import SignInPolicyPage from './pages/policy/SignInPolicyPage'
 import DeviceProfilesPage from './pages/policy/DeviceProfilesPage'
+import NetworkDiagnosticsPage from './pages/diagnostics/NetworkDiagnosticsPage'
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="tunnelers" element={<TunnelersPage />} />
         <Route path="tunnelers/new" element={<NewTunnelerPage />} />
         <Route path="tunnelers/:tunnelerId" element={<TunnelerDetailPage />} />
+        <Route path="diagnostics" element={<NetworkDiagnosticsPage />} />
         <Route path="policy" element={<PolicyLayout />}>
           <Route index element={<Navigate to="resource-policies" replace />} />
           <Route path="resource-policies" element={<ResourcePoliciesPage />} />

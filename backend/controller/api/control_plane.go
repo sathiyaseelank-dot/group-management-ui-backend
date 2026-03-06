@@ -284,6 +284,21 @@ func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient) {
 	s.logConnectorEvent(c.connectorID, fmt.Sprintf("policy snapshot pushed: version=%d resources=%d", snap.SnapshotMeta.PolicyVersion, len(snap.Resources)))
 }
 
+// IsStreamActive returns true if a connector with the given ID currently has
+// an active gRPC control-plane stream. The id can be either the raw connector
+// ID or its full SPIFFE ID (both forms are checked).
+func (s *ControlPlaneServer) IsStreamActive(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Check by SPIFFE ID key first, then by connector ID embedded in key.
+	for key, c := range s.clients {
+		if key == id || c.connectorID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func parseConnectorID(spiffeID string) string {
 	if spiffeID == "" {
 		return ""

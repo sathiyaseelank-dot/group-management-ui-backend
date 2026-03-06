@@ -111,3 +111,43 @@ export interface SelectedSubject {
   type: SubjectType;
   label: string;
 }
+
+// Network Diagnostics
+export interface ConnectorDiagnostic {
+  id: string;
+  name: string;
+  status: string;
+  streamActive: boolean;
+  stalenessSeconds: number;
+  lastSeenAt: string | null;
+  remoteNetworkId: string;
+}
+
+export interface DiagnosticsData {
+  connectors: ConnectorDiagnostic[];
+  tunnelers: Array<{ id: string; name: string; status: string; lastSeenAt: string | null }>;
+}
+
+export interface PingResult {
+  connectorId: string;
+  streamActive: boolean;
+  stalenessSeconds: number;
+  lastSeenAt: string | null;
+  message: string;
+}
+
+export interface TraceHop {
+  type: 'user' | 'group' | 'resource' | 'remote_network' | 'connector';
+  id: string;
+  name: string;
+  status: string;
+  healthy: boolean;
+}
+
+export interface AccessTrace {
+  allowed: boolean;
+  reason: string;
+  path: TraceHop[];
+  userGroups: Array<{ id: string; name: string }>;
+  matchedRules: Array<{ id: string; name: string; enabled: boolean }>;
+}
