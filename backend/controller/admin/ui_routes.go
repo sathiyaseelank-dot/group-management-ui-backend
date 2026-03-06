@@ -19,6 +19,9 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/service-accounts", withCORS(http.HandlerFunc(s.handleUIServiceAccounts)))
 	mux.Handle("/api/policy/compile/", withCORS(http.HandlerFunc(s.handleUIPolicyCompile)))
 	mux.Handle("/api/policy/acl/", withCORS(http.HandlerFunc(s.handleUIPolicyACL)))
+	mux.Handle("/api/diagnostics", withCORS(http.HandlerFunc(s.handleUIDiagnostics)))
+	mux.Handle("/api/diagnostics/ping/", withCORS(http.HandlerFunc(s.handleUIDiagnosticsPing)))
+	mux.Handle("/api/diagnostics/trace", withCORS(http.HandlerFunc(s.handleUIDiagnosticsTrace)))
 }
 
 func withCORS(next http.Handler) http.Handler {

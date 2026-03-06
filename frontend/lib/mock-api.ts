@@ -15,6 +15,9 @@ import {
   Connector,
   Tunneler,
   ResourceType,
+  DiagnosticsData,
+  PingResult,
+  AccessTrace,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -337,5 +340,23 @@ export async function removeGroupMember(
 ): Promise<void> {
   await request(`/api/groups/${groupId}/members/${userId}`, {
     method: 'DELETE',
+  });
+}
+
+// API: Network Diagnostics
+export async function getDiagnostics(): Promise<DiagnosticsData> {
+  return request<DiagnosticsData>('/api/diagnostics');
+}
+
+export async function pingConnector(connectorId: string): Promise<PingResult> {
+  return request<PingResult>(`/api/diagnostics/ping/${encodeURIComponent(connectorId)}`, {
+    method: 'POST',
+  });
+}
+
+export async function traceAccess(userId: string, resourceId: string): Promise<AccessTrace> {
+  return request<AccessTrace>('/api/diagnostics/trace', {
+    method: 'POST',
+    body: JSON.stringify({ userId, resourceId }),
   });
 }
