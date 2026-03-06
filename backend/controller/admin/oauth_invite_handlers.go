@@ -548,13 +548,7 @@ func (s *Server) ensureActiveUserByEmail(db *sql.DB, email string) (string, erro
 
 func (s *Server) oauthConfig() (*oauth2.Config, error) {
 	clientID := strings.TrimSpace(s.GoogleClientID)
-	if clientID == "" {
-		clientID = "60482071733-dfnm857cqleo25v1t7asdv7qd9rlbb5n.apps.googleusercontent.com"
-	}
 	clientSecret := strings.TrimSpace(s.GoogleClientSecret)
-	if clientSecret == "" {
-		clientSecret = "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"
-	}
 	redirectURL := strings.TrimSpace(s.OAuthRedirectURL)
 	if redirectURL == "" {
 		redirectURL = "http://localhost:8081/oauth/google/callback"
