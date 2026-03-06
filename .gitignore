@@ -6,12 +6,14 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 node_modules/
 .next/
+.env
 .env*.local
+frontend/.env
+backend/controller/.env
 .DS_Store
 ztna.db
 ztna.db-shm
 ztna.db-wal
-# backend/controller/.env
 # backend/controller/.air.toml
 backend/controller/tmp/*
 # backend/controller/ztna.db
