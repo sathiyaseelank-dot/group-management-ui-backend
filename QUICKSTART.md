@@ -17,8 +17,8 @@ Install these tools before starting:
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/sathiyaseelank-dot/group-management-ui-backend.git
-cd group-management-ui-backend
+git clone https://github.com/vairabarath/zero-trust.git
+cd zero-trust
 ```
 
 ### 2. Choose Your Component

@@ -49,8 +49,8 @@ A production-ready Zero Trust Network Access system with mTLS authentication, SP
 
 ```bash
 # Clone the repository
-git clone https://github.com/sathiyaseelank-dot/group-management-ui-backend.git
-cd group-management-ui-backend
+git clone https://github.com/vairabarath/zero-trust.git
+cd zero-trust
 
 # Build all components
 make build-all
@@ -142,10 +142,10 @@ Use the automated setup scripts:
 
 ```bash
 # Install connector
-curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/main/scripts/setup.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/setup.sh | sudo bash
 
 # Install tunneler
-curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/main/scripts/tunneler-setup.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/tunneler-setup.sh | sudo bash
 ```
 
 ### Required Environment Variables
@@ -218,7 +218,7 @@ make test-frontend
 ## 📞 Support
 
 For issues and questions:
-- GitHub Issues: [Create an issue](https://github.com/sathiyaseelank-dot/group-management-ui-backend/issues)
+- GitHub Issues: [Create an issue](https://github.com/vairabarath/zero-trust/issues)
 - Documentation: [docs/](docs/)
 
 ---

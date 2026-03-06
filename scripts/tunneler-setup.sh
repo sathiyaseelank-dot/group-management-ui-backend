@@ -40,8 +40,8 @@ case "${arch}" in
 esac
 
 binary="grpctunneler-${os}-${arch}"
-release_url="https://github.com/sathiyaseelank-dot/group-management-ui-backend/releases/latest/download/${binary}"
-unit_url="https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/main/systemd/grpctunneler.service"
+release_url="https://github.com/vairabarath/zero-trust/releases/latest/download/${binary}"
+unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/main/systemd/grpctunneler.service"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
