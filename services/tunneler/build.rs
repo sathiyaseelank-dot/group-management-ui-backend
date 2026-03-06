@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build_server(false)
             .build_client(true)
             .build_transport(false)
-            .compile_protos(&["../proto/controller.proto"], &["../proto"])?;
+            .compile_protos(&["../../shared/proto/controller.proto"], &["../../shared/proto"])?;
     } else {
         println!("cargo:warning=protoc not found, using pre-generated proto code");
         let out_dir = std::env::var("OUT_DIR")?;
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::copy("src/proto/controller.v1.rs", dest_path)?;
     }
 
-    println!("cargo:rerun-if-changed=../proto/controller.proto");
-    println!("cargo:rerun-if-changed=../proto");
+    println!("cargo:rerun-if-changed=../../shared/proto/controller.proto");
+    println!("cargo:rerun-if-changed=../../shared/proto");
     Ok(())
 }

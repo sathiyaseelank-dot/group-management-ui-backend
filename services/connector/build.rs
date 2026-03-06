@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build_server(true)
             .build_client(true)
             .build_transport(false)
-            .compile_protos(&["../proto/controller.proto"], &["../proto"])?;
+            .compile_protos(&["../../shared/proto/controller.proto"], &["../../shared/proto"])?;
     } else {
         // Protoc is not available (e.g., during cross-compilation)
         // Use pre-generated proto file
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::copy("src/proto/controller.v1.rs", dest_path)?;
     }
 
-    println!("cargo:rerun-if-changed=../proto/controller.proto");
-    println!("cargo:rerun-if-changed=../proto");
+    println!("cargo:rerun-if-changed=../../shared/proto/controller.proto");
+    println!("cargo:rerun-if-changed=../../shared/proto");
     Ok(())
 }
