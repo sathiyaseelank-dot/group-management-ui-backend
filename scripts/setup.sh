@@ -10,7 +10,7 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-required_envs=(CONTROLLER_ADDR CONTROLLER_HTTP_ADDR CONNECTOR_ID ENROLLMENT_TOKEN POLICY_SIGNING_KEY)
+required_envs=(CONTROLLER_ADDR CONTROLLER_HTTP_ADDR CONNECTOR_ID ENROLLMENT_TOKEN)
 for var in "${required_envs[@]}"; do
   if [[ -z "${!var:-}" ]]; then
     echo "ERROR: ${var} is required." >&2
@@ -103,7 +103,9 @@ chmod 0644 "${bundled_ca}"
   echo "CONTROLLER_ADDR=${CONTROLLER_ADDR}"
   echo "CONNECTOR_ID=${CONNECTOR_ID}"
   echo "ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}"
-  echo "POLICY_SIGNING_KEY=${POLICY_SIGNING_KEY}"
+  if [[ -n "${POLICY_SIGNING_KEY:-}" ]]; then
+    echo "POLICY_SIGNING_KEY=${POLICY_SIGNING_KEY}"
+  fi
   if [[ -n "${CONNECTOR_PRIVATE_IP:-}" ]]; then
     echo "CONNECTOR_PRIVATE_IP=${CONNECTOR_PRIVATE_IP}"
   fi
