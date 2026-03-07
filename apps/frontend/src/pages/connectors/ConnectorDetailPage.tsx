@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { createEnrollmentToken, getConfig, getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
+import { createEnrollmentToken, getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +31,8 @@ export default function ConnectorDetailPage() {
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [autoHeartbeatSent, setAutoHeartbeatSent] = useState(false);
 
+  // Auto-detect controller IP from the browser's current hostname.
+  // When accessed from another machine (e.g. 192.168.1.x), this gives the correct LAN IP.
   const detectedHost = window.location.hostname || '127.0.0.1';
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
@@ -75,21 +77,6 @@ export default function ConnectorDetailPage() {
       loadConnectorData();
     }
   }, [connectorId]);
-
-  useEffect(() => {
-    getConfig()
-      .then(({ controllerGrpcAddr, controllerHttpAddr: httpAddr }) => {
-        if (controllerGrpcAddr?.trim()) {
-          setControllerAddr(controllerGrpcAddr);
-        }
-        if (httpAddr?.trim()) {
-          setControllerHttpAddr(httpAddr);
-        }
-      })
-      .catch(() => {
-        // Keep existing defaults.
-      });
-  }, []);
 
   const didFetchToken = useRef(false);
 
@@ -146,41 +133,8 @@ export default function ConnectorDetailPage() {
 
   const handleCopyCommand = () => {
     if (!INSTALL_COMMAND) return;
-    const fallbackCopy = (text: string) => {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.setAttribute('readonly', '');
-      textarea.style.position = 'fixed';
-      textarea.style.top = '-9999px';
-      document.body.appendChild(textarea);
-      textarea.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      return ok;
-    };
-
-    const doCopy = async () => {
-      try {
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(INSTALL_COMMAND);
-          toast.success('Installation command copied to clipboard!');
-          return;
-        }
-        if (fallbackCopy(INSTALL_COMMAND)) {
-          toast.success('Installation command copied to clipboard!');
-        } else {
-          toast.error('Copy failed. Please select and copy manually.');
-        }
-      } catch {
-        if (fallbackCopy(INSTALL_COMMAND)) {
-          toast.success('Installation command copied to clipboard!');
-        } else {
-          toast.error('Copy failed. Please select and copy manually.');
-        }
-      }
-    };
-
-    void doCopy();
+    navigator.clipboard.writeText(INSTALL_COMMAND);
+    toast.success('Installation command copied to clipboard!');
   };
 
   const handleSimulateHeartbeat = async () => {

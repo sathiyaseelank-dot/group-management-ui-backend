@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { createEnrollmentToken, getConfig, getConnectors } from '@/lib/mock-api';
+import { createEnrollmentToken, getConnectors } from '@/lib/mock-api';
 import { Connector } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -22,6 +22,7 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
   const [token, setToken] = useState<string>('');
   const [tokenLoading, setTokenLoading] = useState(false);
 
+  // Auto-detect controller IP from the browser's current hostname.
   const detectedHost = window.location.hostname || '127.0.0.1';
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
@@ -40,32 +41,10 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
   }, []);
 
   useEffect(() => {
-    getConfig()
-      .then(({ controllerGrpcAddr, controllerHttpAddr: httpAddr }) => {
-        if (controllerGrpcAddr?.trim()) {
-          setControllerAddr(controllerGrpcAddr);
-        }
-        if (httpAddr?.trim()) {
-          setControllerHttpAddr(httpAddr);
-        }
-      })
-      .catch(() => {
-        // Keep existing defaults.
-      });
-  }, []);
-
-  useEffect(() => {
     getConnectors()
       .then((list) => {
         const installed = list.filter((c) => c.installed);
         setConnectors(installed);
-        // Auto-select if only one connector is available
-        if (installed.length === 1) {
-          setSelectedConnectorId(installed[0].id);
-          if (installed[0].privateIp) {
-            setConnectorAddr(`${installed[0].privateIp}:9443`);
-          }
-        }
       })
       .catch(() => {});
   }, []);
@@ -112,37 +91,8 @@ export function TunnelerInstall({ initialTunnelerId }: { initialTunnelerId?: str
   }, [connectorAddr, controllerAddr, controllerHttpAddr, token, tunnelerId]);
 
   const handleCopyCommand = async () => {
-    const fallbackCopy = (text: string) => {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.setAttribute('readonly', '');
-      textarea.style.position = 'fixed';
-      textarea.style.top = '-9999px';
-      document.body.appendChild(textarea);
-      textarea.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      return ok;
-    };
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(installCommand);
-        toast.success('Installation command copied to clipboard!');
-        return;
-      }
-      if (fallbackCopy(installCommand)) {
-        toast.success('Installation command copied to clipboard!');
-      } else {
-        toast.error('Copy failed. Please select and copy manually.');
-      }
-    } catch {
-      if (fallbackCopy(installCommand)) {
-        toast.success('Installation command copied to clipboard!');
-      } else {
-        toast.error('Copy failed. Please select and copy manually.');
-      }
-    }
+    await navigator.clipboard.writeText(installCommand);
+    toast.success('Installation command copied to clipboard!');
   };
 
   return (

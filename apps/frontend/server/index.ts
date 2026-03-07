@@ -14,7 +14,6 @@ import tokensRouter from './routes/tokens'
 import serviceAccountsRouter from './routes/service-accounts'
 import tunnelersRouter from './routes/tunnelers'
 import policyRouter from './routes/policy'
-import configRouter from './routes/config'
 
 const app = express()
 
@@ -33,7 +32,6 @@ app.use('/api/tokens', tokensRouter)
 app.use('/api/service-accounts', serviceAccountsRouter)
 app.use('/api/tunnelers', tunnelersRouter)
 app.use('/api/policy', policyRouter)
-app.use('/api/config', configRouter)
 
 // Serve built Vite app in production
 if (process.env.NODE_ENV === 'production') {
