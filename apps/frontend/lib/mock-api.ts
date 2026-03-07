@@ -183,11 +183,6 @@ export async function deleteUser(userId: string): Promise<void> {
   });
 }
 
-// API: Get controller addresses from server config
-export async function getConfig(): Promise<{ controllerHttpAddr: string; controllerGrpcAddr: string }> {
-  return requestLocal<{ controllerHttpAddr: string; controllerGrpcAddr: string }>('/api/config');
-}
-
 // API: Create enrollment token
 export async function createEnrollmentToken(): Promise<{ token: string; expires_at: string }> {
   if (API_BASE) {
