@@ -15,12 +15,15 @@ ztna.db
 ztna.db-shm
 ztna.db-wal
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 
 # Service-specific
 services/controller/tmp/*
 services/controller/controller
+services/controller/controller.db*
 services/controller/ztna.db*
 services/controller/tls/
 
