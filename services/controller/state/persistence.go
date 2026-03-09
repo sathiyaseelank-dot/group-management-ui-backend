@@ -6,11 +6,11 @@ import (
 )
 
 func SaveConnectorToDB(db *sql.DB, rec ConnectorRecord) error {
-	lastSeenAt := rec.LastSeen.Format(time.RFC3339)
+	lastSeenAt := rec.LastSeen.UTC().Format(time.RFC3339)
 	_, err := db.Exec(
-		Rebind(`INSERT INTO connectors (id, private_ip, version, last_seen, installed, status, last_seen_at)
-		VALUES (?, ?, ?, ?, 1, 'online', ?)
-		ON CONFLICT(id) DO UPDATE SET private_ip=excluded.private_ip, version=excluded.version, last_seen=excluded.last_seen, installed=1, status='online', last_seen_at=excluded.last_seen_at`),
+		Rebind(`INSERT INTO connectors (id, private_ip, version, last_seen, last_seen_at, status, installed)
+		VALUES (?, ?, ?, ?, ?, 'online', 1)
+		ON CONFLICT(id) DO UPDATE SET private_ip=excluded.private_ip, version=excluded.version, last_seen=excluded.last_seen, last_seen_at=excluded.last_seen_at, status='online', installed=1`),
 		rec.ID, rec.PrivateIP, rec.Version, rec.LastSeen.Unix(), lastSeenAt,
 	)
 	return err
@@ -18,6 +18,7 @@ func SaveConnectorToDB(db *sql.DB, rec ConnectorRecord) error {
 
 func DeleteConnectorFromDB(db *sql.DB, id string) error {
 	_, err := db.Exec(Rebind(`DELETE FROM connectors WHERE id = ?`), id)
+	_, _ = db.Exec(Rebind(`DELETE FROM remote_network_connectors WHERE connector_id = ?`), id)
 	return err
 }
 
@@ -47,9 +48,9 @@ func LoadConnectorsFromDB(db *sql.DB, registry *Registry) error {
 
 func SaveTunnelerToDB(db *sql.DB, rec TunnelerStatusRecord) error {
 	_, err := db.Exec(
-		Rebind(`INSERT INTO tunnelers (id, spiffe_id, connector_id, last_seen)
+		`INSERT INTO tunnelers (id, spiffe_id, connector_id, last_seen)
 		VALUES (?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, connector_id=excluded.connector_id, last_seen=excluded.last_seen`),
+		ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, connector_id=excluded.connector_id, last_seen=excluded.last_seen`,
 		rec.ID, rec.SPIFFEID, rec.ConnectorID, rec.LastSeen.Unix(),
 	)
 	return err
@@ -81,31 +82,31 @@ func LoadTunnelersFromDB(db *sql.DB, registry *TunnelerStatusRegistry) error {
 
 func SaveResourceToDB(db *sql.DB, res Resource) error {
 	_, err := db.Exec(
-		Rebind(`INSERT INTO resources (id, name, type, address, protocol, port_from, port_to, connector_id, remote_network_id)
+		`INSERT INTO resources (id, name, type, address, protocol, port_from, port_to, connector_id, remote_network_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, address=excluded.address, protocol=excluded.protocol, port_from=excluded.port_from, port_to=excluded.port_to, connector_id=excluded.connector_id, remote_network_id=excluded.remote_network_id`),
+		ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, address=excluded.address, protocol=excluded.protocol, port_from=excluded.port_from, port_to=excluded.port_to, connector_id=excluded.connector_id, remote_network_id=excluded.remote_network_id`,
 		res.ID, res.Name, res.Type, res.Address, res.Protocol, res.PortFrom, res.PortTo, res.ConnectorID, res.RemoteNetworkID,
 	)
 	return err
 }
 
 func DeleteResourceFromDB(db *sql.DB, id string) error {
-	_, err := db.Exec(Rebind(`DELETE FROM resources WHERE id = ?`), id)
+	_, err := db.Exec(`DELETE FROM resources WHERE id = ?`, id)
 	return err
 }
 
 func SaveAuthorizationToDB(db *sql.DB, auth Authorization) error {
 	_, err := db.Exec(
-		Rebind(`INSERT INTO authorizations (resource_id, principal_spiffe, filters)
+		`INSERT INTO authorizations (resource_id, principal_spiffe, filters)
 		VALUES (?, ?, ?)
-		ON CONFLICT(resource_id, principal_spiffe) DO UPDATE SET filters=excluded.filters`),
+		ON CONFLICT(resource_id, principal_spiffe) DO UPDATE SET filters=excluded.filters`,
 		auth.ResourceID, auth.PrincipalSPIFFE, marshalFilters(auth.Filters),
 	)
 	return err
 }
 
 func DeleteAuthorizationFromDB(db *sql.DB, resourceID, principal string) error {
-	_, err := db.Exec(Rebind(`DELETE FROM authorizations WHERE resource_id = ? AND principal_spiffe = ?`), resourceID, principal)
+	_, err := db.Exec(`DELETE FROM authorizations WHERE resource_id = ? AND principal_spiffe = ?`, resourceID, principal)
 	return err
 }
 
@@ -143,6 +144,6 @@ func LoadACLsFromDB(db *sql.DB, store *ACLStore) error {
 }
 
 func PruneAuditLogs(db *sql.DB, before time.Time) error {
-	_, err := db.Exec(Rebind(`DELETE FROM audit_logs WHERE created_at < ?`), before.Unix())
+	_, err := db.Exec(`DELETE FROM audit_logs WHERE created_at < ?`, before.Unix())
 	return err
 }
