@@ -152,4 +152,17 @@ router.delete('/:userId', async (req: Request, res: Response) => {
   }
 })
 
+// POST /api/users/invite — forwards to controller invite endpoint
+router.post('/invite', async (req: Request, res: Response) => {
+  try {
+    const result = await proxyToBackend('/api/admin/users/invite', {
+      method: 'POST',
+      body: JSON.stringify(req.body),
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
 export default router

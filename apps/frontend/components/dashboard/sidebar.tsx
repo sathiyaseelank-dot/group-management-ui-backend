@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Users, Shield, Database, Globe, FileText, ChevronDown } from 'lucide-react';
+import { Users, Shield, Database, Globe, FileText, ChevronDown, ScrollText } from 'lucide-react';
 
 type NavItem = {
   label: string;
@@ -54,6 +54,12 @@ const navItems: NavItem[] = [
     ],
   },
 
+  {
+    label: 'Audit Logs',
+    href: '/dashboard/audit-logs',
+    icon: ScrollText,
+    description: 'View admin audit log entries',
+  },
 ];
 
 export function Sidebar() {

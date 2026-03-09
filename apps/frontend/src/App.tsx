@@ -1,5 +1,7 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom'
+import { useEffect, type ReactNode } from 'react'
 import DashboardLayout from './pages/DashboardLayout'
+import LoginPage from './pages/Login'
 import GroupsPage from './pages/groups/GroupsPage'
 import GroupDetailPage from './pages/groups/GroupDetailPage'
 import UsersPage from './pages/users/UsersPage'
@@ -17,12 +19,37 @@ import ResourcePoliciesPage from './pages/policy/ResourcePoliciesPage'
 import ResourcePolicyDetailPage from './pages/policy/ResourcePolicyDetailPage'
 import SignInPolicyPage from './pages/policy/SignInPolicyPage'
 import DeviceProfilesPage from './pages/policy/DeviceProfilesPage'
+import AuditLogsPage from './pages/AuditLogsPage'
+
+// Captures ?token= from OAuth redirect at any route, stores it, then redirects to dashboard.
+function TokenCapture() {
+  const params = new URLSearchParams(window.location.search)
+  const token = params.get('token')
+  if (token) {
+    localStorage.setItem('authToken', token)
+  }
+  return <Navigate to="/dashboard/groups" replace />
+}
+
+function AuthGuard({ children }: { children: ReactNode }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    if (!localStorage.getItem('authToken')) {
+      navigate('/login', { replace: true })
+    }
+  }, [navigate, location.pathname])
+
+  return <>{children}</>
+}
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboard/groups" replace />} />
-      <Route path="/dashboard" element={<DashboardLayout />}>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/" element={<TokenCapture />} />
+      <Route path="/dashboard" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
         <Route index element={<Navigate to="groups" replace />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="groups/:groupId" element={<GroupDetailPage />} />
@@ -43,6 +70,7 @@ export default function App() {
           <Route path="sign-in" element={<SignInPolicyPage />} />
           <Route path="device-profiles" element={<DeviceProfilesPage />} />
         </Route>
+        <Route path="audit-logs" element={<AuditLogsPage />} />
       </Route>
     </Routes>
   )

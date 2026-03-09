@@ -339,3 +339,11 @@ export async function removeGroupMember(
     method: 'DELETE',
   });
 }
+
+// API: Invite user via email
+export async function inviteUser(email: string): Promise<{ status: string; invite_url?: string }> {
+  return request<{ status: string; invite_url?: string }>('/api/users/invite', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
