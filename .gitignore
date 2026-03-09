@@ -7,6 +7,7 @@ __v0_jsx-dev-runtime.ts
 node_modules/
 .next/
 dist/
+.env
 .env*.local
 .DS_Store
 
