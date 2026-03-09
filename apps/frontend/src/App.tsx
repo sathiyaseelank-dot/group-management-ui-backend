@@ -20,6 +20,7 @@ import ResourcePolicyDetailPage from './pages/policy/ResourcePolicyDetailPage'
 import SignInPolicyPage from './pages/policy/SignInPolicyPage'
 import DeviceProfilesPage from './pages/policy/DeviceProfilesPage'
 import AuditLogsPage from './pages/AuditLogsPage'
+import NetworkDiscoveryPage from './pages/resources/NetworkDiscoveryPage'
 
 // Captures ?token= from OAuth redirect at any route, stores it, then redirects to dashboard.
 function TokenCapture() {
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="sign-in" element={<SignInPolicyPage />} />
           <Route path="device-profiles" element={<DeviceProfilesPage />} />
         </Route>
+        <Route path="discovery" element={<NetworkDiscoveryPage />} />
         <Route path="audit-logs" element={<AuditLogsPage />} />
       </Route>
     </Routes>

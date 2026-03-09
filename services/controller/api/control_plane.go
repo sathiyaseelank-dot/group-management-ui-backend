@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"strings"
@@ -29,12 +30,13 @@ type ControlPlaneServer struct {
 	db             *sql.DB
 	signingKey     []byte
 	snapshotTTL    time.Duration
+	scanStore      *state.ScanStore
 	mu             sync.Mutex
 	clients        map[string]*connectorClient
 }
 
 // NewControlPlaneServer creates a new control plane server.
-func NewControlPlaneServer(trustDomain string, registry *state.Registry, tunnelers *state.TunnelerRegistry, tunnelerStatus *state.TunnelerStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration) *ControlPlaneServer {
+func NewControlPlaneServer(trustDomain string, registry *state.Registry, tunnelers *state.TunnelerRegistry, tunnelerStatus *state.TunnelerStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration, scanStore *state.ScanStore) *ControlPlaneServer {
 	_ = trustDomain
 	return &ControlPlaneServer{
 		registry:       registry,
@@ -44,6 +46,7 @@ func NewControlPlaneServer(trustDomain string, registry *state.Registry, tunnele
 		db:             db,
 		signingKey:     signingKey,
 		snapshotTTL:    snapshotTTL,
+		scanStore:      scanStore,
 		clients:        make(map[string]*connectorClient),
 	}
 }
@@ -148,7 +151,46 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				}
 			}
 		}
+		if msg.GetType() == "scan_report" && s.scanStore != nil {
+			var report struct {
+				RequestID string                    `json:"request_id"`
+				Results   []state.DiscoveredResource `json:"results"`
+				Error     *string                   `json:"error"`
+			}
+			if err := json.Unmarshal(msg.GetPayload(), &report); err == nil {
+				if report.Error != nil && *report.Error != "" {
+					s.scanStore.Fail(report.RequestID, *report.Error)
+				} else {
+					s.scanStore.Complete(report.RequestID, report.Results)
+				}
+				log.Printf("scan_report: request_id=%s results=%d", report.RequestID, len(report.Results))
+			}
+		}
 	}
+}
+
+// SendToConnector sends a message to a specific connected connector by its connector ID.
+func (s *ControlPlaneServer) SendToConnector(connectorID string, msgType string, payload []byte) error {
+	s.mu.Lock()
+	var target *connectorClient
+	for _, c := range s.clients {
+		if c.connectorID == connectorID {
+			target = c
+			break
+		}
+	}
+	s.mu.Unlock()
+
+	if target == nil {
+		return fmt.Errorf("connector %s not connected", connectorID)
+	}
+
+	target.sendMu.Lock()
+	defer target.sendMu.Unlock()
+	return target.stream.Send(&controllerpb.ControlMessage{
+		Type:    msgType,
+		Payload: payload,
+	})
 }
 
 // NotifyTunnelerAllowed broadcasts a newly enrolled tunneler to all connectors.

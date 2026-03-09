@@ -105,6 +105,30 @@ export interface AccessRule {
   updatedAt: string;
 }
 
+// Network Discovery
+export interface DiscoveredResource {
+  id: string;
+  ip: string;
+  port: number;
+  protocol: string;
+  reachableFrom: string;
+  firstSeen: number;
+}
+
+export type ScanStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+
+export interface ScanJob {
+  requestId: string;
+  connectorId: string;
+  status: ScanStatus;
+  targets: string[];
+  ports: number[];
+  startedAt: string;
+  completedAt?: string;
+  results?: DiscoveredResource[];
+  error?: string;
+}
+
 // Selected Subject for picker
 export interface SelectedSubject {
   id: string;

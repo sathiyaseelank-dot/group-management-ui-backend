@@ -28,6 +28,10 @@ const navItems: NavItem[] = [
     href: '/dashboard/resources',
     icon: Database,
     description: 'Manage network resources',
+    children: [
+      { label: 'All Resources', href: '/dashboard/resources' },
+      { label: 'Network Discovery', href: '/dashboard/discovery' },
+    ],
   },
 
   {

@@ -2,6 +2,7 @@ mod allowlist;
 mod buildinfo;
 mod config;
 mod control_plane;
+mod discovery;
 mod enroll;
 mod net_util;
 mod persistence;
@@ -263,7 +264,29 @@ async fn connect_control_plane(
         tokio::select! {
             msg = stream.message() => {
                 match msg {
-                    Ok(Some(m)) => handle_control_message(&m, allowlist, acl),
+                    Ok(Some(m)) => {
+                        if m.r#type == "scan_command" {
+                            let tx = stream_tx.clone();
+                            let cid = connector_id.to_string();
+                            tokio::spawn(async move {
+                                match serde_json::from_slice::<discovery::scan::ScanCommand>(&m.payload) {
+                                    Ok(cmd) => {
+                                        let report = discovery::scan::execute_scan(cmd, &cid).await;
+                                        if let Ok(payload) = serde_json::to_vec(&report) {
+                                            let _ = tx.send(ControlMessage {
+                                                r#type: "scan_report".into(),
+                                                payload,
+                                                ..Default::default()
+                                            }).await;
+                                        }
+                                    }
+                                    Err(e) => tracing::error!("bad scan_command: {}", e),
+                                }
+                            });
+                        } else {
+                            handle_control_message(&m, allowlist, acl);
+                        }
+                    }
                     Ok(None) => return Ok(()),
                     Err(e) => return Err(anyhow::anyhow!("stream recv: {}", e)),
                 }

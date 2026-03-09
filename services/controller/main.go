@@ -122,7 +122,8 @@ func main() {
 		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "tunneler")),
 	)
 
-	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, tunnelerRegistry, tunnelerStatus, aclStore, db, []byte(policySigningKey), policyTTL)
+	scanStore := state.NewScanStore()
+	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, tunnelerRegistry, tunnelerStatus, aclStore, db, []byte(policySigningKey), policyTTL, scanStore)
 	_ = state.LoadConnectorsFromDB(db, registry)
 	_ = state.LoadTunnelersFromDB(db, tunnelerStatus)
 	_ = state.LoadACLsFromDB(db, aclStore)
@@ -185,6 +186,8 @@ func main() {
 		ACLNotify:         controlPlaneServer,
 		Users:             userStore,
 		RemoteNet:         remoteNetStore,
+		ScanStore:         scanStore,
+		ControlPlane:      controlPlaneServer,
 		AdminAuthToken:    adminAuthToken,
 		InternalAuthToken: internalAuthToken,
 		CACertPEM:         caCertPEM,

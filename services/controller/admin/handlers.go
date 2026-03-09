@@ -23,6 +23,10 @@ type Server struct {
 	Users     *state.UserStore
 	RemoteNet *state.RemoteNetworkStore
 
+	// Discovery
+	ScanStore    *state.ScanStore
+	ControlPlane DiscoverySender
+
 	AdminAuthToken    string
 	InternalAuthToken string
 	CACertPEM         []byte

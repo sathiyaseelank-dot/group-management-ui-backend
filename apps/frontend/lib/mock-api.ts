@@ -15,6 +15,8 @@ import {
   Connector,
   Tunneler,
   ResourceType,
+  DiscoveredResource,
+  ScanJob,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -346,4 +348,26 @@ export async function inviteUser(email: string): Promise<{ status: string; invit
     method: 'POST',
     body: JSON.stringify({ email }),
   });
+}
+
+// API: Start network discovery scan
+export async function startNetworkScan(
+  connectorId: string,
+  targets: string[],
+  ports: number[]
+): Promise<{ request_id: string }> {
+  return request<{ request_id: string }>('/api/discovery/scan', {
+    method: 'POST',
+    body: JSON.stringify({ connector_id: connectorId, targets, ports }),
+  });
+}
+
+// API: Get scan status
+export async function getScanStatus(requestId: string): Promise<ScanJob> {
+  return request<ScanJob>(`/api/discovery/scan/${requestId}`);
+}
+
+// API: Get all discovery results
+export async function getDiscoveryResults(): Promise<DiscoveredResource[]> {
+  return request<DiscoveredResource[]>('/api/discovery/results');
 }
