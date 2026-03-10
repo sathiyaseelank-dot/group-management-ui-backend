@@ -6,7 +6,7 @@ const router = Router()
 // GET /api/resources
 router.get('/', async (_req: Request, res: Response) => {
   try {
-    const resources = await proxyToBackend<any[]>('/api/resources')
+    const resources = await proxyToBackend<any[]>('/api/admin/resources')
 
     let resourceList: any[] = []
     if (Array.isArray(resources)) {
@@ -53,7 +53,7 @@ router.get('/:resourceId', async (req: Request, res: Response) => {
   try {
     const { resourceId } = req.params
 
-    const resources = await proxyToBackend<any[]>('/api/resources')
+    const resources = await proxyToBackend<any[]>('/api/admin/resources')
     const resource = Array.isArray(resources)
       ? resources.find((r: any) => (r.id ?? r.ID) === resourceId)
       : undefined
