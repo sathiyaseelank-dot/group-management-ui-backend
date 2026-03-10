@@ -21,6 +21,7 @@ type DiscoveredResource struct {
 	IP           string `json:"ip"`
 	Port         uint16 `json:"port"`
 	Protocol     string `json:"protocol"`
+	ServiceName  string `json:"service_name"`
 	ReachableFrom string `json:"reachable_from"`
 	FirstSeen    int64  `json:"first_seen"`
 }

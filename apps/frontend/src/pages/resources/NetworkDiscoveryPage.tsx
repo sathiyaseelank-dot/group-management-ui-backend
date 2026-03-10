@@ -118,7 +118,7 @@ export default function NetworkDiscoveryPage() {
     try {
       await addResource({
         network_id: '',
-        name: `${resource.ip}:${resource.port}`,
+        name: `${resource.serviceName && resource.serviceName !== 'Unknown' ? resource.serviceName + '@' : ''}${resource.ip}:${resource.port}`,
         type: 'STANDARD',
         address: resource.ip,
         protocol: 'TCP',
@@ -271,6 +271,7 @@ export default function NetworkDiscoveryPage() {
                 <TableRow>
                   <TableHead>IP</TableHead>
                   <TableHead>Port</TableHead>
+                  <TableHead>Service</TableHead>
                   <TableHead>Protocol</TableHead>
                   <TableHead>Connector</TableHead>
                   <TableHead>First Seen</TableHead>
@@ -284,6 +285,11 @@ export default function NetworkDiscoveryPage() {
                       {resource.ip}
                     </TableCell>
                     <TableCell>{resource.port}</TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        {resource.serviceName || 'Unknown'}
+                      </span>
+                    </TableCell>
                     <TableCell className="uppercase">
                       {resource.protocol}
                     </TableCell>

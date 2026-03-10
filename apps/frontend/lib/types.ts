@@ -111,6 +111,7 @@ export interface DiscoveredResource {
   ip: string;
   port: number;
   protocol: string;
+  serviceName: string;
   reachableFrom: string;
   firstSeen: number;
 }

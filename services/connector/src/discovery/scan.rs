@@ -6,8 +6,8 @@ use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
 use super::scope;
+use super::service_detect::detect_service;
 use super::tcp_ping::tcp_connect_ping;
-use super::tcp_probe::probe_tcp;
 
 const MAX_TARGETS: u32 = 512;
 const MAX_PORTS: usize = 16;
@@ -39,6 +39,7 @@ pub struct DiscoveredResource {
     pub ip: String,
     pub port: u16,
     pub protocol: String,
+    pub service_name: String,
     pub reachable_from: String,
     pub first_seen: u64,
 }
@@ -145,8 +146,8 @@ pub async fn execute_scan(cmd: ScanCommand, connector_id: &str) -> ScanReport {
             let t = timeout;
             probe_set.spawn(async move {
                 let _permit = permit.acquire().await.unwrap();
-                let open = probe_tcp(ip, port, t).await;
-                (ip, port, open)
+                let (open, service_name) = detect_service(ip, port, t).await;
+                (ip, port, open, service_name)
             });
         }
     }
@@ -158,13 +159,14 @@ pub async fn execute_scan(cmd: ScanCommand, connector_id: &str) -> ScanReport {
         .as_secs();
 
     while let Some(result) = probe_set.join_next().await {
-        if let Ok((ip, port, true)) = result {
-            info!("open: {}:{}", ip, port);
+        if let Ok((ip, port, true, service_name)) = result {
+            info!("open: {}:{} ({})", ip, port, service_name);
             results.push(DiscoveredResource {
                 id: format!("tcp:{}:{}", ip, port),
                 ip: ip.to_string(),
                 port,
                 protocol: "tcp".into(),
+                service_name,
                 reachable_from: connector_id.to_string(),
                 first_seen: now,
             });
