@@ -23,7 +23,9 @@ pub struct PolicyResource {
     pub address: String,
     pub port: u16,
     pub protocol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port_from: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port_to: Option<u16>,
     pub allowed_identities: Vec<String>,
 }
