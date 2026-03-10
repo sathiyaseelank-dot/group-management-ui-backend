@@ -6,22 +6,26 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"controller/state"
 
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // ---- helpers ----------------------------------------------------------------
 
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := state.OpenSQLite(":memory:")
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set (PostgreSQL-only mode)")
+	}
+	db, err := state.Open(dsn, "")
 	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+		t.Fatalf("open postgres: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
 	return db

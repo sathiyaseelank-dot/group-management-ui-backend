@@ -47,7 +47,7 @@ build-tunneler:
 	@echo "Building tunneler..."
 	cd services/tunneler && cargo build --release
 	mkdir -p dist
-	cp services/tunneler/target/release/grpctunneler dist/
+	cp services/tunneler/target/release/tunneler dist/
 
 build-frontend:
 	@echo "Building frontend..."
@@ -93,7 +93,7 @@ test-frontend:
 # Clean Commands
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -rf dist/controller dist/grpcconnector2 dist/grpctunneler
+	rm -rf dist/controller dist/connector dist/tunneler
 	cd services/connector && cargo clean
 	cd services/tunneler && cargo clean
 	cd apps/frontend && rm -rf dist

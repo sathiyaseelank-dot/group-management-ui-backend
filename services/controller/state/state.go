@@ -2,10 +2,10 @@ package state
 
 import (
 	"database/sql"
+	"fmt"
 )
 
-// OpenSQLite opens a SQLite database at path and initialises the schema.
-// Prefer Open() which also supports PostgreSQL via DATABASE_URL.
+// OpenSQLite is disabled. Use Open() with DATABASE_URL.
 func OpenSQLite(path string) (*sql.DB, error) {
-	return openSQLiteDB(path)
+	return nil, fmt.Errorf("SQLite is disabled; use Open() with DATABASE_URL")
 }
