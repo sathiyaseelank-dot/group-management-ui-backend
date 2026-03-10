@@ -327,9 +327,9 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		row := db.QueryRow(`SELECT id, name, description,
-			CASE WHEN typeof(created_at) = 'integer' THEN strftime('%Y-%m-%d', created_at, 'unixepoch') ELSE substr(created_at, 1, 10) END as created_at
-			FROM user_groups WHERE id = ?`, groupID)
+		row := db.QueryRow(state.Rebind(`SELECT id, name, description,
+			CAST(created_at AS TEXT) as created_at
+			FROM user_groups WHERE id = ?`), groupID)
 		var id, name, desc string
 		var created sql.NullString
 		if err := row.Scan(&id, &name, &desc, &created); err != nil {
@@ -347,13 +347,13 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			}
 			memRows.Close()
 		}
-		resRows, _ := db.Query(`SELECT r.id, r.name, r.type, r.address, r.protocol, r.port_from, r.port_to, r.alias, r.description, r.remote_network_id
+		resRows, _ := db.Query(state.Rebind(`SELECT r.id, r.name, r.type, r.address, r.protocol, r.port_from, r.port_to, r.alias, r.description, r.remote_network_id
 			FROM access_rules ar
 			JOIN access_rule_groups arg ON arg.rule_id = ar.id
 			JOIN resources r ON r.id = ar.resource_id
 			WHERE arg.group_id = ?
 			GROUP BY r.id
-			ORDER BY r.name ASC`, groupID)
+			ORDER BY r.name ASC`), groupID)
 		resources := []uiResource{}
 		if resRows != nil {
 			for resRows.Next() {
