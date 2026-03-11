@@ -6,12 +6,40 @@ export async function proxyToBackend<T = any>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${BACKEND_URL}${path}`;
-  
+
   const response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${ADMIN_AUTH_TOKEN}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || `Backend error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Proxy to backend using the user's JWT token instead of the static admin token.
+ * Used for workspace endpoints where auth is per-user JWT.
+ */
+export async function proxyWithJWT<T = any>(
+  path: string,
+  jwtToken: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const url = `${BACKEND_URL}${path}`;
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${jwtToken}`,
       ...options.headers,
     },
   });

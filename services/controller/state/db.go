@@ -229,6 +229,32 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			target TEXT NOT NULL DEFAULT '',
 			result TEXT NOT NULL DEFAULT ''
 		)`,
+		`CREATE TABLE IF NOT EXISTS workspaces (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			slug TEXT NOT NULL UNIQUE,
+			trust_domain TEXT NOT NULL UNIQUE,
+			ca_cert_pem TEXT NOT NULL DEFAULT '',
+			ca_key_pem TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS workspace_members (
+			workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+			user_id TEXT NOT NULL REFERENCES users(id),
+			role TEXT NOT NULL DEFAULT 'member',
+			joined_at TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (workspace_id, user_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS workspace_invites (
+			token TEXT PRIMARY KEY,
+			workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+			email TEXT NOT NULL DEFAULT '',
+			role TEXT NOT NULL DEFAULT 'member',
+			expires_at INTEGER NOT NULL DEFAULT 0,
+			used INTEGER NOT NULL DEFAULT 0
+		)`,
 	}
 
 	for _, s := range stmts {
@@ -237,5 +263,60 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			return err
 		}
 	}
+
+	// Phase 2 migration: add workspace_id columns to existing tables.
+	if err := migrateWorkspaceColumns(db, dialect); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// migrateWorkspaceColumns adds workspace_id columns to tables that need tenant scoping.
+// Uses dialect-appropriate syntax to handle the "column already exists" case.
+func migrateWorkspaceColumns(db *sql.DB, dialect string) error {
+	tables := []string{
+		"connectors", "tunnelers", "resources", "tokens",
+		"remote_networks", "access_rules", "user_groups",
+		"service_accounts", "audit_logs",
+	}
+	for _, table := range tables {
+		if dialect == "postgres" {
+			stmt := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT ''`, table)
+			if _, err := db.Exec(stmt); err != nil {
+				log.Printf("migration warning [%s.workspace_id]: %v", table, err)
+			}
+		} else {
+			// SQLite: check if column exists via PRAGMA, add if missing.
+			if !sqliteColumnExists(db, table, "workspace_id") {
+				stmt := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''`, table)
+				if _, err := db.Exec(stmt); err != nil {
+					log.Printf("migration warning [%s.workspace_id]: %v", table, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func sqliteColumnExists(db *sql.DB, table, column string) bool {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dfltValue, &pk); err != nil {
+			continue
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
 }

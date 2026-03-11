@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"controller/ca"
 	"controller/mailer"
 	"controller/state"
 
@@ -40,6 +41,11 @@ type Server struct {
 
 	// SMTP mailer (nil = disabled)
 	Mailer *mailer.Mailer
+
+	// Workspace multi-tenancy
+	Workspaces     *state.WorkspaceStore
+	IntermediateCA *ca.CA
+	SystemDomain   string // e.g. "zerotrust.com"
 }
 
 // db returns the underlying *sql.DB via the ACLStore, or nil.
@@ -69,6 +75,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/admin/remote-networks", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworks)))
 	mux.Handle("/api/admin/remote-networks/", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworkConnectors)))
 	mux.Handle("/api/internal/consume-token", s.internalAuth(http.HandlerFunc(s.handleConsumeToken)))
+	s.RegisterWorkspaceRoutes(mux)
 	s.RegisterUIRoutes(mux)
 }
 
@@ -119,12 +126,74 @@ func (s *Server) internalAuth(next http.Handler) http.Handler {
 	})
 }
 
+// workspaceAuth validates JWT and extracts workspace claims into context.
+// Workspace claims are optional — JWTs without them are still valid.
+func (s *Server) workspaceAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(s.JWTSecret) == 0 {
+			http.Error(w, "JWT not configured", http.StatusServiceUnavailable)
+			return
+		}
+		tokenStr := ""
+		if cookie, err := r.Cookie(sessionCookieName); err == nil {
+			tokenStr = cookie.Value
+		} else {
+			auth := r.Header.Get("Authorization")
+			if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
+				tokenStr = after
+			}
+		}
+		if tokenStr == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		email, userID, wsID, wsSlug, wsRole, err := workspaceClaimsFromJWT(tokenStr, s.JWTSecret)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		ctx := withSessionEmail(r.Context(), email)
+		ctx = withWorkspace(ctx, userID, wsID, wsSlug, wsRole)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// requireWorkspace rejects requests without workspace claims in the JWT.
+func requireWorkspace(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if workspaceIDFromContext(r.Context()) == "" {
+			http.Error(w, "workspace context required", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireWorkspaceRole rejects requests where the user's workspace role is insufficient.
+// Role hierarchy: owner > admin > member.
+func requireWorkspaceRole(minRole string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		role := workspaceRoleFromContext(r.Context())
+		if !roleAtLeast(role, minRole) {
+			http.Error(w, "insufficient workspace role", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func roleAtLeast(role, minRole string) bool {
+	levels := map[string]int{"member": 1, "admin": 2, "owner": 3}
+	return levels[role] >= levels[minRole]
+}
+
 func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	token, expires, err := s.Tokens.CreateToken()
+	wsID := s.workspaceIDFromRequest(r)
+	token, expires, err := s.Tokens.CreateTokenForWorkspace(wsID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to create token: %v", err), http.StatusInternalServerError)
 		return
