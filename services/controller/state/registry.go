@@ -6,10 +6,11 @@ import (
 )
 
 type ConnectorRecord struct {
-	ID        string
-	PrivateIP string
-	Version   string
-	LastSeen  time.Time
+	ID          string
+	PrivateIP   string
+	Version     string
+	LastSeen    time.Time
+	WorkspaceID string
 }
 
 type Registry struct {
@@ -24,11 +25,25 @@ func NewRegistry() *Registry {
 func (r *Registry) Register(id, privateIP, version string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	existing := r.records[id]
 	r.records[id] = ConnectorRecord{
-		ID:        id,
-		PrivateIP: privateIP,
-		Version:   version,
-		LastSeen:  time.Now().UTC(),
+		ID:          id,
+		PrivateIP:   privateIP,
+		Version:     version,
+		LastSeen:    time.Now().UTC(),
+		WorkspaceID: existing.WorkspaceID,
+	}
+}
+
+func (r *Registry) RegisterWithWorkspace(id, privateIP, version, workspaceID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records[id] = ConnectorRecord{
+		ID:          id,
+		PrivateIP:   privateIP,
+		Version:     version,
+		LastSeen:    time.Now().UTC(),
+		WorkspaceID: workspaceID,
 	}
 }
 

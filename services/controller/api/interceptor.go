@@ -128,6 +128,32 @@ func RoleFromContext(ctx context.Context) (string, bool) {
 	return role, ok
 }
 
+// TrustDomainValidator checks whether a given trust domain is acceptable.
+type TrustDomainValidator func(domain string) bool
+
+// NewTrustDomainValidator returns a validator that accepts the global trust domain
+// and any subdomain of systemDomain (for workspace trust domains).
+func NewTrustDomainValidator(globalTrustDomain, systemDomain string) TrustDomainValidator {
+	return func(domain string) bool {
+		if domain == globalTrustDomain {
+			return true
+		}
+		if systemDomain != "" && strings.HasSuffix(domain, "."+systemDomain) {
+			return true
+		}
+		return false
+	}
+}
+
+// trustDomainValidator is the active validator, set at startup.
+// Defaults to exact-match on the global trust domain.
+var trustDomainValidator TrustDomainValidator
+
+// SetTrustDomainValidator sets the global trust domain validator.
+func SetTrustDomainValidator(v TrustDomainValidator) {
+	trustDomainValidator = v
+}
+
 // extractAndVerifySPIFFE pulls the peer certificate from context and validates
 // the SPIFFE ID and role.
 func extractAndVerifySPIFFE(
@@ -162,7 +188,12 @@ func extractAndVerifySPIFFE(
 		return "", "", errors.New("SPIFFE ID must use spiffe:// scheme")
 	}
 
-	if uri.Host != trustDomain {
+	// Accept global trust domain or any workspace trust domain.
+	domainOK := uri.Host == trustDomain
+	if !domainOK && trustDomainValidator != nil {
+		domainOK = trustDomainValidator(uri.Host)
+	}
+	if !domainOK {
 		return "", "", errors.New("SPIFFE trust domain mismatch")
 	}
 

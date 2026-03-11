@@ -172,3 +172,57 @@ func policyHash(resources []policyResource) string {
 func policyVersion(db *sql.DB, connectorID, policyHash, compiledAt string) int {
 	return api.PolicyVersionForUI(db, connectorID, policyHash, compiledAt)
 }
+
+func (s *Server) workspaceIDFromRequest(r *http.Request) string {
+	// First check if workspace context is already in the request context (set by workspaceAuth middleware).
+	if wid := workspaceIDFromContext(r.Context()); wid != "" {
+		return wid
+	}
+	// Try to extract from JWT in Authorization header or cookie.
+	if len(s.JWTSecret) == 0 {
+		return ""
+	}
+	tokenStr := ""
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		tokenStr = cookie.Value
+	} else {
+		auth := r.Header.Get("Authorization")
+		if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
+			tokenStr = after
+		}
+	}
+	if tokenStr == "" {
+		return ""
+	}
+	_, _, wsID, _, _, err := workspaceClaimsFromJWT(tokenStr, s.JWTSecret)
+	if err != nil {
+		return ""
+	}
+	return wsID
+}
+
+// wsWhere returns a SQL WHERE clause fragment and args for workspace scoping.
+// If workspaceID is empty, returns empty string and nil args (no filtering).
+// tableAlias is optional (e.g. "r" for "r.workspace_id = ?").
+func wsWhere(workspaceID, tableAlias string) (string, []interface{}) {
+	if workspaceID == "" {
+		return "", nil
+	}
+	col := "workspace_id"
+	if tableAlias != "" {
+		col = tableAlias + ".workspace_id"
+	}
+	return " AND " + col + " = ?", []interface{}{workspaceID}
+}
+
+// wsWhereOnly returns a WHERE clause (not AND) for workspace scoping.
+func wsWhereOnly(workspaceID, tableAlias string) (string, []interface{}) {
+	if workspaceID == "" {
+		return "", nil
+	}
+	col := "workspace_id"
+	if tableAlias != "" {
+		col = tableAlias + ".workspace_id"
+	}
+	return " WHERE " + col + " = ?", []interface{}{workspaceID}
+}

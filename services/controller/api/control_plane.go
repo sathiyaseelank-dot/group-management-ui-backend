@@ -158,9 +158,15 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 					ConnectionID    string `json:"connection_id"`
 				}
 				if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
+					auditWsID := ""
+					if s.registry != nil {
+						if rec, ok := s.registry.Get(msg.GetConnectorId()); ok {
+							auditWsID = rec.WorkspaceID
+						}
+					}
 					_, _ = s.acls.DB().Exec(
-						`INSERT INTO audit_logs (principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+						state.Rebind(`INSERT INTO audit_logs (principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at, workspace_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 						payload.PrincipalSPIFFE,
 						payload.TunnelerID,
 						payload.ResourceID,
@@ -171,6 +177,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 						payload.Reason,
 						payload.ConnectionID,
 						time.Now().UTC().Unix(),
+						auditWsID,
 					)
 				}
 			}
