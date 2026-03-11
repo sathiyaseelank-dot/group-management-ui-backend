@@ -18,7 +18,7 @@ func (s *Server) handleUIConnectors(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors ORDER BY name ASC`)
+		rows, err := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, last_seen FROM connectors ORDER BY name ASC`)
 		if err != nil {
 			http.Error(w, "failed to list connectors", http.StatusInternalServerError)
 			return
@@ -90,7 +90,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		row := db.QueryRow(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors WHERE id = ?`), connectorID)
+		row := db.QueryRow(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, last_seen FROM connectors WHERE id = ?`), connectorID)
 		connector, ok := scanUIConnector(row)
 		if !ok {
 			writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -178,11 +178,6 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 	}
 	if len(parts) >= 2 && parts[1] == "heartbeat" {
 		switch r.Method {
-		case http.MethodPost:
-			nowUnix := time.Now().UTC().Unix()
-			nowISO := isoStringNow()
-			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET status = ?, last_seen = ?, last_seen_at = ?, installed = 1 WHERE id = ?`), "online", nowUnix, nowISO, connectorID)
-			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		case http.MethodPatch:
 			var req struct {
 				LastPolicyVersion int `json:"last_policy_version"`

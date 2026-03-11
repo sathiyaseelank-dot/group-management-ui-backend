@@ -278,17 +278,6 @@ export async function addConnector(data: {
   });
 }
 
-// API: Simulate a connector sending a heartbeat (going online)
-export async function simulateConnectorHeartbeat(
-  connectorId: string,
-  enrollmentToken?: string
-): Promise<void> {
-  await request(`/api/connectors/${connectorId}/heartbeat`, {
-    method: 'POST',
-    body: JSON.stringify(enrollmentToken ? { enrollmentToken } : {}),
-  });
-}
-
 // API: Add a new group
 export async function addGroup({
   name,

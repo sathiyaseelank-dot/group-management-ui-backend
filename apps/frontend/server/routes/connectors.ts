@@ -63,20 +63,6 @@ router.post('/:connectorId/revoke', async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/connectors/:connectorId/heartbeat
-router.post('/:connectorId/heartbeat', async (req: Request, res: Response) => {
-  try {
-    const { connectorId } = req.params
-    const result = await proxyToBackend(`/api/connectors/${connectorId}/heartbeat`, {
-      method: 'POST',
-      body: Object.keys(req.body).length ? JSON.stringify(req.body) : undefined,
-    })
-    res.json(result)
-  } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
-  }
-})
-
 // PATCH /api/connectors/:connectorId/heartbeat
 router.patch('/:connectorId/heartbeat', async (req: Request, res: Response) => {
   try {

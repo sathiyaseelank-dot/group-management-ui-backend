@@ -73,3 +73,15 @@ pub fn tunneler_id_from_spiffe(spiffe_id: &str) -> Option<String> {
     }
     Some(parts[1].to_string())
 }
+
+/// Parse connector ID from a SPIFFE URI: spiffe://<domain>/connector/<id>
+pub fn connector_id_from_spiffe(spiffe_id: &str) -> Option<String> {
+    let rest = spiffe_id.strip_prefix("spiffe://")?;
+    let slash = rest.find('/')?;
+    let path = &rest[slash + 1..];
+    let parts: Vec<&str> = path.splitn(3, '/').collect();
+    if parts.len() < 2 || parts[0] != "connector" {
+        return None;
+    }
+    Some(parts[1].to_string())
+}

@@ -166,6 +166,12 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         total_ttl,
     );
 
+    // Use the connector ID from the issued SPIFFE cert, not the config value.
+    // The controller derives the policy signing key using this ID as the TLS
+    // exporter context, so both sides must agree on the same value.
+    let enrolled_connector_id = tls::spiffe::connector_id_from_spiffe(&result.spiffe_id)
+        .unwrap_or_else(|| cfg.connector_id.clone());
+
     let allowlist = Arc::new(TunnelerAllowlist::new());
     let acl = Arc::new(PolicyCache::new(cfg.policy_key.clone(), cfg.stale_grace));
     let (send_ch, recv_ch) = mpsc::channel::<ControlMessage>(16);
@@ -180,14 +186,14 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         allowlist.clone(),
         acl.clone(),
         send_ch.clone(),
-        cfg.connector_id.clone(),
+        enrolled_connector_id.clone(),
         tunneler_registry.clone(),
     ));
 
     // Start certificate renewal loop
     tokio::spawn(renewal::renewal_loop(
         cfg.controller_addr.clone(),
-        cfg.connector_id.clone(),
+        enrolled_connector_id.clone(),
         cfg.trust_domain.clone(),
         store.clone(),
         result.ca_pem.clone(),
@@ -197,7 +203,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     control_plane_loop(
         cfg.controller_addr.clone(),
         cfg.trust_domain.clone(),
-        cfg.connector_id.clone(),
+        enrolled_connector_id.clone(),
         cfg.private_ip.clone(),
         store.clone(),
         result.ca_pem.clone(),

@@ -154,7 +154,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		CreatedAt:            createdAt,
 		UpdatedAt:            updatedAt,
 	}
-	connectorRows, _ := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors WHERE remote_network_id = ? ORDER BY name ASC`), networkID)
+	connectorRows, _ := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, last_seen FROM connectors WHERE remote_network_id = ? ORDER BY name ASC`), networkID)
 	connectors := []uiConnector{}
 	if connectorRows != nil {
 		for connectorRows.Next() {

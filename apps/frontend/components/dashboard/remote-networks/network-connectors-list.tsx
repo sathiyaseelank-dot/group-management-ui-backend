@@ -71,7 +71,11 @@ export function NetworkConnectorsList({ connectors, remoteNetworkId, onAddConnec
                         ) : (
                           <CircleDotDashed className="h-3 w-3 fill-muted-foreground text-muted-foreground" />
                         )}
-                        {connector.status === 'online' ? 'Online' : 'Offline'}
+                        {!connector.installed
+                          ? 'Not installed'
+                          : connector.status === 'online'
+                            ? 'Online'
+                            : 'Offline'}
                       </Badge>
                     </TableCell>
                     <TableCell>{connector.version}</TableCell>

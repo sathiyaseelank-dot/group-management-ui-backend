@@ -72,6 +72,10 @@ func scanUIResource(scanner interface{ Scan(dest ...any) error }) (uiResource, b
 	return res, true
 }
 
+// connectorStaleThreshold is the duration after which a connector with no heartbeat
+// is considered offline regardless of the stored status field.
+const connectorStaleThreshold = 30 * time.Second
+
 func scanUIConnector(scanner interface{ Scan(dest ...any) error }) (uiConnector, bool) {
 	var c uiConnector
 	var name sql.NullString
@@ -84,7 +88,8 @@ func scanUIConnector(scanner interface{ Scan(dest ...any) error }) (uiConnector,
 	var installed sql.NullInt64
 	var lastPolicyVersion sql.NullInt64
 	var privateIP sql.NullString
-	if err := scanner.Scan(&c.ID, &name, &status, &version, &hostname, &remoteNetworkID, &lastSeen, &lastSeenAt, &installed, &lastPolicyVersion, &privateIP); err != nil {
+	var lastSeenUnix sql.NullInt64
+	if err := scanner.Scan(&c.ID, &name, &status, &version, &hostname, &remoteNetworkID, &lastSeen, &lastSeenAt, &installed, &lastPolicyVersion, &privateIP, &lastSeenUnix); err != nil {
 		return uiConnector{}, false
 	}
 	c.PrivateIP = privateIP.String
@@ -95,6 +100,15 @@ func scanUIConnector(scanner interface{ Scan(dest ...any) error }) (uiConnector,
 	c.Status = strings.TrimSpace(status.String)
 	if c.Status == "" {
 		c.Status = "offline"
+	}
+	// Derive live status from the last heartbeat timestamp.
+	// If the connector hasn't been seen within the stale threshold, treat it as offline
+	// regardless of what the stored status field says — this handles cases where the
+	// gRPC disconnect handler's UPDATE did not persist or was overwritten.
+	if c.Status == "online" && lastSeenUnix.Valid && lastSeenUnix.Int64 > 0 {
+		if time.Since(time.Unix(lastSeenUnix.Int64, 0)) > connectorStaleThreshold {
+			c.Status = "offline"
+		}
 	}
 	c.Version = strings.TrimSpace(version.String)
 	if c.Version == "" {

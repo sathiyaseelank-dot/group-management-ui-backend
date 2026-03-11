@@ -10,6 +10,22 @@ interface RemoteNetworkInfoSectionProps {
   network: RemoteNetwork;
 }
 
+function formatDate(value: string | undefined): string {
+  if (!value) return '—';
+  // Unix timestamp stored as text (seconds)
+  if (/^\d+$/.test(value)) {
+    const d = new Date(parseInt(value, 10) * 1000);
+    if (!isNaN(d.getTime())) return d.toLocaleString();
+  }
+  // ISO 8601 with T
+  let d = new Date(value);
+  if (!isNaN(d.getTime())) return d.toLocaleString();
+  // PostgreSQL "2026-03-11 10:15:30+00" — replace space with T
+  d = new Date(value.replace(' ', 'T'));
+  if (!isNaN(d.getTime())) return d.toLocaleString();
+  return value;
+}
+
 export function RemoteNetworkInfoSection({ network }: RemoteNetworkInfoSectionProps) {
   const allOnline = network.onlineConnectorCount === network.connectorCount;
   const noneOnline = network.onlineConnectorCount === 0;
@@ -59,7 +75,7 @@ export function RemoteNetworkInfoSection({ network }: RemoteNetworkInfoSectionPr
         </div>
         <div className="flex flex-col space-y-1.5">
           <Label htmlFor="created">Created</Label>
-          <p id="created" className="text-sm text-muted-foreground">{network.createdAt}</p>
+          <p id="created" className="text-sm text-muted-foreground">{formatDate(network.createdAt)}</p>
         </div>
       </CardContent>
     </Card>

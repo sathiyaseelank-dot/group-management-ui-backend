@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { createEnrollmentToken, deleteConnector, getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
+import { createEnrollmentToken, deleteConnector, getConnector } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, ArrowLeft, AlertTriangle, Terminal, Copy, HeartPulse, CheckCircle, RefreshCw } from 'lucide-react';
+import { Loader2, ArrowLeft, AlertTriangle, Terminal, Copy, CheckCircle, RefreshCw } from 'lucide-react';
 import { ConnectorInfoSection } from '@/components/dashboard/connectors/connector-info-section';
 import { ConnectorLogs } from '@/components/dashboard/connectors/connector-logs';
 import { toast } from 'sonner';
@@ -45,34 +45,26 @@ export default function ConnectorDetailPage() {
   const [network, setNetwork] = useState<RemoteNetwork | undefined>(undefined);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSimulatingHeartbeat, setIsSimulatingHeartbeat] = useState(false);
   const [enrollmentToken, setEnrollmentToken] = useState<string>('');
   const [tokenLoading, setTokenLoading] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
-  const [autoHeartbeatSent, setAutoHeartbeatSent] = useState(false);
 
   // Auto-detect controller IP from the browser's current hostname.
   // When accessed from another machine (e.g. 192.168.1.x), this gives the correct LAN IP.
   const detectedHost = window.location.hostname || '127.0.0.1';
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
-  const [policySigningKey, setPolicySigningKey] = useState('');
-
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
-    const policyKeyLine = policySigningKey
-      ? `  POLICY_SIGNING_KEY="${policySigningKey}" \\\n`
-      : '';
     return (
       `curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/setup.sh | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
       `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${enrollmentToken}" \\\n` +
-      policyKeyLine +
       `  bash`
     );
-  }, [enrollmentToken, controllerAddr, controllerHttpAddr, policySigningKey, connectorId]);
+  }, [enrollmentToken, controllerAddr, controllerHttpAddr, connectorId]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -121,27 +113,12 @@ export default function ConnectorDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (!connectorId || !connector || !connector.installed) return;
-    if (connector.status === 'online') return;
-    if (!enrollmentToken || autoHeartbeatSent) return;
-    const sendHeartbeat = async () => {
-      setAutoHeartbeatSent(true);
-      try {
-        await simulateConnectorHeartbeat(connectorId as string, enrollmentToken);
-        await loadConnectorData({ silent: true });
-      } catch (error) {
-        console.error('Failed to auto-send heartbeat:', error);
-      }
-    };
-    sendHeartbeat();
-  }, [autoHeartbeatSent, connector, connectorId, enrollmentToken]);
-
-  useEffect(() => {
     if (!connectorId) return;
-    if (connector?.installed) return;
+    // Poll every 5s until installed, then every 10s to track live online/offline status.
+    const delay = connector?.installed ? 10000 : 5000;
     const interval = setInterval(() => {
       loadConnectorData({ silent: true });
-    }, 5000);
+    }, delay);
     return () => clearInterval(interval);
   }, [connector?.installed, connectorId]);
 
@@ -166,20 +143,6 @@ export default function ConnectorDetailPage() {
     if (!INSTALL_COMMAND) return;
     copyToClipboard(INSTALL_COMMAND);
     toast.success('Installation command copied to clipboard!');
-  };
-
-  const handleSimulateHeartbeat = async () => {
-    if (!connectorId) return;
-    setIsSimulatingHeartbeat(true);
-    try {
-      await simulateConnectorHeartbeat(connectorId as string, enrollmentToken);
-      toast.success('Connector status updated to online!');
-      loadConnectorData({ silent: true });
-    } catch (error) {
-      toast.error('Failed to simulate heartbeat.');
-    } finally {
-      setIsSimulatingHeartbeat(false);
-    }
   };
 
   // Shared install card used in both the "not found" and "not installed" states
@@ -215,18 +178,6 @@ export default function ConnectorDetailPage() {
             />
             <p className="text-xs text-muted-foreground">
               The CA certificate is fetched automatically from this address.
-            </p>
-          </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="policySigningKey">Policy Signing Key (Optional)</Label>
-            <Input
-              id="policySigningKey"
-              value={policySigningKey}
-              onChange={(e) => setPolicySigningKey(e.target.value)}
-              placeholder="Leave empty to derive from mTLS"
-            />
-            <p className="text-xs text-muted-foreground">
-              The connector derives the policy key from the mTLS session by default. Only set this if derivation fails.
             </p>
           </div>
         </div>
@@ -336,21 +287,6 @@ export default function ConnectorDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          {connector.status === 'offline' && (
-            <Button
-              variant="outline"
-              className="gap-2 text-green-500 border-green-500 hover:text-green-600 hover:border-green-600"
-              onClick={handleSimulateHeartbeat}
-              disabled={isSimulatingHeartbeat}
-            >
-              {isSimulatingHeartbeat ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <HeartPulse className="h-4 w-4" />
-              )}
-              Simulate Heartbeat / Go Online
-            </Button>
-          )}
           <Button variant="destructive" className="gap-2" onClick={handleRevoke} disabled={isRevoking}>
             {isRevoking ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
             Revoke
