@@ -111,6 +111,12 @@ func main() {
 	tokenStore := state.NewTokenStoreWithDB(0, db)
 	userStore := state.NewUserStore(db)
 	remoteNetStore := state.NewRemoteNetworkStore(db)
+	workspaceStore := state.NewWorkspaceStore(db)
+
+	systemDomain := os.Getenv("SYSTEM_DOMAIN")
+	if systemDomain == "" {
+		systemDomain = "zerotrust.com"
+	}
 
 	// ---- gRPC server ----
 	grpcServer := grpc.NewServer(
@@ -136,6 +142,9 @@ func main() {
 		}
 	}()
 
+	// ---- trust domain validator (multi-tenant) ----
+	api.SetTrustDomainValidator(api.NewTrustDomainValidator(trustDomain, systemDomain))
+
 	// ---- enrollment service ----
 	enrollServer := api.NewEnrollmentServer(
 		caInst,
@@ -145,6 +154,8 @@ func main() {
 		registry,
 		controlPlaneServer,
 	)
+	enrollServer.Workspaces = workspaceStore
+	enrollServer.SystemDomain = systemDomain
 
 	controllerpb.RegisterEnrollmentServiceServer(grpcServer, enrollServer)
 	controllerpb.RegisterControlPlaneServer(grpcServer, controlPlaneServer)
@@ -197,6 +208,9 @@ func main() {
 		DashboardURL:      os.Getenv("DASHBOARD_URL"),
 		InviteBaseURL:     os.Getenv("INVITE_BASE_URL"),
 		Mailer:            m,
+		Workspaces:        workspaceStore,
+		IntermediateCA:    caInst,
+		SystemDomain:      systemDomain,
 	}
 	adminServer.RegisterRoutes(adminMux)
 	adminServer.RegisterOAuthRoutes(adminMux)

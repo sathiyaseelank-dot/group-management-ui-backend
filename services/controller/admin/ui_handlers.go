@@ -128,11 +128,19 @@ func (s *Server) handleUIUsers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	wsID := s.workspaceIDFromRequest(r)
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, email, status, certificate_identity,
-			CAST(created_at AS TEXT) as created_at
-			FROM users ORDER BY name ASC`)
+		query := `SELECT u.id, u.name, u.email, u.status, u.certificate_identity,
+			CAST(u.created_at AS TEXT) as created_at
+			FROM users u`
+		var args []interface{}
+		if wsID != "" {
+			query += ` JOIN workspace_members wm ON wm.user_id = u.id AND wm.workspace_id = ?`
+			args = append(args, wsID)
+		}
+		query += ` ORDER BY u.name ASC`
+		rows, err := db.Query(state.Rebind(query), args...)
 		if err != nil {
 			http.Error(w, "failed to list users", http.StatusInternalServerError)
 			return
@@ -226,11 +234,16 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	wsID := s.workspaceIDFromRequest(r)
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, description,
-			CAST(created_at AS TEXT) as created_at
-			FROM user_groups ORDER BY name ASC`)
+		query := `SELECT id, name, description, CAST(created_at AS TEXT) as created_at FROM user_groups WHERE 1=1`
+		var args []interface{}
+		wsClause, wsArgs := wsWhere(wsID, "")
+		query += wsClause
+		args = append(args, wsArgs...)
+		query += ` ORDER BY name ASC`
+		rows, err := db.Query(state.Rebind(query), args...)
 		if err != nil {
 			http.Error(w, "failed to list groups", http.StatusInternalServerError)
 			return
@@ -293,7 +306,7 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		id := fmt.Sprintf("grp_%d", time.Now().UTC().UnixMilli())
 		now := time.Now().UTC().Unix()
-		if _, err := db.Exec(state.Rebind(`INSERT INTO user_groups (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`), id, req.Name, req.Description, now, now); err != nil {
+		if _, err := db.Exec(state.Rebind(`INSERT INTO user_groups (id, name, description, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?)`), id, req.Name, req.Description, now, now, wsID); err != nil {
 			http.Error(w, "failed to create group", http.StatusBadRequest)
 			return
 		}
@@ -507,9 +520,16 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	wsID := s.workspaceIDFromRequest(r)
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id FROM resources ORDER BY name ASC`)
+		query := `SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id FROM resources WHERE 1=1`
+		var args []any
+		wsClause, wsArgs := wsWhere(wsID, "")
+		query += wsClause
+		args = append(args, wsArgs...)
+		query += ` ORDER BY name ASC`
+		rows, err := db.Query(state.Rebind(query), args...)
 		if err != nil {
 			http.Error(w, "failed to list resources", http.StatusInternalServerError)
 			return
@@ -543,8 +563,8 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 		}
 		ports := buildPorts(req.PortFrom, req.PortTo)
 		id := fmt.Sprintf("res_%d", time.Now().UTC().UnixMilli())
-		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), req.NetworkID); err != nil {
+		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), req.NetworkID, wsID); err != nil {
 			http.Error(w, "failed to create resource", http.StatusBadRequest)
 			return
 		}
@@ -654,6 +674,7 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	wsID := s.workspaceIDFromRequest(r)
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -683,7 +704,7 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create access rule", http.StatusInternalServerError)
 		return
 	}
-	_, err = tx.Exec(state.Rebind(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`), ruleID, req.Name, req.ResourceID, enabled, now, now)
+	_, err = tx.Exec(state.Rebind(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)`), ruleID, req.Name, req.ResourceID, enabled, now, now, wsID)
 	if err != nil {
 		_ = tx.Rollback()
 		http.Error(w, "failed to create access rule", http.StatusBadRequest)
@@ -762,17 +783,23 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	wsID := s.workspaceIDFromRequest(r)
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`
+		query := `
 			SELECT n.id, n.name, n.location,
 				CAST(n.created_at AS TEXT) as created_at,
 				CAST(n.updated_at AS TEXT) as updated_at,
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id) AS connector_count,
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id AND c.status = 'online') AS online_connector_count,
 				(SELECT COUNT(*) FROM resources r WHERE r.remote_network_id = n.id) AS resource_count
-			FROM remote_networks n
-			ORDER BY n.created_at ASC`)
+			FROM remote_networks n WHERE 1=1`
+		var args []any
+		wsClause, wsArgs := wsWhere(wsID, "n")
+		query += wsClause
+		args = append(args, wsArgs...)
+		query += ` ORDER BY n.created_at ASC`
+		rows, err := db.Query(state.Rebind(query), args...)
 		if err != nil {
 			http.Error(w, "failed to list remote networks", http.StatusInternalServerError)
 			return
@@ -828,7 +855,7 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 		}
 		id := fmt.Sprintf("net_%d", time.Now().UTC().UnixMilli())
 		now := time.Now().UTC().Unix()
-		_, err := db.Exec(state.Rebind(`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`), id, req.Name, req.Location, "{}", now, now)
+		_, err := db.Exec(state.Rebind(`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)`), id, req.Name, req.Location, "{}", now, now, wsID)
 		if err != nil {
 			http.Error(w, "failed to create network", http.StatusBadRequest)
 			return
@@ -924,9 +951,16 @@ func (s *Server) handleUIConnectors(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	wsID := s.workspaceIDFromRequest(r)
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors ORDER BY name ASC`)
+		query := `SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors WHERE 1=1`
+		var args []any
+		wsClause, wsArgs := wsWhere(wsID, "")
+		query += wsClause
+		args = append(args, wsArgs...)
+		query += ` ORDER BY name ASC`
+		rows, err := db.Query(state.Rebind(query), args...)
 		if err != nil {
 			http.Error(w, "failed to list connectors", http.StatusInternalServerError)
 			return
@@ -956,7 +990,7 @@ func (s *Server) handleUIConnectors(w http.ResponseWriter, r *http.Request) {
 		hostname := strings.ToLower(strings.ReplaceAll(req.Name, " ", "-")) + ".local"
 		nowUnix := time.Now().UTC().Unix()
 		nowISO := isoStringNow()
-		_, err := db.Exec(state.Rebind(`INSERT INTO connectors (id, name, status, version, hostname, remote_network_id, last_seen, last_policy_version, last_seen_at, installed) VALUES (?, ?, 'offline', '1.0.0', ?, ?, ?, 0, ?, 0)`), id, req.Name, hostname, req.RemoteNetworkID, nowUnix, nowISO)
+		_, err := db.Exec(state.Rebind(`INSERT INTO connectors (id, name, status, version, hostname, remote_network_id, last_seen, last_policy_version, last_seen_at, installed, workspace_id) VALUES (?, ?, 'offline', '1.0.0', ?, ?, ?, 0, ?, 0, ?)`), id, req.Name, hostname, req.RemoteNetworkID, nowUnix, nowISO, wsID)
 		if err != nil {
 			http.Error(w, "failed to create connector", http.StatusBadRequest)
 			return
@@ -1094,7 +1128,14 @@ func (s *Server) handleUITunnelers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	rows, err := db.Query(`SELECT id, name, status, version, hostname, remote_network_id FROM tunnelers ORDER BY name ASC`)
+	wsID := s.workspaceIDFromRequest(r)
+	query := `SELECT id, name, status, version, hostname, remote_network_id FROM tunnelers WHERE 1=1`
+	var args []any
+	wsClause, wsArgs := wsWhere(wsID, "")
+	query += wsClause
+	args = append(args, wsArgs...)
+	query += ` ORDER BY name ASC`
+	rows, err := db.Query(state.Rebind(query), args...)
 	if err != nil {
 		http.Error(w, "failed to list tunnelers", http.StatusInternalServerError)
 		return
@@ -1119,10 +1160,15 @@ func (s *Server) handleUISubjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	wsID := s.workspaceIDFromRequest(r)
 	subjectType := strings.ToUpper(r.URL.Query().Get("type"))
 	subjects := []uiSubject{}
+
+	wsClause, wsArgs := wsWhere(wsID, "")
+
 	if subjectType == "" || subjectType == "USER" {
-		rows, _ := db.Query(`SELECT id, name FROM users ORDER BY name ASC`)
+		q := `SELECT id, name FROM users WHERE 1=1` + wsClause + ` ORDER BY name ASC`
+		rows, _ := db.Query(state.Rebind(q), wsArgs...)
 		if rows != nil {
 			for rows.Next() {
 				var id, name string
@@ -1134,7 +1180,8 @@ func (s *Server) handleUISubjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if subjectType == "" || subjectType == "GROUP" {
-		rows, _ := db.Query(`SELECT id, name FROM user_groups ORDER BY name ASC`)
+		q := `SELECT id, name FROM user_groups WHERE 1=1` + wsClause + ` ORDER BY name ASC`
+		rows, _ := db.Query(state.Rebind(q), wsArgs...)
 		if rows != nil {
 			for rows.Next() {
 				var id, name string
@@ -1146,7 +1193,8 @@ func (s *Server) handleUISubjects(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if subjectType == "" || subjectType == "SERVICE" {
-		rows, _ := db.Query(`SELECT id, name FROM service_accounts ORDER BY name ASC`)
+		q := `SELECT id, name FROM service_accounts WHERE 1=1` + wsClause + ` ORDER BY name ASC`
+		rows, _ := db.Query(state.Rebind(q), wsArgs...)
 		if rows != nil {
 			for rows.Next() {
 				var id, name string
@@ -1169,9 +1217,16 @@ func (s *Server) handleUIServiceAccounts(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	rows, err := db.Query(`SELECT id, name, status, associated_resource_count,
+	wsID := s.workspaceIDFromRequest(r)
+	query := `SELECT id, name, status, associated_resource_count,
 		CAST(created_at AS TEXT) as created_at
-		FROM service_accounts ORDER BY name ASC`)
+		FROM service_accounts WHERE 1=1`
+	var args []any
+	wsClause, wsArgs := wsWhere(wsID, "")
+	query += wsClause
+	args = append(args, wsArgs...)
+	query += ` ORDER BY name ASC`
+	rows, err := db.Query(state.Rebind(query), args...)
 	if err != nil {
 		http.Error(w, "failed to list service accounts", http.StatusInternalServerError)
 		return
@@ -1292,6 +1347,62 @@ func (s *Server) uiDB(w http.ResponseWriter) (*sql.DB, bool) {
 		return nil, false
 	}
 	return s.ACLs.DB(), true
+}
+
+// workspaceIDFromRequest attempts to extract workspace_id from a JWT in the request.
+// Returns empty string if no workspace context (backward compatible).
+func (s *Server) workspaceIDFromRequest(r *http.Request) string {
+	// First check if workspace context is already in the request context (set by workspaceAuth middleware).
+	if wid := workspaceIDFromContext(r.Context()); wid != "" {
+		return wid
+	}
+	// Try to extract from JWT in Authorization header or cookie.
+	if len(s.JWTSecret) == 0 {
+		return ""
+	}
+	tokenStr := ""
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		tokenStr = cookie.Value
+	} else {
+		auth := r.Header.Get("Authorization")
+		if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
+			tokenStr = after
+		}
+	}
+	if tokenStr == "" {
+		return ""
+	}
+	_, _, wsID, _, _, err := workspaceClaimsFromJWT(tokenStr, s.JWTSecret)
+	if err != nil {
+		return ""
+	}
+	return wsID
+}
+
+// wsWhere returns a SQL WHERE clause fragment and args for workspace scoping.
+// If workspaceID is empty, returns empty string and nil args (no filtering).
+// tableAlias is optional (e.g. "r" for "r.workspace_id = ?").
+func wsWhere(workspaceID, tableAlias string) (string, []interface{}) {
+	if workspaceID == "" {
+		return "", nil
+	}
+	col := "workspace_id"
+	if tableAlias != "" {
+		col = tableAlias + ".workspace_id"
+	}
+	return " AND " + col + " = ?", []interface{}{workspaceID}
+}
+
+// wsWhereOnly returns a WHERE clause (not AND) for workspace scoping.
+func wsWhereOnly(workspaceID, tableAlias string) (string, []interface{}) {
+	if workspaceID == "" {
+		return "", nil
+	}
+	col := "workspace_id"
+	if tableAlias != "" {
+		col = tableAlias + ".workspace_id"
+	}
+	return " WHERE " + col + " = ?", []interface{}{workspaceID}
 }
 
 func scanUIResource(scanner interface{ Scan(dest ...any) error }) (uiResource, bool) {

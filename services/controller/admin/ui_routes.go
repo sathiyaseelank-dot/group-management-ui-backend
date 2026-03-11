@@ -1,6 +1,9 @@
 package admin
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 func (s *Server) RegisterOAuthRoutes(mux *http.ServeMux) {
 	// OAuth login / callback / logout — no auth required (they establish auth).
@@ -15,27 +18,55 @@ func (s *Server) RegisterOAuthRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
-	mux.Handle("/api/users", withCORS(http.HandlerFunc(s.handleUIUsers)))
-	mux.Handle("/api/groups", withCORS(http.HandlerFunc(s.handleUIGroups)))
-	mux.Handle("/api/groups/", withCORS(http.HandlerFunc(s.handleUIGroupsSubroutes)))
-	mux.Handle("/api/resources", withCORS(http.HandlerFunc(s.handleUIResources)))
-	mux.Handle("/api/resources/", withCORS(http.HandlerFunc(s.handleUIResourcesSubroutes)))
-	mux.Handle("/api/access-rules", withCORS(http.HandlerFunc(s.handleUIAccessRules)))
-	mux.Handle("/api/access-rules/", withCORS(http.HandlerFunc(s.handleUIAccessRulesSubroutes)))
-	mux.Handle("/api/remote-networks", withCORS(http.HandlerFunc(s.handleUIRemoteNetworks)))
-	mux.Handle("/api/remote-networks/", withCORS(http.HandlerFunc(s.handleUIRemoteNetworksSubroutes)))
-	mux.Handle("/api/connectors", withCORS(http.HandlerFunc(s.handleUIConnectors)))
-	mux.Handle("/api/connectors/", withCORS(http.HandlerFunc(s.handleUIConnectorsSubroutes)))
-	mux.Handle("/api/tunnelers", withCORS(http.HandlerFunc(s.handleUITunnelers)))
-	mux.Handle("/api/subjects", withCORS(http.HandlerFunc(s.handleUISubjects)))
-	mux.Handle("/api/service-accounts", withCORS(http.HandlerFunc(s.handleUIServiceAccounts)))
-	mux.Handle("/api/policy/compile/", withCORS(http.HandlerFunc(s.handleUIPolicyCompile)))
-	mux.Handle("/api/policy/acl/", withCORS(http.HandlerFunc(s.handleUIPolicyACL)))
+	ws := s.withWorkspaceContext // shorthand middleware
+	mux.Handle("/api/users", withCORS(ws(http.HandlerFunc(s.handleUIUsers))))
+	mux.Handle("/api/groups", withCORS(ws(http.HandlerFunc(s.handleUIGroups))))
+	mux.Handle("/api/groups/", withCORS(ws(http.HandlerFunc(s.handleUIGroupsSubroutes))))
+	mux.Handle("/api/resources", withCORS(ws(http.HandlerFunc(s.handleUIResources))))
+	mux.Handle("/api/resources/", withCORS(ws(http.HandlerFunc(s.handleUIResourcesSubroutes))))
+	mux.Handle("/api/access-rules", withCORS(ws(http.HandlerFunc(s.handleUIAccessRules))))
+	mux.Handle("/api/access-rules/", withCORS(ws(http.HandlerFunc(s.handleUIAccessRulesSubroutes))))
+	mux.Handle("/api/remote-networks", withCORS(ws(http.HandlerFunc(s.handleUIRemoteNetworks))))
+	mux.Handle("/api/remote-networks/", withCORS(ws(http.HandlerFunc(s.handleUIRemoteNetworksSubroutes))))
+	mux.Handle("/api/connectors", withCORS(ws(http.HandlerFunc(s.handleUIConnectors))))
+	mux.Handle("/api/connectors/", withCORS(ws(http.HandlerFunc(s.handleUIConnectorsSubroutes))))
+	mux.Handle("/api/tunnelers", withCORS(ws(http.HandlerFunc(s.handleUITunnelers))))
+	mux.Handle("/api/subjects", withCORS(ws(http.HandlerFunc(s.handleUISubjects))))
+	mux.Handle("/api/service-accounts", withCORS(ws(http.HandlerFunc(s.handleUIServiceAccounts))))
+	mux.Handle("/api/policy/compile/", withCORS(ws(http.HandlerFunc(s.handleUIPolicyCompile))))
+	mux.Handle("/api/policy/acl/", withCORS(ws(http.HandlerFunc(s.handleUIPolicyACL))))
 
 	// Discovery routes (admin-authed with CORS)
 	mux.Handle("/api/admin/discovery/scan", withCORS(s.adminAuth(http.HandlerFunc(s.handleStartScan))))
 	mux.Handle("/api/admin/discovery/scan/", withCORS(s.adminAuth(http.HandlerFunc(s.handleScanStatus))))
 	mux.Handle("/api/admin/discovery/results", withCORS(s.adminAuth(http.HandlerFunc(s.handleDiscoveryResults))))
+}
+
+// withWorkspaceContext is a middleware that extracts workspace claims from JWT
+// and adds them to the request context. It does NOT require workspace claims —
+// requests without them proceed with empty workspace context (backward compatible).
+func (s *Server) withWorkspaceContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(s.JWTSecret) > 0 {
+			tokenStr := ""
+			if cookie, err := r.Cookie(sessionCookieName); err == nil {
+				tokenStr = cookie.Value
+			} else {
+				auth := r.Header.Get("Authorization")
+				if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
+					tokenStr = after
+				}
+			}
+			if tokenStr != "" {
+				if email, userID, wsID, wsSlug, wsRole, err := workspaceClaimsFromJWT(tokenStr, s.JWTSecret); err == nil {
+					ctx := withSessionEmail(r.Context(), email)
+					ctx = withWorkspace(ctx, userID, wsID, wsSlug, wsRole)
+					r = r.WithContext(ctx)
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func withCORS(next http.Handler) http.Handler {

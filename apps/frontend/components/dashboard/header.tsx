@@ -1,5 +1,6 @@
 import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { WorkspaceSwitcher } from './workspace-switcher';
 
 async function logout() {
   try {
@@ -20,10 +21,13 @@ export function Header() {
           Manage groups, users, and resource access policies
         </p>
       </div>
-      <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={logout}>
+      <div className="flex items-center gap-3">
+        <WorkspaceSwitcher />
+        <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={logout}>
         <LogOut className="h-4 w-4" />
         Sign out
       </Button>
+      </div>
     </header>
   );
 }

@@ -130,6 +130,28 @@ export interface ScanJob {
   error?: string;
 }
 
+// Workspaces
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  trustDomain: string;
+  caCertPem?: string;
+  status: string;
+  role?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceMember {
+  workspaceId: string;
+  userId: string;
+  role: 'owner' | 'admin' | 'member';
+  email?: string;
+  name?: string;
+  joinedAt: string;
+}
+
 // Selected Subject for picker
 export interface SelectedSubject {
   id: string;
