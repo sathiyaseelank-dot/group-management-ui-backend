@@ -112,7 +112,7 @@ func (s *EnrollmentServer) EnrollConnector(
 		issuerCA,
 		spiffeID,
 		pubKey,
-		5*time.Minute,
+		1*time.Hour,
 		nil,
 		ipAddrs,
 	)
@@ -180,7 +180,7 @@ func (s *EnrollmentServer) EnrollTunneler(
 		issuerCA,
 		spiffeID,
 		pubKey,
-		30*time.Minute,
+		1*time.Hour,
 		nil,
 		nil,
 	)
@@ -241,10 +241,7 @@ func (s *EnrollmentServer) Renew(
 		}
 	}
 
-	ttl := 30 * time.Minute
-	if role == "connector" {
-		ttl = 5 * time.Minute
-	}
+	ttl := 1 * time.Hour
 	var ipAddrs []net.IP
 	if role == "connector" && s.Registry != nil {
 		if rec, ok := s.Registry.Get(req.GetId()); ok {

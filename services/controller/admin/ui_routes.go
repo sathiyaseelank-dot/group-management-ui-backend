@@ -9,6 +9,11 @@ func (s *Server) RegisterOAuthRoutes(mux *http.ServeMux) {
 	// OAuth login / callback / logout — no auth required (they establish auth).
 	mux.Handle("/oauth/google/login", withCORS(http.HandlerFunc(s.handleOAuthLogin)))
 	mux.Handle("/oauth/google/callback", withCORS(http.HandlerFunc(s.handleOAuthCallback)))
+
+	// GitHub OAuth routes
+	mux.Handle("/oauth/github/login", withCORS(s.handleProviderLogin("GitHub", s.GitHubOAuthConfig)))
+	mux.Handle("/oauth/github/callback", withCORS(s.handleProviderCallback("GitHub", s.GitHubOAuthConfig, fetchGitHubEmail)))
+
 	mux.Handle("/oauth/logout", withCORS(http.HandlerFunc(s.handleOAuthLogout)))
 	// Invite acceptance page — public (token validates itself).
 	mux.Handle("/invite", withCORS(http.HandlerFunc(s.handleInviteAccept)))

@@ -19,15 +19,17 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 	}
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`
+		wsID := workspaceIDFromContext(r.Context())
+		wsClause, wsArgs := wsWhereOnly(wsID, "n")
+		rows, err := db.Query(state.Rebind(`
 			SELECT n.id, n.name, n.location,
 				CAST(n.created_at AS TEXT) as created_at,
 				CAST(n.updated_at AS TEXT) as updated_at,
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id) AS connector_count,
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id AND c.status = 'online') AS online_connector_count,
 				(SELECT COUNT(*) FROM resources r WHERE r.remote_network_id = n.id) AS resource_count
-			FROM remote_networks n
-			ORDER BY n.created_at ASC`)
+			FROM remote_networks n`+wsClause+`
+			ORDER BY n.created_at ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list remote networks", http.StatusInternalServerError)
 			return
@@ -83,7 +85,8 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 		}
 		id := fmt.Sprintf("net_%d", time.Now().UTC().UnixMilli())
 		now := isoStringNow()
-		_, err := db.Exec(state.Rebind(`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`), id, req.Name, req.Location, "{}", now, now)
+		wsID := workspaceIDFromContext(r.Context())
+		_, err := db.Exec(state.Rebind(`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)`), id, req.Name, req.Location, "{}", now, now, wsID)
 		if err != nil {
 			log.Printf("remote network create: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)

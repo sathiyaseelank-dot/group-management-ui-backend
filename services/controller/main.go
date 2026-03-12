@@ -161,10 +161,15 @@ func main() {
 	controllerpb.RegisterControlPlaneServer(grpcServer, controlPlaneServer)
 
 	// ---- OAuth + mailer config (optional) ----
-	var oauthCfg = admin.BuildOAuthConfig(
+	var oauthCfg = admin.BuildGoogleOAuthConfig(
 		os.Getenv("GOOGLE_CLIENT_ID"),
 		os.Getenv("GOOGLE_CLIENT_SECRET"),
 		os.Getenv("OAUTH_REDIRECT_URL"),
+	)
+	var githubOAuthCfg = admin.BuildGitHubOAuthConfig(
+		os.Getenv("GITHUB_CLIENT_ID"),
+		os.Getenv("GITHUB_CLIENT_SECRET"),
+		os.Getenv("GITHUB_OAUTH_REDIRECT_URL"),
 	)
 
 	adminLoginEmails := map[string]struct{}{}
@@ -203,6 +208,7 @@ func main() {
 		InternalAuthToken: internalAuthToken,
 		CACertPEM:         caCertPEM,
 		OAuthConfig:       oauthCfg,
+		GitHubOAuthConfig: githubOAuthCfg,
 		JWTSecret:         []byte(os.Getenv("JWT_SECRET")),
 		AdminLoginEmails:  adminLoginEmails,
 		DashboardURL:      os.Getenv("DASHBOARD_URL"),

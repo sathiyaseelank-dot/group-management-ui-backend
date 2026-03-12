@@ -1,6 +1,10 @@
 package admin
 
-import "net/http"
+import (
+	"net/http"
+
+	"controller/state"
+)
 
 func (s *Server) handleUITunnelers(w http.ResponseWriter, r *http.Request) {
 	db, ok := s.uiDB(w)
@@ -11,7 +15,9 @@ func (s *Server) handleUITunnelers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	rows, err := db.Query(`SELECT id, name, status, version, hostname, remote_network_id FROM tunnelers ORDER BY name ASC`)
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhereOnly(wsID, "")
+	rows, err := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id FROM tunnelers`+wsClause+` ORDER BY name ASC`), wsArgs...)
 	if err != nil {
 		http.Error(w, "failed to list tunnelers", http.StatusInternalServerError)
 		return

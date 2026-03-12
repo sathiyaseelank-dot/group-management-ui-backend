@@ -34,6 +34,9 @@ pub async fn renewal_loop(
                 let total_ttl = not_after
                     .duration_since(not_before)
                     .unwrap_or(Duration::from_secs(3600));
+                if let Err(e) = crate::persistence::save_enrollment(&result) {
+                    warn!("failed to persist renewed certificate: {}", e);
+                }
                 store.update(result.cert_der, result.key_der.to_vec(), not_after, total_ttl);
                 info!("certificate renewed successfully");
                 reload.notify_one();

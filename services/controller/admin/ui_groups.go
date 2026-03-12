@@ -18,9 +18,11 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, description,
+		wsID := workspaceIDFromContext(r.Context())
+		wsClause, wsArgs := wsWhereOnly(wsID, "")
+		rows, err := db.Query(state.Rebind(`SELECT id, name, description,
 			CAST(created_at AS TEXT) as created_at
-			FROM user_groups ORDER BY name ASC`)
+			FROM user_groups`+wsClause+` ORDER BY name ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list groups", http.StatusInternalServerError)
 			return
@@ -83,7 +85,8 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		id := fmt.Sprintf("grp_%d", time.Now().UTC().UnixMilli())
 		now := isoStringNow()
-		if _, err := db.Exec(state.Rebind(`INSERT INTO user_groups (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`), id, req.Name, req.Description, now, now); err != nil {
+		wsID := workspaceIDFromContext(r.Context())
+		if _, err := db.Exec(state.Rebind(`INSERT INTO user_groups (id, name, description, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?)`), id, req.Name, req.Description, now, now, wsID); err != nil {
 			http.Error(w, "failed to create group", http.StatusBadRequest)
 			return
 		}
@@ -254,13 +257,14 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			groupName = "Unknown Group"
 		}
 		now := dateStringNow()
+		wsID := workspaceIDFromContext(r.Context())
 		tx, err := db.Begin()
 		if err != nil {
 			http.Error(w, "failed to add resources", http.StatusInternalServerError)
 			return
 		}
 		checkStmt, _ := tx.Prepare(state.Rebind(`SELECT ar.id FROM access_rules ar JOIN access_rule_groups arg ON arg.rule_id = ar.id WHERE ar.resource_id = ? AND arg.group_id = ?`))
-		insertRule, _ := tx.Prepare(state.Rebind(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)`))
+		insertRule, _ := tx.Prepare(state.Rebind(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at, workspace_id) VALUES (?, ?, ?, 1, ?, ?, ?)`))
 		insertRuleGroup, _ := tx.Prepare(state.Rebind(`INSERT INTO access_rule_groups (rule_id, group_id) VALUES (?, ?)`))
 		for _, resourceID := range req.ResourceIDs {
 			var existing string
@@ -272,7 +276,7 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			}
 			ruleID := fmt.Sprintf("rule_%d_%s_%s", time.Now().UTC().UnixMilli(), groupID, resourceID)
 			if insertRule != nil {
-				_, _ = insertRule.Exec(ruleID, fmt.Sprintf("%s access", groupName), resourceID, now, now)
+				_, _ = insertRule.Exec(ruleID, fmt.Sprintf("%s access", groupName), resourceID, now, now, wsID)
 			}
 			if insertRuleGroup != nil {
 				_, _ = insertRuleGroup.Exec(ruleID, groupID)

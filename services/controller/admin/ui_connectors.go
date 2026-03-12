@@ -18,7 +18,9 @@ func (s *Server) handleUIConnectors(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors ORDER BY name ASC`)
+		wsID := workspaceIDFromContext(r.Context())
+		wsClause, wsArgs := wsWhereOnly(wsID, "")
+		rows, err := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip FROM connectors`+wsClause+` ORDER BY name ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list connectors", http.StatusInternalServerError)
 			return
@@ -48,7 +50,8 @@ func (s *Server) handleUIConnectors(w http.ResponseWriter, r *http.Request) {
 		hostname := strings.ToLower(strings.ReplaceAll(req.Name, " ", "-")) + ".local"
 		nowUnix := time.Now().UTC().Unix()
 		nowISO := isoStringNow()
-		_, err := db.Exec(state.Rebind(`INSERT INTO connectors (id, name, status, version, hostname, remote_network_id, last_seen, last_policy_version, last_seen_at, installed) VALUES (?, ?, 'offline', '1.0.0', ?, ?, ?, 0, ?, 0)`), id, req.Name, hostname, req.RemoteNetworkID, nowUnix, nowISO)
+		wsID := workspaceIDFromContext(r.Context())
+		_, err := db.Exec(state.Rebind(`INSERT INTO connectors (id, name, status, version, hostname, remote_network_id, last_seen, last_policy_version, last_seen_at, installed, workspace_id) VALUES (?, ?, 'offline', '1.0.0', ?, ?, ?, 0, ?, 0, ?)`), id, req.Name, hostname, req.RemoteNetworkID, nowUnix, nowISO, wsID)
 		if err != nil {
 			http.Error(w, "failed to create connector", http.StatusBadRequest)
 			return

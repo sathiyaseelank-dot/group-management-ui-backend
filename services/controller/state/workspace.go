@@ -190,6 +190,31 @@ func (s *WorkspaceStore) UpdateMemberRole(workspaceID, userID, role string) erro
 	return nil
 }
 
+// ListWorkspaceSlugsForEmail returns the workspace slugs+names for an email address.
+func (s *WorkspaceStore) ListWorkspaceSlugsForEmail(email string) ([]struct{ Name, Slug string }, error) {
+	rows, err := s.db.Query(
+		Rebind(`SELECT w.name, w.slug
+			FROM workspaces w
+			JOIN workspace_members m ON m.workspace_id = w.id
+			JOIN users u ON u.id = m.user_id
+			WHERE u.email = ? AND w.status = 'active'
+			ORDER BY w.name ASC`), email,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []struct{ Name, Slug string }
+	for rows.Next() {
+		var entry struct{ Name, Slug string }
+		if err := rows.Scan(&entry.Name, &entry.Slug); err != nil {
+			return nil, err
+		}
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
 func (s *WorkspaceStore) GetUserByEmail(email string) (*User, error) {
 	var u User
 	var createdAt, updatedAt string

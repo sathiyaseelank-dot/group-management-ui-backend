@@ -40,6 +40,8 @@ func (s *Server) RegisterWorkspaceRoutes(mux *http.ServeMux) {
 	if s.Workspaces == nil {
 		return
 	}
+	// Public lookup endpoint — no auth required.
+	mux.Handle("/api/workspaces/lookup", withCORS(http.HandlerFunc(s.handleWorkspaceLookup)))
 	mux.Handle("/api/workspaces", withCORS(s.workspaceAuth(http.HandlerFunc(s.handleWorkspaces))))
 	mux.Handle("/api/workspaces/", withCORS(s.workspaceAuth(http.HandlerFunc(s.handleWorkspaceSubroutes))))
 }
@@ -543,4 +545,51 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request, wsID
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+// handleWorkspaceLookup is a public endpoint for looking up workspaces.
+// GET /api/workspaces/lookup?slug=<slug>  — check if a network URL exists
+// GET /api/workspaces/lookup?email=<email> — find networks for an email
+func (s *Server) handleWorkspaceLookup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	slug := r.URL.Query().Get("slug")
+	email := r.URL.Query().Get("email")
+
+	if slug != "" {
+		ws, err := s.Workspaces.GetWorkspaceBySlug(slug)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"exists": false})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"exists": true,
+			"name":   ws.Name,
+			"slug":   ws.Slug,
+		})
+		return
+	}
+
+	if email != "" {
+		results, err := s.Workspaces.ListWorkspaceSlugsForEmail(strings.ToLower(strings.TrimSpace(email)))
+		if err != nil || len(results) == 0 {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"networks": []interface{}{}})
+			return
+		}
+		type network struct {
+			Name string `json:"name"`
+			Slug string `json:"slug"`
+		}
+		networks := make([]network, len(results))
+		for i, r := range results {
+			networks[i] = network{Name: r.Name, Slug: r.Slug}
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"networks": networks})
+		return
+	}
+
+	http.Error(w, "slug or email parameter required", http.StatusBadRequest)
 }

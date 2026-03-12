@@ -33,11 +33,12 @@ type Server struct {
 	CACertPEM         []byte
 
 	// OAuth + JWT session
-	OAuthConfig      *oauth2.Config
-	JWTSecret        []byte
-	AdminLoginEmails map[string]struct{}
-	DashboardURL     string
-	InviteBaseURL    string
+	OAuthConfig       *oauth2.Config // Google (backward compat)
+	GitHubOAuthConfig *oauth2.Config
+	JWTSecret         []byte
+	AdminLoginEmails  map[string]struct{}
+	DashboardURL      string
+	InviteBaseURL     string
 
 	// SMTP mailer (nil = disabled)
 	Mailer *mailer.Mailer

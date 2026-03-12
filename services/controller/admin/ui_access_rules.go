@@ -18,7 +18,9 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT ar.id, ar.name, ar.resource_id, ar.enabled, ar.created_at, ar.updated_at FROM access_rules ar ORDER BY ar.created_at ASC`)
+		wsID := workspaceIDFromContext(r.Context())
+		wsClause, wsArgs := wsWhereOnly(wsID, "ar")
+		rows, err := db.Query(state.Rebind(`SELECT ar.id, ar.name, ar.resource_id, ar.enabled, ar.created_at, ar.updated_at FROM access_rules ar`+wsClause+` ORDER BY ar.created_at ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list access rules", http.StatusInternalServerError)
 			return
@@ -78,7 +80,8 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		_, err = tx.Exec(state.Rebind(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`), ruleID, req.Name, req.ResourceID, enabled, now, now)
+		wsID := workspaceIDFromContext(r.Context())
+		_, err = tx.Exec(state.Rebind(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)`), ruleID, req.Name, req.ResourceID, enabled, now, now, wsID)
 		if err != nil {
 			_ = tx.Rollback()
 			log.Printf("access rule: insert rule: %v", err)

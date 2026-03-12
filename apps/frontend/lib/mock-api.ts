@@ -359,10 +359,14 @@ export async function removeGroupMember(
 }
 
 // API: Invite user via email
-export async function inviteUser(email: string): Promise<{ status: string; invite_url?: string }> {
+export async function inviteUser(email: string, workspaceId?: string): Promise<{ status: string; invite_url?: string }> {
+  const body: Record<string, string> = { email };
+  if (workspaceId) {
+    body.workspace_id = workspaceId;
+  }
   return request<{ status: string; invite_url?: string }>('/api/users/invite', {
     method: 'POST',
-    body: JSON.stringify({ email }),
+    body: JSON.stringify(body),
   });
 }
 

@@ -45,6 +45,7 @@ LockPersonality=yes
 UMask=0077
 RuntimeDirectory=tunneler
 StateDirectory=tunneler
+Environment=STATE_DIRECTORY=/var/lib/tunneler
 
 [Install]
 WantedBy=multi-user.target

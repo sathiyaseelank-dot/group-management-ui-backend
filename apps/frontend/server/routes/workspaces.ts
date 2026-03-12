@@ -37,6 +37,23 @@ function mapWorkspace(ws: BackendWorkspace) {
   }
 }
 
+// GET /api/workspaces/lookup?slug=...&email=... (public, no auth)
+router.get('/lookup', async (req: Request, res: Response) => {
+  try {
+    const { slug, email } = req.query
+    const params = new URLSearchParams()
+    if (slug) params.set('slug', String(slug))
+    if (email) params.set('email', String(email))
+    const { getBackendUrl } = await import('../../lib/proxy')
+    const url = `${getBackendUrl()}/api/workspaces/lookup?${params.toString()}`
+    const response = await fetch(url)
+    const data = await response.json()
+    res.json(data)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
 // GET /api/workspaces
 router.get('/', async (req: Request, res: Response) => {
   try {

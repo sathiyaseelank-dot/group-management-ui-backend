@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Mail } from 'lucide-react';
 import { inviteUser } from '@/lib/mock-api';
+import { getWorkspaceClaims } from '@/lib/jwt';
 
 interface InviteUserModalProps {
   isOpen: boolean;
@@ -30,7 +31,9 @@ export function InviteUserModal({ isOpen, onClose }: InviteUserModalProps) {
     setIsSending(true);
     setResult(null);
     try {
-      const res = await inviteUser(email.trim());
+      const token = localStorage.getItem('authToken');
+      const claims = getWorkspaceClaims(token);
+      const res = await inviteUser(email.trim(), claims?.wid);
       setResult(res.invite_url
         ? `Invite sent! (dev link: ${res.invite_url})`
         : 'Invite email sent successfully.');

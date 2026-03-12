@@ -17,7 +17,9 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := db.Query(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id FROM resources ORDER BY name ASC`)
+		wsID := workspaceIDFromContext(r.Context())
+		wsClause, wsArgs := wsWhereOnly(wsID, "")
+		rows, err := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id FROM resources`+wsClause+` ORDER BY name ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list resources", http.StatusInternalServerError)
 			return
@@ -51,8 +53,9 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 		}
 		ports := buildPorts(req.PortFrom, req.PortTo)
 		id := fmt.Sprintf("res_%d", time.Now().UTC().UnixMilli())
-		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), req.NetworkID); err != nil {
+		wsID := workspaceIDFromContext(r.Context())
+		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), req.NetworkID, wsID); err != nil {
 			http.Error(w, "failed to create resource", http.StatusBadRequest)
 			return
 		}
