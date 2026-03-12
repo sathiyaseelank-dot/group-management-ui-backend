@@ -111,6 +111,19 @@ func insertPolicyVersion(t *testing.T, db *sql.DB, connectorID string, version i
 	}
 }
 
+func insertWorkspace(t *testing.T, db *sql.DB, id string) {
+	t.Helper()
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.Exec(
+		`INSERT INTO workspaces (id, name, slug, trust_domain, ca_cert_pem, ca_key_pem, status, created_at, updated_at)
+		 VALUES (?, 'Test Workspace', ?, ?, '', '', 'active', ?, ?)`,
+		id, id, id+".internal", now, now,
+	)
+	if err != nil {
+		t.Fatalf("insert workspace: %v", err)
+	}
+}
+
 // ---- Feature 1: Connector DELETE --------------------------------------------
 
 func TestConnectorDELETE_removesFromDBAndRegistry(t *testing.T) {
@@ -312,6 +325,46 @@ func TestAdminDeleteUser_notifiesACL(t *testing.T) {
 	}
 	if !notify.notified() {
 		t.Error("NotifyPolicyChange not called after admin DeleteUser")
+	}
+}
+
+func TestAdminDeleteUser_removesWorkspaceMemberships(t *testing.T) {
+	db := newTestDB(t)
+	srv, _ := newTestServer(t, db)
+
+	u := &state.User{Name: "Eve", Email: "eve@example.com", Status: "Active", Role: "Member",
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	if err := srv.Users.CreateUser(u); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	wsID := "ws-delete-user"
+	insertWorkspace(t, db, wsID)
+	if _, err := db.Exec(
+		state.Rebind(`INSERT INTO workspace_members (workspace_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)`),
+		wsID, u.ID, time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("insert workspace membership: %v", err)
+	}
+
+	rr := do(srv, http.MethodDelete, "/api/admin/users/"+u.ID, nil, true)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM workspace_members WHERE user_id = ?`, u.ID).Scan(&count); err != nil {
+		t.Fatalf("count workspace memberships: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("workspace memberships still exist for user %s", u.ID)
+	}
+
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = ?`, u.ID).Scan(&count); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("user still exists after delete: %s", u.ID)
 	}
 }
 

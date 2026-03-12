@@ -43,7 +43,7 @@ export function UsersList({ users, onEditUser, onDeactivateUser, onDeleteUser }:
           <TableRow className="hover:bg-transparent">
             <TableHead className="font-semibold">Name</TableHead>
             <TableHead className="font-semibold">Email</TableHead>
-            <TableHead className="font-semibold">Type</TableHead>
+            <TableHead className="font-semibold">Role</TableHead>
             <TableHead className="font-semibold">Status</TableHead>
             <TableHead className="font-semibold">Groups</TableHead>
             <TableHead className="text-right font-semibold">Created</TableHead>
@@ -58,7 +58,7 @@ export function UsersList({ users, onEditUser, onDeactivateUser, onDeleteUser }:
                 {user.email}
               </TableCell>
               <TableCell>
-                <Badge variant="outline">{user.type}</Badge>
+                <Badge variant="outline">{user.role}</Badge>
               </TableCell>
               <TableCell>
                 <Badge

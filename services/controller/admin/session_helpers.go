@@ -13,11 +13,11 @@ import (
 type contextKey string
 
 const (
-	sessionEmailKey    contextKey = "session_email"
-	sessionUserIDKey   contextKey = "session_uid"
+	sessionEmailKey     contextKey = "session_email"
+	sessionUserIDKey    contextKey = "session_uid"
 	sessionWorkspaceKey contextKey = "session_wid"
-	sessionWSlugKey    contextKey = "session_wslug"
-	sessionWRoleKey    contextKey = "session_wrole"
+	sessionWSlugKey     contextKey = "session_wslug"
+	sessionWRoleKey     contextKey = "session_wrole"
 )
 
 const sessionCookieName = "ztna_session"

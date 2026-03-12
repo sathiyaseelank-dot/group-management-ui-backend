@@ -9,6 +9,7 @@ type uiUser struct {
 	DisplayLabel        string   `json:"displayLabel"`
 	Email               string   `json:"email"`
 	Status              string   `json:"status"`
+	Role                string   `json:"role"`
 	Groups              []string `json:"groups"`
 	CertificateIdentity string   `json:"certificateIdentity,omitempty"`
 	CreatedAt           string   `json:"createdAt"`

@@ -16,6 +16,7 @@ export interface User extends Subject {
   type: 'USER';
   email: string;
   status: 'active' | 'inactive';
+  role: string;
   groups: string[]; // Group IDs this user belongs to
   certificateIdentity?: string | null;
   createdAt: string;

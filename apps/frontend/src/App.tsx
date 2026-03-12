@@ -29,8 +29,12 @@ import SignupPage from './pages/signup/SignupPage'
 import SignupCustomizePage from './pages/signup/SignupCustomizePage'
 import SignupFinalizePage from './pages/signup/SignupFinalizePage'
 import SignupAuthPage from './pages/signup/SignupAuthPage'
-import { getWorkspaceClaims } from '@/lib/jwt'
+import UserLayout from './pages/app/UserLayout'
+import UserHomePage from './pages/app/UserHomePage'
+import WelcomePage from './pages/app/WelcomePage'
+import InstallPage from './pages/app/InstallPage'
 import { STORAGE_KEY as SIGNUP_STORAGE_KEY } from './contexts/SignupContext'
+import { getWorkspaceClaims } from '@/lib/jwt'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -70,13 +74,15 @@ function TokenCapture() {
     }
 
     if (!networkName || !networkSlug) {
-      // No signup flow — existing behavior
       sessionStorage.removeItem(SIGNUP_STORAGE_KEY)
+
       const claims = getWorkspaceClaims(token)
-      if (claims) {
+      if (!claims) {
+        navigate('/workspaces', { replace: true })
+      } else if (claims.wrole === 'admin' || claims.wrole === 'owner') {
         navigate('/dashboard/groups', { replace: true })
       } else {
-        navigate('/workspaces', { replace: true })
+        navigate('/app', { replace: true })
       }
       return
     }
@@ -159,12 +165,33 @@ function AuthGuard({ children }: { children: ReactNode }) {
       navigate('/login', { replace: true })
       return
     }
-    // If JWT has no workspace claims, redirect to workspace selector
     const claims = getWorkspaceClaims(token)
     if (!claims && location.pathname.startsWith('/dashboard')) {
       navigate('/workspaces', { replace: true })
+      return
+    }
+    if (claims && claims.wrole === 'member' && location.pathname.startsWith('/dashboard')) {
+      navigate('/app', { replace: true })
     }
   }, [navigate, location.pathname])
+
+  return <>{children}</>
+}
+
+function UserAuthGuard({ children }: { children: ReactNode }) {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const token = localStorage.getItem('authToken')
+    if (!token) {
+      navigate('/login', { replace: true })
+      return
+    }
+    const claims = getWorkspaceClaims(token)
+    if (!claims) {
+      navigate('/workspaces', { replace: true })
+    }
+  }, [navigate])
 
   return <>{children}</>
 }
@@ -182,6 +209,11 @@ export default function App() {
       </Route>
       <Route path="/workspaces" element={<WorkspaceSelectorPage />} />
       <Route path="/workspaces/create" element={<WorkspaceCreatePage />} />
+      <Route path="/app" element={<UserAuthGuard><UserLayout /></UserAuthGuard>}>
+        <Route index element={<UserHomePage />} />
+        <Route path="welcome" element={<WelcomePage />} />
+        <Route path="install" element={<InstallPage />} />
+      </Route>
       <Route path="/dashboard" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
         <Route index element={<Navigate to="groups" replace />} />
         <Route path="groups" element={<GroupsPage />} />

@@ -25,7 +25,7 @@ func (m *Mailer) SendInvite(toEmail, inviteURL string) error {
 	subject := "You're invited to ZTNA"
 	body := fmt.Sprintf(
 		"Subject: %s\r\nFrom: %s\r\nTo: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"+
-			"You have been invited to access the ZTNA admin console.\r\n\r\n"+
+			"You have been invited to join the ZTNA network.\r\n\r\n"+
 			"Click the link below to accept your invitation (expires in 48 hours):\r\n\r\n%s\r\n\r\n"+
 			"If you did not expect this invitation, please ignore this email.\r\n",
 		subject, m.From, toEmail, inviteURL,

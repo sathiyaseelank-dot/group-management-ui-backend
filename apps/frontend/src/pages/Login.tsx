@@ -4,6 +4,7 @@ import { Shield, ArrowRight, Search, Globe, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { getWorkspaceClaims } from '@/lib/jwt'
 
 const CONTROLLER_URL = import.meta.env.VITE_CONTROLLER_URL || `${window.location.protocol}//${window.location.hostname}:8081`
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
@@ -17,13 +18,20 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [emailResults, setEmailResults] = useState<{ name: string; slug: string }[] | null>(null)
 
-  // If a ?token= param is present (post-OAuth redirect), store it and go to dashboard.
+  // If a ?token= param is present (post-OAuth redirect), store it and route based on role.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const token = params.get('token')
     if (token) {
       localStorage.setItem('authToken', token)
-      navigate('/dashboard/groups', { replace: true })
+      const claims = getWorkspaceClaims(token)
+      if (!claims) {
+        navigate('/workspaces', { replace: true })
+      } else if (claims.wrole === 'member') {
+        navigate('/app', { replace: true })
+      } else {
+        navigate('/dashboard/groups', { replace: true })
+      }
     }
   }, [navigate])
 

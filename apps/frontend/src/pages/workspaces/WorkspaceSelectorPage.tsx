@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Shield, Plus, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { Workspace } from '@/lib/types'
+import { getWorkspaceClaims } from '@/lib/jwt'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -41,7 +42,12 @@ export default function WorkspaceSelectorPage() {
       const data = await res.json()
       if (data.token) {
         localStorage.setItem('authToken', data.token)
-        navigate('/dashboard', { replace: true })
+        const wsClaims = getWorkspaceClaims(data.token)
+        if (wsClaims?.wrole === 'member') {
+          navigate('/app', { replace: true })
+        } else {
+          navigate('/dashboard', { replace: true })
+        }
       }
     } catch (err) {
       console.error('Failed to select workspace:', err)

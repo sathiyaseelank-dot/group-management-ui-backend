@@ -24,13 +24,13 @@ func (s *Server) handleUIUsers(w http.ResponseWriter, r *http.Request) {
 		var err error
 		if wsID != "" {
 			rows, err = db.Query(state.Rebind(`SELECT u.id, u.name, u.email, u.status, u.certificate_identity,
-				CAST(u.created_at AS TEXT) as created_at
+				CAST(u.created_at AS TEXT) as created_at, COALESCE(wm.role, 'member') as role
 				FROM users u
-				JOIN workspace_members wm ON wm.user_id = u.id AND wm.workspace_id = ?
+				LEFT JOIN workspace_members wm ON wm.user_id = u.id AND wm.workspace_id = ?
 				ORDER BY u.name ASC`), wsID)
 		} else {
 			rows, err = db.Query(`SELECT id, name, email, status, certificate_identity,
-				CAST(created_at AS TEXT) as created_at
+				CAST(created_at AS TEXT) as created_at, 'member' as role
 				FROM users ORDER BY name ASC`)
 		}
 		if err != nil {
@@ -46,10 +46,10 @@ func (s *Server) handleUIUsers(w http.ResponseWriter, r *http.Request) {
 		defer groupStmt.Close()
 		out := []uiUser{}
 		for rows.Next() {
-			var id, name, email, status string
+			var id, name, email, status, role string
 			var certID sql.NullString
 			var created sql.NullString
-			if err := rows.Scan(&id, &name, &email, &status, &certID, &created); err != nil {
+			if err := rows.Scan(&id, &name, &email, &status, &certID, &created, &role); err != nil {
 				http.Error(w, "failed to read users", http.StatusInternalServerError)
 				return
 			}
@@ -73,6 +73,7 @@ func (s *Server) handleUIUsers(w http.ResponseWriter, r *http.Request) {
 				DisplayLabel:        fmt.Sprintf("User: %s", name),
 				Email:               email,
 				Status:              strings.ToLower(status),
+				Role:                role,
 				Groups:              groups,
 				CertificateIdentity: certID.String,
 				CreatedAt:           createdAt,
@@ -125,6 +126,26 @@ func (s *Server) handleUIUsers(w http.ResponseWriter, r *http.Request) {
 			CertificateIdentity: certID,
 			CreatedAt:           dateStringFromUnix(createdAt),
 		})
+	case http.MethodDelete:
+		userID := r.URL.Query().Get("id")
+		if userID == "" {
+			http.Error(w, "user id required", http.StatusBadRequest)
+			return
+		}
+		wsID := workspaceIDFromContext(r.Context())
+		if wsID != "" {
+			_, err := db.Exec(state.Rebind(`DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?`), wsID, userID)
+			if err != nil {
+				http.Error(w, "failed to delete user from workspace", http.StatusInternalServerError)
+				return
+			}
+		}
+		_, err := db.Exec(state.Rebind(`DELETE FROM users WHERE id = ?`), userID)
+		if err != nil {
+			http.Error(w, "failed to delete user", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

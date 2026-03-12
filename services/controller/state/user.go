@@ -92,12 +92,22 @@ func (s *UserStore) UpdateUser(u *User) error {
 }
 
 func (s *UserStore) DeleteUser(id string) error {
-	_, err := s.db.Exec(Rebind(`DELETE FROM users WHERE id = ?`), id)
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	_, _ = s.db.Exec(Rebind(`DELETE FROM user_group_members WHERE user_id = ?`), id)
-	return nil
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(Rebind(`DELETE FROM user_group_members WHERE user_id = ?`), id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(Rebind(`DELETE FROM workspace_members WHERE user_id = ?`), id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(Rebind(`DELETE FROM users WHERE id = ?`), id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *UserStore) ListGroups() ([]UserGroup, error) {

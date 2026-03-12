@@ -259,7 +259,7 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 					if wsJWTErr == nil {
 						s.setSessionCookie(w, wsToken)
 						dashboardURL := s.resolveDashboardURL(returnTo)
-						redirect := fmt.Sprintf("%s?token=%s", dashboardURL, url.QueryEscape(wsToken))
+						redirect := fmt.Sprintf("%s/app/welcome?token=%s", dashboardURL, url.QueryEscape(wsToken))
 						http.Redirect(w, r, redirect, http.StatusFound)
 						return
 					}

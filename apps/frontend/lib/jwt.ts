@@ -23,3 +23,9 @@ export function getWorkspaceClaims(token: string | null) {
   if (!wid) return null
   return { wid, wslug: wslug ?? '', wrole: wrole ?? 'member' }
 }
+
+export function isAdminRole(token: string | null): boolean {
+  const claims = getWorkspaceClaims(token)
+  if (!claims) return false
+  return claims.wrole === 'admin' || claims.wrole === 'owner'
+}

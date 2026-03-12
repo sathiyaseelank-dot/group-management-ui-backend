@@ -12,6 +12,8 @@ interface BackendUser {
   Email?: string
   status?: string
   Status?: string
+  role?: string
+  Role?: string
   certificate_identity?: string
   CertificateIdentity?: string
   created_at?: string
@@ -34,6 +36,7 @@ function mapBackendUser(user: BackendUser, groups: string[]) {
   const name = user.name ?? user.Name ?? ''
   const email = user.email ?? user.Email ?? ''
   const status = (user.status ?? user.Status ?? 'active').toLowerCase()
+  const role = user.role ?? user.Role ?? 'member'
   const certificateIdentity = user.certificate_identity ?? user.CertificateIdentity ?? undefined
   const createdAt = user.created_at ?? user.CreatedAt ?? ''
   return {
@@ -41,6 +44,7 @@ function mapBackendUser(user: BackendUser, groups: string[]) {
     name,
     email,
     status,
+    role,
     certificateIdentity,
     groups,
     createdAt,
