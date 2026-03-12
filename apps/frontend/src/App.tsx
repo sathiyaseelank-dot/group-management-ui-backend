@@ -34,7 +34,9 @@ import UserHomePage from './pages/app/UserHomePage'
 import WelcomePage from './pages/app/WelcomePage'
 import InstallPage from './pages/app/InstallPage'
 import { STORAGE_KEY as SIGNUP_STORAGE_KEY } from './contexts/SignupContext'
-import { getWorkspaceClaims } from '@/lib/jwt'
+import { getWorkspaceClaims, isDeviceToken, getAudience } from '@/lib/jwt'
+import IdentityProvidersPage from './pages/settings/IdentityProvidersPage'
+import SessionsPage from './pages/settings/SessionsPage'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -76,8 +78,18 @@ function TokenCapture() {
     if (!networkName || !networkSlug) {
       sessionStorage.removeItem(SIGNUP_STORAGE_KEY)
 
+      const aud = getAudience(token)
       const claims = getWorkspaceClaims(token)
-      if (!claims) {
+
+      if (aud === 'device') {
+        navigate('/app', { replace: true })
+      } else if (aud === 'admin' && claims) {
+        if (claims.wrole === 'member') {
+          navigate('/app', { replace: true })
+        } else {
+          navigate('/dashboard/groups', { replace: true })
+        }
+      } else if (!claims) {
         navigate('/workspaces', { replace: true })
       } else if (claims.wrole === 'admin' || claims.wrole === 'owner') {
         navigate('/dashboard/groups', { replace: true })
@@ -165,6 +177,11 @@ function AuthGuard({ children }: { children: ReactNode }) {
       navigate('/login', { replace: true })
       return
     }
+    // Device tokens cannot access admin dashboard
+    if (isDeviceToken(token) && location.pathname.startsWith('/dashboard')) {
+      navigate('/app', { replace: true })
+      return
+    }
     const claims = getWorkspaceClaims(token)
     if (!claims && location.pathname.startsWith('/dashboard')) {
       navigate('/workspaces', { replace: true })
@@ -238,6 +255,8 @@ export default function App() {
         <Route path="discovery" element={<NetworkDiscoveryPage />} />
         <Route path="audit-logs" element={<AuditLogsPage />} />
         <Route path="workspace/settings" element={<WorkspaceSettingsPage />} />
+        <Route path="workspace/settings/identity-providers" element={<IdentityProvidersPage />} />
+        <Route path="workspace/settings/sessions" element={<SessionsPage />} />
       </Route>
     </Routes>
   )

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -47,6 +48,14 @@ type Server struct {
 	Workspaces     *state.WorkspaceStore
 	IntermediateCA *ca.CA
 	SystemDomain   string // e.g. "zerotrust.com"
+
+	// Phase 1: Multi-IdP
+	IdPs *state.IdentityProviderStore
+
+	// Phase 2: Session management
+	Sessions       *state.SessionStore
+	SecureCookies  bool
+	AllowedOrigins []string
 }
 
 // db returns the underlying *sql.DB via the ACLStore, or nil.
@@ -96,21 +105,62 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 			http.Error(w, "admin auth not configured", http.StatusServiceUnavailable)
 			return
 		}
-		// Accept Bearer ADMIN_AUTH_TOKEN (existing BFF flow).
+		// Accept Bearer ADMIN_AUTH_TOKEN (BFF compat).
 		auth := r.Header.Get("Authorization")
 		if auth == "Bearer "+s.AdminAuthToken {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Accept valid JWT session (OAuth browser flow).
+		// Accept valid JWT session.
 		if len(s.JWTSecret) > 0 {
-			if email, err := s.sessionFromRequest(r); err == nil {
-				ctx := withSessionEmail(r.Context(), email)
+			claims, err := parseAllClaims(s.getTokenFromRequest(r), s.JWTSecret)
+			if err == nil {
+				// Reject device tokens on admin endpoints.
+				if claims.aud == "device" {
+					http.Error(w, "device tokens cannot access admin endpoints", http.StatusUnauthorized)
+					return
+				}
+				// Validate session not revoked (if Sessions store and jti present).
+				if s.Sessions != nil && claims.jti != "" {
+					if valid, err := s.Sessions.IsValid(claims.jti); err == nil && !valid {
+						http.Error(w, "session revoked or expired", http.StatusUnauthorized)
+						return
+					}
+				}
+				ctx := withSessionEmail(r.Context(), claims.email)
+				if claims.userID != "" {
+					ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, claims.wsRole)
+				}
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	})
+}
+
+// deviceAuth accepts only device JWTs (aud:"device").
+func (s *Server) deviceAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(s.JWTSecret) == 0 {
+			http.Error(w, "JWT not configured", http.StatusServiceUnavailable)
+			return
+		}
+		claims, err := parseAllClaims(s.getTokenFromRequest(r), s.JWTSecret)
+		if err != nil || claims.aud != "device" {
+			http.Error(w, "unauthorized: device token required", http.StatusUnauthorized)
+			return
+		}
+		if s.Sessions != nil && claims.jti != "" {
+			if valid, err := s.Sessions.IsValid(claims.jti); err == nil && !valid {
+				http.Error(w, "session revoked or expired", http.StatusUnauthorized)
+				return
+			}
+		}
+		ctx := withSessionEmail(r.Context(), claims.email)
+		ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, "member")
+		ctx = context.WithValue(ctx, contextKey("device_id"), claims.deviceID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

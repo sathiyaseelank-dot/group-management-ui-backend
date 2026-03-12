@@ -113,6 +113,13 @@ func main() {
 	remoteNetStore := state.NewRemoteNetworkStore(db)
 	workspaceStore := state.NewWorkspaceStore(db)
 
+	idpEncKey := []byte(os.Getenv("IDP_ENCRYPTION_KEY"))
+	if len(idpEncKey) == 0 {
+		idpEncKey = []byte(os.Getenv("JWT_SECRET"))
+	}
+	idpStore := state.NewIdentityProviderStore(db, idpEncKey)
+	sessionStore := state.NewSessionStore(db)
+
 	systemDomain := os.Getenv("SYSTEM_DOMAIN")
 	if systemDomain == "" {
 		systemDomain = "zerotrust.com"
@@ -217,9 +224,22 @@ func main() {
 		Workspaces:        workspaceStore,
 		IntermediateCA:    caInst,
 		SystemDomain:      systemDomain,
+		IdPs:              idpStore,
+		Sessions:          sessionStore,
+		SecureCookies:     os.Getenv("SECURE_COOKIES") == "true",
+		AllowedOrigins:    parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
 	}
 	adminServer.RegisterRoutes(adminMux)
 	adminServer.RegisterOAuthRoutes(adminMux)
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := sessionStore.CleanExpired(); err != nil {
+				log.Printf("session cleanup: %v", err)
+			}
+		}
+	}()
 	go func() {
 		log.Printf("admin HTTP server listening %s", adminAddr)
 		if err := http.ListenAndServe(adminAddr, adminMux); err != nil {
@@ -268,6 +288,19 @@ func loadCAFromFiles(certPEM, keyPEM []byte) ([]byte, []byte) {
 		}
 	}
 	return certPEM, keyPEM
+}
+
+func parseAllowedOrigins(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func normalizeTrustDomain(v string) string {
