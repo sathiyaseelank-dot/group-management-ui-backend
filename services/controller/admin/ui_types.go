@@ -68,6 +68,7 @@ type uiConnector struct {
 	LastPolicyVersion int     `json:"lastPolicyVersion"`
 	LastSeenAt        *string `json:"lastSeenAt"`
 	PrivateIP         string  `json:"privateIp"`
+	Revoked           bool    `json:"revoked"`
 }
 
 type uiRemoteNetwork struct {
@@ -88,12 +89,17 @@ type uiConnectorLog struct {
 }
 
 type uiAgent struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Status          string `json:"status"`
-	Version         string `json:"version"`
-	Hostname        string `json:"hostname"`
-	RemoteNetworkID string `json:"remoteNetworkId"`
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	Status          string  `json:"status"`
+	Version         string  `json:"version"`
+	Hostname        string  `json:"hostname"`
+	RemoteNetworkID string  `json:"remoteNetworkId"`
+	ConnectorID     string  `json:"connectorId"`
+	Revoked         bool    `json:"revoked"`
+	Installed       bool    `json:"installed"`
+	LastSeen        string  `json:"lastSeen"`
+	LastSeenAt      *string `json:"lastSeenAt"`
 }
 
 type uiServiceAccount struct {

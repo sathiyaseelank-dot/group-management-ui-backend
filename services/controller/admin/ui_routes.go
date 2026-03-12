@@ -36,6 +36,7 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/connectors", withCORS(ws(http.HandlerFunc(s.handleUIConnectors))))
 	mux.Handle("/api/connectors/", withCORS(ws(http.HandlerFunc(s.handleUIConnectorsSubroutes))))
 	mux.Handle("/api/agents", withCORS(ws(http.HandlerFunc(s.handleUIAgents))))
+	mux.Handle("/api/agents/", withCORS(ws(http.HandlerFunc(s.handleUIAgentsSubroutes))))
 	mux.Handle("/api/subjects", withCORS(ws(http.HandlerFunc(s.handleUISubjects))))
 	mux.Handle("/api/service-accounts", withCORS(ws(http.HandlerFunc(s.handleUIServiceAccounts))))
 	mux.Handle("/api/policy/compile/", withCORS(ws(http.HandlerFunc(s.handleUIPolicyCompile))))

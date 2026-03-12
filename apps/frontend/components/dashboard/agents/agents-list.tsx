@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowRight, Cable, CircleDotDashed, CircleDot, Trash2, Loader2 } from 'lucide-react';
+import { ArrowRight, Cable, CircleDotDashed, CircleDot, Loader2, Ban, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AgentsListProps {
@@ -73,12 +73,14 @@ export function AgentsList({ agents, onRevoked }: AgentsListProps) {
               </TableCell>
               <TableCell>
                 <Badge variant="outline" className="gap-1">
-                  {agent.status === 'online' ? (
+                  {agent.status === 'revoked' ? (
+                    <Ban className="h-3 w-3 text-red-500" />
+                  ) : agent.status === 'online' ? (
                     <CircleDot className="h-3 w-3 fill-green-500 text-green-500" />
                   ) : (
                     <CircleDotDashed className="h-3 w-3 fill-muted-foreground text-muted-foreground" />
                   )}
-                  {agent.status === 'online' ? 'Online' : 'Offline'}
+                  {agent.status === 'revoked' ? 'Revoked' : agent.status === 'online' ? 'Online' : 'Offline'}
                 </Badge>
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">

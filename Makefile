@@ -32,21 +32,23 @@ help:
 	@echo "  make clean-all        - Clean everything including deps"
 
 # Build Commands
-build-all: build-controller build-connector build-agent build-tunneler build-ztna-client build-frontend
+build-all: build-controller build-connector build-agent build-ztna-client build-frontend
 
 build-controller:
 	@echo "Building controller..."
 	cd services/controller && go build -o ../../dist/controller .
 
+CARGO ?= $(shell which cargo 2>/dev/null || echo /home/$(SUDO_USER)/.cargo/bin/cargo)
+
 build-connector:
 	@echo "Building connector..."
-	cd services/connector && cargo build --release
+	cd services/connector && $(CARGO) build --release
 	mkdir -p dist
 	cp services/connector/target/release/connector dist/
 
 build-agent:
 	@echo "Building agent..."
-	cd services/agent && cargo build --release
+	cd services/agent && $(CARGO) build --release
 	mkdir -p dist
 	cp services/agent/target/release/agent dist/
 

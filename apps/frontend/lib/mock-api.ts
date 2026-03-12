@@ -88,6 +88,33 @@ export async function revokeConnector(connectorId: string): Promise<void> {
   });
 }
 
+export async function grantConnector(connectorId: string): Promise<void> {
+  await request(`/api/connectors/${encodeURIComponent(connectorId)}/grant`, {
+    method: 'POST',
+  });
+}
+
+// API: Get single agent with details
+export async function getAgent(agentId: string) {
+  return request<{ agent: Agent | null; network: RemoteNetwork | undefined; logs: any[] }>(
+    `/api/agents/${agentId}`
+  );
+}
+
+// API: Revoke an agent
+export async function revokeAgent(agentId: string): Promise<void> {
+  await request(`/api/agents/${encodeURIComponent(agentId)}/revoke`, {
+    method: 'POST',
+  });
+}
+
+// API: Grant an agent
+export async function grantAgent(agentId: string): Promise<void> {
+  await request(`/api/agents/${encodeURIComponent(agentId)}/grant`, {
+    method: 'POST',
+  });
+}
+
 // API: Get all remote networks
 export async function getRemoteNetworks(): Promise<RemoteNetwork[]> {
   return request<RemoteNetwork[]>('/api/remote-networks');
@@ -288,6 +315,18 @@ export async function deleteResource(resourceId: string): Promise<void> {
 // API: Delete (revoke) a connector
 export async function deleteConnector(connectorId: string): Promise<void> {
   await request(`/api/connectors/${connectorId}`, { method: 'DELETE' });
+}
+
+// API: Add a new agent
+export async function addAgent(data: {
+  name: string;
+  connectorId?: string;
+  remoteNetworkId?: string;
+}): Promise<void> {
+  await request('/api/agents', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 // API: Add a new connector

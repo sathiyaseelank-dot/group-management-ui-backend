@@ -67,7 +67,7 @@ export interface Resource {
 export interface Connector {
   id: string;
   name: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'revoked';
   version: string;
   hostname: string;
   remoteNetworkId: string;
@@ -76,6 +76,7 @@ export interface Connector {
   lastPolicyVersion: number;
   lastSeenAt?: string | null;
   privateIp?: string;
+  revoked?: boolean;
 }
 
 export interface RemoteNetwork {
@@ -92,10 +93,15 @@ export interface RemoteNetwork {
 export interface Agent {
   id: string;
   name: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'revoked';
   version: string;
   hostname: string;
   remoteNetworkId: string; // The remote network this agent is part of
+  connectorId?: string;
+  revoked?: boolean;
+  installed?: boolean;
+  lastSeen?: string;
+  lastSeenAt?: string | null;
 }
 
 // Access Rules bind subjects to resources

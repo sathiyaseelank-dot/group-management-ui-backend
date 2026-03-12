@@ -85,7 +85,10 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			version TEXT NOT NULL DEFAULT '',
 			hostname TEXT NOT NULL DEFAULT '',
 			remote_network_id TEXT NOT NULL DEFAULT '',
-			last_seen INTEGER NOT NULL DEFAULT 0
+			last_seen INTEGER NOT NULL DEFAULT 0,
+			revoked INTEGER NOT NULL DEFAULT 0,
+			last_seen_at TEXT NOT NULL DEFAULT '',
+			installed INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS resources (
 			id TEXT PRIMARY KEY,
@@ -192,6 +195,12 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			timestamp TEXT NOT NULL DEFAULT '',
 			message TEXT NOT NULL DEFAULT ''
 		)`,
+		`CREATE TABLE IF NOT EXISTS tunneler_logs (
+			id ` + serial + `,
+			tunneler_id TEXT NOT NULL DEFAULT '',
+			timestamp TEXT NOT NULL DEFAULT '',
+			message TEXT NOT NULL DEFAULT ''
+		)`,
 		`CREATE TABLE IF NOT EXISTS invite_tokens (
 			token TEXT PRIMARY KEY,
 			email TEXT NOT NULL DEFAULT '',
@@ -277,6 +286,9 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 	// Add new columns for existing databases.
 	if dialect == "postgres" {
 		_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS installed INTEGER NOT NULL DEFAULT 0`)
 	}
 
 	// Phase 2 migration: add workspace_id columns to existing tables.

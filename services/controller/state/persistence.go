@@ -29,8 +29,28 @@ func DeleteConnectorFromDB(db *sql.DB, id string) error {
 }
 
 func RevokeConnectorInDB(db *sql.DB, id string) error {
-	_, err := db.Exec(`UPDATE connectors SET revoked = 1, status = 'offline', installed = 0 WHERE id = ?`, id)
-	_, _ = db.Exec(`DELETE FROM remote_network_connectors WHERE connector_id = ?`, id)
+	_, err := db.Exec(Rebind(`UPDATE connectors SET revoked = 1, status = 'offline', installed = 0 WHERE id = ?`), id)
+	_, _ = db.Exec(Rebind(`DELETE FROM remote_network_connectors WHERE connector_id = ?`), id)
+	return err
+}
+
+func GrantConnectorInDB(db *sql.DB, id string) error {
+	_, err := db.Exec(Rebind(`UPDATE connectors SET revoked = 0, status = 'offline' WHERE id = ?`), id)
+	return err
+}
+
+func RevokeTunnelerInDB(db *sql.DB, id string) error {
+	_, err := db.Exec(Rebind(`UPDATE tunnelers SET revoked = 1, status = 'offline' WHERE id = ?`), id)
+	return err
+}
+
+func GrantTunnelerInDB(db *sql.DB, id string) error {
+	_, err := db.Exec(Rebind(`UPDATE tunnelers SET revoked = 0, status = 'offline' WHERE id = ?`), id)
+	return err
+}
+
+func DeleteTunnelerFromDB(db *sql.DB, id string) error {
+	_, err := db.Exec(Rebind(`DELETE FROM tunnelers WHERE id = ?`), id)
 	return err
 }
 
@@ -60,11 +80,12 @@ func LoadConnectorsFromDB(db *sql.DB, registry *Registry) error {
 }
 
 func SaveAgentToDB(db *sql.DB, rec AgentStatusRecord) error {
+	lastSeenAt := rec.LastSeen.UTC().Format(time.RFC3339)
 	_, err := db.Exec(
-		`INSERT INTO tunnelers (id, spiffe_id, connector_id, last_seen)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, connector_id=excluded.connector_id, last_seen=excluded.last_seen`,
-		rec.ID, rec.SPIFFEID, rec.ConnectorID, rec.LastSeen.Unix(),
+		Rebind(`INSERT INTO tunnelers (id, spiffe_id, connector_id, last_seen, last_seen_at, status, installed)
+		VALUES (?, ?, ?, ?, ?, 'online', 1)
+		ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, connector_id=excluded.connector_id, last_seen=excluded.last_seen, last_seen_at=excluded.last_seen_at, status='online', installed=1`),
+		rec.ID, rec.SPIFFEID, rec.ConnectorID, rec.LastSeen.Unix(), lastSeenAt,
 	)
 	return err
 }

@@ -69,6 +69,12 @@ impl AgentRegistry {
         }
     }
 
+    pub fn remove(&self, agent_id: &str) {
+        if let Ok(mut map) = self.inner.write() {
+            map.remove(agent_id);
+        }
+    }
+
     pub fn snapshot(&self) -> Vec<AgentStatusEntry> {
         self.inner
             .read()

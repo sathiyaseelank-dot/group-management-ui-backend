@@ -149,6 +149,16 @@ func main() {
 			_ = state.PruneAuditLogs(db, time.Now().Add(-24*time.Hour))
 		}
 	}()
+	// Mark connectors and tunnelers offline when their last heartbeat is stale.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			cutoff := time.Now().Add(-45 * time.Second).Unix()
+			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
+			_, _ = db.Exec(state.Rebind(`UPDATE tunnelers  SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
+		}
+	}()
 
 	// ---- trust domain validator (multi-tenant) ----
 	api.SetTrustDomainValidator(api.NewTrustDomainValidator(trustDomain, systemDomain))

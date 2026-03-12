@@ -31,12 +31,49 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 })
 
+// GET /api/agents/:agentId
+router.get('/:agentId', async (req: Request, res: Response) => {
+  try {
+    const { agentId } = req.params
+    const result = await proxyToBackend(`/api/agents/${agentId}`)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
 // DELETE /api/agents/:agentId
 router.delete('/:agentId', async (req: Request, res: Response) => {
   try {
     const { agentId } = req.params
-    const result = await proxyToBackend(`/api/admin/agents/${agentId}`, {
+    const result = await proxyToBackend(`/api/agents/${agentId}`, {
       method: 'DELETE',
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
+// POST /api/agents/:agentId/revoke
+router.post('/:agentId/revoke', async (req: Request, res: Response) => {
+  try {
+    const { agentId } = req.params
+    const result = await proxyToBackend(`/api/agents/${agentId}/revoke`, {
+      method: 'POST',
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
+// POST /api/agents/:agentId/grant
+router.post('/:agentId/grant', async (req: Request, res: Response) => {
+  try {
+    const { agentId } = req.params
+    const result = await proxyToBackend(`/api/agents/${agentId}/grant`, {
+      method: 'POST',
     })
     res.json(result)
   } catch (error) {

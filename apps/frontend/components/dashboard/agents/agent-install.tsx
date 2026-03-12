@@ -29,7 +29,13 @@ function fallbackCopy(text: string) {
   document.body.removeChild(textarea);
 }
 
-export function AgentInstall({ initialAgentId }: { initialAgentId?: string }) {
+export function AgentInstall({
+  initialAgentId,
+  initialConnectorId,
+}: {
+  initialAgentId?: string;
+  initialConnectorId?: string;
+}) {
   const navigate = useNavigate();
   const [token, setToken] = useState<string>('');
   const [tokenLoading, setTokenLoading] = useState(false);
@@ -58,8 +64,16 @@ export function AgentInstall({ initialAgentId }: { initialAgentId?: string }) {
       .then((list) => {
         const installed = list.filter((c) => c.installed);
         setConnectors(installed.length > 0 ? installed : list);
+        if (initialConnectorId) {
+          const found = (installed.length > 0 ? installed : list).find((c) => c.id === initialConnectorId);
+          if (found) {
+            setSelectedConnectorId(found.id);
+            if (found.privateIp) setConnectorAddr(`${found.privateIp}:9443`);
+          }
+        }
       })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
