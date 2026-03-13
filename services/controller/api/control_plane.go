@@ -83,7 +83,7 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 	s.addClient(spiffeID, client)
 	defer s.removeClient(spiffeID)
 	s.sendAllowlist(client)
-	s.sendPolicySnapshot(client)
+	s.sendPolicySnapshot(client, "initial_connect", "control-plane connected", "full_snapshot")
 
 	// Log connection event and mark connector online.
 	connectTime := time.Now().UTC()
@@ -353,30 +353,30 @@ func (s *ControlPlaneServer) sendAllowlist(c *connectorClient) {
 
 // ACL notifications
 func (s *ControlPlaneServer) NotifyACLInit() {
-	s.broadcastPolicySnapshots()
+	s.broadcastPolicySnapshots("acl_init", "acl store initialized", "full_snapshot")
 }
 
 func (s *ControlPlaneServer) NotifyResourceUpsert(res state.Resource) {
-	s.broadcastPolicySnapshots()
+	s.broadcastPolicySnapshots("resource_upsert", fmt.Sprintf("resource updated: resource_id=%s", res.ID), "resources")
 }
 
 func (s *ControlPlaneServer) NotifyResourceRemoved(resourceID string) {
-	s.broadcastPolicySnapshots()
+	s.broadcastPolicySnapshots("resource_removed", fmt.Sprintf("resource removed: resource_id=%s", resourceID), "resources")
 }
 
 func (s *ControlPlaneServer) NotifyAuthorizationUpsert(auth state.Authorization) {
-	s.broadcastPolicySnapshots()
+	s.broadcastPolicySnapshots("authorization_upsert", fmt.Sprintf("authorization updated: resource_id=%s principal=%s", auth.ResourceID, auth.PrincipalSPIFFE), "allowed_identities")
 }
 
 func (s *ControlPlaneServer) NotifyAuthorizationRemoved(resourceID, principalSPIFFE string) {
-	s.broadcastPolicySnapshots()
+	s.broadcastPolicySnapshots("authorization_removed", fmt.Sprintf("authorization removed: resource_id=%s principal=%s", resourceID, principalSPIFFE), "allowed_identities")
 }
 
 func (s *ControlPlaneServer) NotifyPolicyChange() {
-	s.broadcastPolicySnapshots()
+	s.broadcastPolicySnapshots("policy_change", "policy change notification received", "policy")
 }
 
-func (s *ControlPlaneServer) broadcastPolicySnapshots() {
+func (s *ControlPlaneServer) broadcastPolicySnapshots(trigger, reason, changedFields string) {
 	if s.db == nil {
 		return
 	}
@@ -388,11 +388,11 @@ func (s *ControlPlaneServer) broadcastPolicySnapshots() {
 	s.mu.Unlock()
 
 	for _, c := range clients {
-		s.sendPolicySnapshot(c)
+		s.sendPolicySnapshot(c, trigger, reason, changedFields)
 	}
 }
 
-func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient) {
+func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient, trigger, reason, changedFields string) {
 	if s.db == nil || c == nil || c.connectorID == "" {
 		return
 	}
@@ -400,10 +400,35 @@ func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient) {
 		log.Printf("skipping policy snapshot for %s: no policy signing key", c.connectorID)
 		return
 	}
+	networkID, err := lookupConnectorNetwork(s.db, c.connectorID)
+	if err != nil {
+		log.Printf("failed to resolve connector network for %s: %v", c.connectorID, err)
+		return
+	}
+	var previousVersion int
+	var previousHash sql.NullString
+	_ = s.db.QueryRow(
+		state.Rebind(`SELECT version, policy_hash FROM connector_policy_versions WHERE connector_id = ?`),
+		c.connectorID,
+	).Scan(&previousVersion, &previousHash)
 	snap, err := CompilePolicySnapshot(s.db, c.connectorID, s.snapshotTTL, c.signingKey)
 	if err != nil {
 		log.Printf("failed to compile snapshot for %s: %v", c.connectorID, err)
 		return
+	}
+	newHash := PolicyHashForUI(snap.Resources)
+	if strings.TrimSpace(reason) == "" {
+		if !previousHash.Valid || previousHash.String != newHash {
+			reason = "policy payload changed"
+		} else {
+			reason = "policy broadcast requested with unchanged payload"
+		}
+	}
+	if strings.TrimSpace(changedFields) == "" {
+		changedFields = "unknown"
+	}
+	if strings.TrimSpace(trigger) == "" {
+		trigger = "unspecified"
 	}
 	payload, err := json.Marshal(snap)
 	if err != nil {
@@ -417,7 +442,23 @@ func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient) {
 		log.Printf("failed to send policy snapshot to connector %s: %v", c.connectorID, err)
 		return
 	}
-	log.Printf("policy snapshot sent to connector %s (%d resources)", c.connectorID, len(snap.Resources))
+	prevHash := ""
+	if previousHash.Valid {
+		prevHash = previousHash.String
+	}
+	log.Printf(
+		"policy snapshot pushed: connector_id=%s version=%d previous_version=%d resources=%d reason=%q trigger=%q changed_fields=%q network_id=%s previous_hash=%s new_hash=%s",
+		c.connectorID,
+		snap.SnapshotMeta.PolicyVersion,
+		previousVersion,
+		len(snap.Resources),
+		reason,
+		trigger,
+		changedFields,
+		networkID,
+		prevHash,
+		newHash,
+	)
 }
 
 func parseConnectorID(spiffeID string) string {
