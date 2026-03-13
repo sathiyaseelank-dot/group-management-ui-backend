@@ -172,6 +172,7 @@ func main() {
 		registry,
 		controlPlaneServer,
 	)
+	enrollServer.DB = db
 	enrollServer.Workspaces = workspaceStore
 	enrollServer.SystemDomain = systemDomain
 

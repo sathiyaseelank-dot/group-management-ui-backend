@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"database/sql"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -31,6 +32,7 @@ type EnrollmentServer struct {
 	CA           *ca.CA
 	CAPEM        []byte
 	TrustDomain  string
+	DB           *sql.DB
 	Tokens       *state.TokenStore
 	Registry     *state.Registry
 	Notifier     AgentNotifier
@@ -112,7 +114,7 @@ func (s *EnrollmentServer) EnrollConnector(
 		issuerCA,
 		spiffeID,
 		pubKey,
-		1*time.Hour,
+		5*time.Minute,
 		nil,
 		ipAddrs,
 	)
@@ -180,7 +182,7 @@ func (s *EnrollmentServer) EnrollTunneler(
 		issuerCA,
 		spiffeID,
 		pubKey,
-		1*time.Hour,
+		5*time.Minute,
 		nil,
 		nil,
 	)
@@ -241,7 +243,7 @@ func (s *EnrollmentServer) Renew(
 		}
 	}
 
-	ttl := 1 * time.Hour
+	ttl := 5 * time.Minute
 	var ipAddrs []net.IP
 	if role == "connector" && s.Registry != nil {
 		if rec, ok := s.Registry.Get(req.GetId()); ok {
@@ -256,6 +258,15 @@ func (s *EnrollmentServer) Renew(
 		return nil, status.Errorf(codes.Internal, "certificate renewal failed: %v", err)
 	}
 	logIssuedCert("renew", spiffeID, certPEM)
+	if role == "connector" && s.DB != nil {
+		nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+		_, _ = s.DB.Exec(
+			state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`),
+			req.GetId(),
+			nowISO,
+			"certificate renewed successfully",
+		)
+	}
 
 	return &controllerpb.EnrollResponse{
 		Certificate:   certPEM,

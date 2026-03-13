@@ -45,8 +45,6 @@ LockPersonality=yes
 
 UMask=0077
 RuntimeDirectory=connector
-StateDirectory=connector
-Environment=STATE_DIRECTORY=/var/lib/connector
 NotifyAccess=main
 WatchdogSec=30s
 

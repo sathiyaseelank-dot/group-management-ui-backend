@@ -105,14 +105,16 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 			_, _ = db.Exec(state.Rebind(`DELETE FROM connector_policy_versions WHERE connector_id = ?`), connectorID)
 			_, _ = db.Exec(state.Rebind(`DELETE FROM remote_network_connectors WHERE connector_id = ?`), connectorID)
 
-			// Remove connector from in-memory registry and DB.
+			// Remove connector from in-memory registry.
 			if s.Reg != nil {
 				s.Reg.Delete(connectorID)
 			}
 			if s.ACLs != nil && s.ACLs.DB() != nil {
-				_ = state.DeleteConnectorFromDB(s.ACLs.DB(), connectorID)
+				// Revoke (tombstone) so the running connector process cannot re-register via gRPC.
+				// SaveConnectorToDB checks revoked=1 and skips the upsert - never hard-delete.
+				_ = state.RevokeConnectorInDB(s.ACLs.DB(), connectorID)
 			}
-			_, _ = db.Exec(state.Rebind(`DELETE FROM connectors WHERE id = ?`), connectorID)
+			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET revoked = 1, status = 'offline' WHERE id = ?`), connectorID)
 
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
