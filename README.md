@@ -6,7 +6,7 @@ A production-ready Zero Trust Network Access system with mTLS authentication, SP
 
 ```
 ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│  Tunneler   │────────▶│  Connector  │────────▶│ Controller  │
+│   Agent    │────────▶│  Connector  │────────▶│ Controller  │
 │  (Client)   │  mTLS   │  (Gateway)  │  mTLS   │    (CA)     │
 └─────────────┘         └─────────────┘         └─────────────┘
                                                         │
@@ -24,7 +24,7 @@ A production-ready Zero Trust Network Access system with mTLS authentication, SP
 ├── services/
 │   ├── controller/      # Go - Certificate Authority & Control Plane
 │   ├── connector/       # Rust - Gateway Service
-│   └── tunneler/        # Rust - Client Service
+│   └── agent/           # Rust - Client Service (nftables firewall enforcer)
 ├── apps/
 │   └── frontend/        # React - Management UI
 ├── shared/
@@ -41,7 +41,7 @@ A production-ready Zero Trust Network Access system with mTLS authentication, SP
 ### Prerequisites
 
 - **Go** 1.21+ (for controller)
-- **Rust** 1.70+ (for connector/tunneler)
+- **Rust** 1.70+ (for connector/agent)
 - **Node.js** 18+ (for frontend)
 - **Protobuf compiler** (protoc)
 
@@ -58,7 +58,7 @@ make build-all
 # Or build individually
 make build-controller
 make build-connector
-make build-tunneler
+make build-agent
 make build-frontend
 ```
 
@@ -71,8 +71,8 @@ make dev-controller
 # Run connector (in another terminal)
 make dev-connector
 
-# Run tunneler (in another terminal)
-make dev-tunneler
+# Run agent (in another terminal)
+make dev-agent
 
 # Run frontend (in another terminal)
 make dev-frontend
@@ -91,20 +91,21 @@ make dev-frontend
 
 ### Connector (Rust)
 - Gateway service
-- Accepts tunneler connections
+- Accepts agent connections
 - Policy-based routing
 - High-performance proxy
 
 **Location:** `services/connector/`  
 **Tech:** Rust, Tokio, gRPC
 
-### Tunneler (Rust)
+### Agent (Rust)
 - Client service
 - Connects to connector
 - Local proxy
 - mTLS authentication
+- nftables firewall enforcement
 
-**Location:** `services/tunneler/`  
+**Location:** `services/agent/`
 **Tech:** Rust, Tokio, gRPC
 
 ### Frontend (React)
@@ -144,8 +145,8 @@ Use the automated setup scripts:
 # Install connector
 curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/setup.sh | sudo bash
 
-# Install tunneler
-curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/tunneler-setup.sh | sudo bash
+# Install agent
+curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/agent-setup.sh | sudo bash
 ```
 
 ### Required Environment Variables
@@ -162,7 +163,7 @@ See [deployment documentation](docs/deployment.md) for complete configuration gu
 ### Component Ownership
 - **Controller**: Backend API & CA management
 - **Connector**: Gateway service & routing
-- **Tunneler**: Client service & proxy
+- **Agent**: Client service, proxy & firewall enforcer
 - **Frontend**: UI & user experience
 
 ### Development Workflow
@@ -199,7 +200,7 @@ make test-all
 # Test individual components
 make test-controller
 make test-connector
-make test-tunneler
+make test-agent
 make test-frontend
 ```
 

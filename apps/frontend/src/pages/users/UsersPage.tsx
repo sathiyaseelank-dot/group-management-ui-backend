@@ -4,14 +4,16 @@ import { User } from '@/lib/types';
 import { UsersList } from '@/components/dashboard/users/users-list';
 import { AddUserModal } from '@/components/dashboard/users/add-user-modal';
 import { EditUserModal } from '@/components/dashboard/users/edit-user-modal';
+import { InviteUserModal } from '@/components/dashboard/users/invite-user-modal';
 import { Button } from '@/components/ui/button';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Mail, Plus } from 'lucide-react';
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
 
   const loadUsers = async () => {
@@ -76,10 +78,16 @@ export default function UsersPage() {
             View all user subjects available for identity and access control
           </p>
         </div>
-        <Button className="gap-2" onClick={() => setIsModalOpen(true)}>
-          <Plus className="h-4 w-4" />
-          Add User
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => setIsInviteOpen(true)}>
+            <Mail className="h-4 w-4" />
+            Invite User
+          </Button>
+          <Button className="gap-2" onClick={() => setIsModalOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Add User
+          </Button>
+        </div>
       </div>
 
       {/* Users List */}
@@ -95,6 +103,11 @@ export default function UsersPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onUserAdded={loadUsers}
+      />
+
+      <InviteUserModal
+        isOpen={isInviteOpen}
+        onClose={() => setIsInviteOpen(false)}
       />
 
       <EditUserModal

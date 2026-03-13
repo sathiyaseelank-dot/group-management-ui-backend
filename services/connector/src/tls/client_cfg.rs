@@ -9,7 +9,7 @@ use rustls::{
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tonic::transport::{Channel, Endpoint};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::tls::cert_store::CertStore;
 
@@ -91,6 +91,37 @@ pub async fn build_tonic_channel(
 
 const POLICY_KEY_LABEL: &str = "ztna-policy-signing-v1";
 
+fn export_policy_signing_key(
+    conn: &rustls::ClientConnection,
+    connector_id: &str,
+    on_policy_key: Option<&Arc<dyn Fn(Vec<u8>) + Send + Sync>>,
+) {
+    let Some(cb) = on_policy_key else {
+        return;
+    };
+
+    if connector_id.trim().is_empty() {
+        warn!("policy key derivation skipped: connector_id is empty");
+        return;
+    }
+
+    let out = vec![0u8; 32];
+    match conn.export_keying_material(
+        out,
+        POLICY_KEY_LABEL.as_bytes(),
+        Some(connector_id.as_bytes()),
+    ) {
+        Ok(key) => {
+            info!(
+                "derived policy signing key from mTLS (label={}, connector={})",
+                POLICY_KEY_LABEL, connector_id
+            );
+            cb(key);
+        }
+        Err(e) => warn!("policy key derivation failed: {e}"),
+    }
+}
+
 pub async fn build_tonic_channel_with_policy_key(
     controller_addr: &str,
     trust_domain: &str,
@@ -135,27 +166,15 @@ pub async fn build_tonic_channel_with_policy_key(
             let domain = ServerName::try_from("controller")
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{}", e)))?;
             let tls_stream = tls.connect(domain, tcp).await?;
-            if let Some(cb) = on_policy_key.as_ref() {
-                if !connector_id.trim().is_empty() {
-                    let conn = tls_stream.get_ref().1;
-                    let out = vec![0u8; 32];
-                    match conn.export_keying_material(
-                        out,
-                        POLICY_KEY_LABEL.as_bytes(),
-                        Some(connector_id.as_bytes()),
-                    ) {
-                        Ok(key) => cb(key),
-                        Err(e) => warn!("policy key derivation failed: {}", e),
-                    }
-                }
-            }
+            export_policy_signing_key(tls_stream.get_ref().1, &connector_id, on_policy_key.as_ref());
             Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(tls_stream))
         }
     });
 
     let url = format!("http://{}", controller_addr);
     let channel = Endpoint::from_shared(url)?
-        .connect_with_connector_lazy(connector);
+        .connect_with_connector(connector)
+        .await?;
 
     Ok(channel)
 }

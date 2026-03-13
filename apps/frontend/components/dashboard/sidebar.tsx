@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Users, Shield, Database, Globe, FileText, ChevronDown } from 'lucide-react';
+import { Users, Shield, Database, Globe, FileText, ChevronDown, ScrollText, Settings, Activity } from 'lucide-react';
 
 type NavItem = {
   label: string;
@@ -28,6 +28,10 @@ const navItems: NavItem[] = [
     href: '/dashboard/resources',
     icon: Database,
     description: 'Manage network resources',
+    children: [
+      { label: 'All Resources', href: '/dashboard/resources' },
+      { label: 'Network Discovery', href: '/dashboard/discovery' },
+    ],
   },
 
   {
@@ -38,7 +42,7 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Networks', href: '/dashboard/remote-networks' },
       { label: 'Connectors', href: '/dashboard/connectors' },
-      { label: 'Tunnelers', href: '/dashboard/tunnelers' },
+      { label: 'Agents', href: '/dashboard/agents' },
     ],
   },
 
@@ -54,6 +58,24 @@ const navItems: NavItem[] = [
     ],
   },
 
+  {
+    label: 'Audit Logs',
+    href: '/dashboard/audit-logs',
+    icon: ScrollText,
+    description: 'View admin audit log entries',
+  },
+  {
+    label: 'Network Diagnostics',
+    href: '/dashboard/diagnostics',
+    icon: Activity,
+    description: 'Monitor connector health and trace access paths',
+  },
+  {
+    label: 'Workspace Settings',
+    href: '/dashboard/workspace/settings',
+    icon: Settings,
+    description: 'Manage workspace configuration and members',
+  },
 ];
 
 export function Sidebar() {

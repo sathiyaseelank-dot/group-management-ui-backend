@@ -33,8 +33,8 @@ The ZTNA (Zero Trust Network Access) system consists of four main components tha
 **Location:** `services/connector/`
 
 **Responsibilities:**
-- Gateway between tunnelers and resources
-- Accept inbound tunneler connections
+- Gateway between agents and resources
+- Accept inbound agent connections
 - Policy-based routing
 - High-performance proxy
 - Connection management
@@ -48,10 +48,10 @@ The ZTNA (Zero Trust Network Access) system consists of four main components tha
 
 **SPIFFE ID:** `spiffe://mycorp.internal/connector/<id>`
 
-### 3. Tunneler (Client Service)
+### 3. Agent (Client Service)
 
-**Technology:** Rust  
-**Location:** `services/tunneler/`
+**Technology:** Rust
+**Location:** `services/agent/`
 
 **Responsibilities:**
 - Client-side service
@@ -59,6 +59,7 @@ The ZTNA (Zero Trust Network Access) system consists of four main components tha
 - Local SOCKS5 proxy
 - Certificate management
 - User authentication
+- nftables firewall enforcement
 
 **Key Features:**
 - mTLS client authentication
@@ -66,8 +67,9 @@ The ZTNA (Zero Trust Network Access) system consists of four main components tha
 - Local proxy server
 - Connection retry logic
 - Async I/O with Tokio
+- Per-port nftables firewall rules for protected resources
 
-**SPIFFE ID:** `spiffe://mycorp.internal/tunneler/<id>`
+**SPIFFE ID:** `spiffe://mycorp.internal/tunneler/<id>` (path kept as `tunneler` for wire compatibility)
 
 ### 4. Frontend (Management UI)
 
@@ -93,7 +95,7 @@ The ZTNA (Zero Trust Network Access) system consists of four main components tha
 ### 1. Enrollment Flow
 
 ```
-Tunneler/Connector
+Agent/Connector
     │
     ├─► Enrollment Request (with token)
     │
@@ -109,7 +111,7 @@ Controller (CA)
 ### 2. Connection Flow
 
 ```
-Tunneler
+Agent
     │
     ├─► mTLS handshake with Connector
     │
@@ -135,7 +137,7 @@ Connector
 ```
 User Request
     │
-    ├─► Tunneler (local proxy)
+    ├─► Agent (local proxy + firewall)
     │
     ├─► Connector (gateway)
     │       │
@@ -223,7 +225,7 @@ User Request
 
 **Tables:**
 - `connectors` - Registered connectors
-- `tunnelers` - Registered tunnelers
+- `tunnelers` - Registered agents (table name kept for schema compatibility)
 - `policies` - Access policies
 - `certificates` - Issued certificates
 - `audit_logs` - Security audit trail

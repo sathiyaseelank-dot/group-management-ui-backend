@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"strings"
@@ -23,27 +24,29 @@ import (
 type ControlPlaneServer struct {
 	controllerpb.UnimplementedControlPlaneServer
 	registry       *state.Registry
-	tunnelers      *state.TunnelerRegistry
-	tunnelerStatus *state.TunnelerStatusRegistry
+	agents      *state.AgentRegistry
+	agentStatus *state.AgentStatusRegistry
 	acls           *state.ACLStore
 	db             *sql.DB
 	signingKey     []byte
 	snapshotTTL    time.Duration
+	scanStore      *state.ScanStore
 	mu             sync.Mutex
 	clients        map[string]*connectorClient
 }
 
 // NewControlPlaneServer creates a new control plane server.
-func NewControlPlaneServer(trustDomain string, registry *state.Registry, tunnelers *state.TunnelerRegistry, tunnelerStatus *state.TunnelerStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration) *ControlPlaneServer {
+func NewControlPlaneServer(trustDomain string, registry *state.Registry, agents *state.AgentRegistry, agentStatus *state.AgentStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration, scanStore *state.ScanStore) *ControlPlaneServer {
 	_ = trustDomain
 	return &ControlPlaneServer{
 		registry:       registry,
-		tunnelers:      tunnelers,
-		tunnelerStatus: tunnelerStatus,
+		agents:      agents,
+		agentStatus: agentStatus,
 		acls:           acls,
 		db:             db,
 		signingKey:     signingKey,
 		snapshotTTL:    snapshotTTL,
+		scanStore:      scanStore,
 		clients:        make(map[string]*connectorClient),
 	}
 }
@@ -58,12 +61,19 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 	spiffeID, _ := SPIFFEIDFromContext(stream.Context())
 	log.Printf("control-plane stream connected: %s", spiffeID)
 	connectorID := parseConnectorID(spiffeID)
-	signingKey := derivePolicyKey(stream.Context(), connectorID)
-	if len(signingKey) == 0 && len(s.signingKey) > 0 {
-		signingKey = append([]byte(nil), s.signingKey...)
+	if s.db != nil && connectorID != "" {
+		var revoked int
+		if err := s.db.QueryRow(`SELECT revoked FROM connectors WHERE id = ?`, connectorID).Scan(&revoked); err == nil {
+			if revoked != 0 {
+				return status.Error(codes.PermissionDenied, "connector revoked")
+			}
+		}
 	}
+	signingKey := derivePolicyKey(stream.Context(), connectorID)
 	if len(signingKey) == 0 {
-		log.Printf("policy key derivation failed for connector %s", connectorID)
+		log.Printf("policy key derivation failed for connector %s: no mTLS client cert, policy snapshot will not be sent", connectorID)
+	} else {
+		log.Printf("mTLS verified for connector %s: policy signing key derived, policy snapshot will be sent", connectorID)
 	}
 	client := &connectorClient{
 		stream:      stream,
@@ -75,6 +85,37 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 	s.sendAllowlist(client)
 	s.sendPolicySnapshot(client)
 
+	// Log connection event and mark connector online.
+	connectTime := time.Now().UTC()
+	connectISO := connectTime.Format("2006-01-02T15:04:05.000Z")
+	if s.db != nil && connectorID != "" {
+		connMsg := "control-plane connected · no client cert · policy snapshot skipped"
+		if len(signingKey) > 0 {
+			connMsg = "control-plane connected · mTLS verified · policy snapshot sent"
+		}
+		_, _ = s.db.Exec(
+			state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`),
+			connectorID, connectISO, connMsg,
+		)
+		_, _ = s.db.Exec(
+			state.Rebind(`UPDATE connectors SET status = 'online', installed = 1, last_seen = ?, last_seen_at = ? WHERE id = ?`),
+			connectTime.Unix(), connectISO, connectorID,
+		)
+	}
+	defer func() {
+		if s.db != nil && connectorID != "" {
+			offISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+			_, _ = s.db.Exec(
+				state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`),
+				connectorID, offISO, "control-plane disconnected",
+			)
+			_, _ = s.db.Exec(
+				state.Rebind(`UPDATE connectors SET status = 'offline' WHERE id = ?`),
+				connectorID,
+			)
+		}
+	}()
+
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -85,7 +126,7 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 		}
 
 		if msg.GetType() == "ping" {
-			if err := stream.Send(&controllerpb.ControlMessage{Type: "pong"}); err != nil {
+			if err := client.send(&controllerpb.ControlMessage{Type: "pong"}); err != nil {
 				return err
 			}
 		}
@@ -99,19 +140,38 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 				}
 			}
 			log.Printf("heartbeat: connector_id=%s private_ip=%s status=%s", msg.GetConnectorId(), msg.GetPrivateIp(), msg.GetStatus())
+
+			// Connector embeds agent statuses in the heartbeat payload.
+			if s.agentStatus != nil && len(msg.GetPayload()) > 0 {
+				var agents []struct {
+					AgentID string `json:"agent_id"`
+					Status  string `json:"status"`
+				}
+				if err := json.Unmarshal(msg.GetPayload(), &agents); err == nil {
+					for _, t := range agents {
+						s.agentStatus.Record(t.AgentID, "", msg.GetConnectorId())
+						log.Printf("agent heartbeat: agent_id=%s connector_id=%s status=%s", t.AgentID, msg.GetConnectorId(), t.Status)
+						if s.acls != nil && s.acls.DB() != nil {
+							if rec, ok := s.agentStatus.Get(t.AgentID); ok {
+								_ = state.SaveAgentToDB(s.acls.DB(), rec)
+							}
+						}
+					}
+				}
+			}
 		}
-		if msg.GetType() == "tunneler_heartbeat" && s.tunnelerStatus != nil {
+		if msg.GetType() == "agent_heartbeat" && s.agentStatus != nil {
 			var payload struct {
-				TunnelerID  string `json:"tunneler_id"`
+				AgentID     string `json:"agent_id"`
 				SPIFFEID    string `json:"spiffe_id"`
 				Status      string `json:"status"`
 				ConnectorID string `json:"connector_id"`
 			}
 			if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
-				s.tunnelerStatus.Record(payload.TunnelerID, payload.SPIFFEID, payload.ConnectorID)
+				s.agentStatus.Record(payload.AgentID, payload.SPIFFEID, payload.ConnectorID)
 				if s.acls != nil && s.acls.DB() != nil {
-					if rec, ok := s.tunnelerStatus.Get(payload.TunnelerID); ok {
-						_ = state.SaveTunnelerToDB(s.acls.DB(), rec)
+					if rec, ok := s.agentStatus.Get(payload.AgentID); ok {
+						_ = state.SaveAgentToDB(s.acls.DB(), rec)
 					}
 				}
 			}
@@ -121,7 +181,7 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 			if s.acls != nil && s.acls.DB() != nil {
 				var payload struct {
 					PrincipalSPIFFE string `json:"spiffe_id"`
-					TunnelerID      string `json:"tunneler_id"`
+					AgentID         string `json:"agent_id"`
 					ResourceID      string `json:"resource_id"`
 					Destination     string `json:"destination"`
 					Protocol        string `json:"protocol"`
@@ -131,11 +191,17 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 					ConnectionID    string `json:"connection_id"`
 				}
 				if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
+					auditWsID := ""
+					if s.registry != nil {
+						if rec, ok := s.registry.Get(msg.GetConnectorId()); ok {
+							auditWsID = rec.WorkspaceID
+						}
+					}
 					_, _ = s.acls.DB().Exec(
-						`INSERT INTO audit_logs (principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+						state.Rebind(`INSERT INTO audit_logs (principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at, workspace_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 						payload.PrincipalSPIFFE,
-						payload.TunnelerID,
+						payload.AgentID,
 						payload.ResourceID,
 						payload.Destination,
 						payload.Protocol,
@@ -144,25 +210,73 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 						payload.Reason,
 						payload.ConnectionID,
 						time.Now().UTC().Unix(),
+						auditWsID,
 					)
 				}
+			}
+		}
+		if msg.GetType() == "scan_report" && s.scanStore != nil {
+			var report struct {
+				RequestID string                     `json:"request_id"`
+				Results   []state.DiscoveredResource `json:"results"`
+				Error     *string                    `json:"error"`
+			}
+			if err := json.Unmarshal(msg.GetPayload(), &report); err == nil {
+				if report.Error != nil && *report.Error != "" {
+					s.scanStore.Fail(report.RequestID, *report.Error)
+				} else {
+					s.scanStore.Complete(report.RequestID, report.Results)
+				}
+				log.Printf("scan_report: request_id=%s results=%d", report.RequestID, len(report.Results))
 			}
 		}
 	}
 }
 
-// NotifyTunnelerAllowed broadcasts a newly enrolled tunneler to all connectors.
-func (s *ControlPlaneServer) NotifyTunnelerAllowed(tunnelerID, spiffeID string) {
-	if s.tunnelers != nil {
-		s.tunnelers.Add(tunnelerID, spiffeID)
+// SendToConnector sends a message to a specific connected connector by its connector ID.
+func (s *ControlPlaneServer) SendToConnector(connectorID string, msgType string, payload []byte) error {
+	s.mu.Lock()
+	var target *connectorClient
+	for _, c := range s.clients {
+		if c.connectorID == connectorID {
+			target = c
+			break
+		}
 	}
-	info := state.TunnelerInfo{ID: tunnelerID, SPIFFEID: spiffeID}
+	s.mu.Unlock()
+
+	if target == nil {
+		return fmt.Errorf("connector %s not connected", connectorID)
+	}
+
+	return target.send(&controllerpb.ControlMessage{
+		Type:    msgType,
+		Payload: payload,
+	})
+}
+
+// NotifyAgentAllowed broadcasts a newly enrolled agent to all connectors
+// and persists to DB so the allowlist survives controller restarts.
+func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, hostname string) {
+	if s.agents != nil {
+		s.agents.Add(agentID, spiffeID)
+	}
+	// Persist to DB so LoadAgentRegistryFromDB restores the allowlist on restart.
+	if s.db != nil {
+		_, _ = s.db.Exec(
+			state.Rebind(`INSERT INTO tunnelers (id, spiffe_id, connector_id, version, hostname, last_seen)
+			VALUES (?, ?, '', ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, version=excluded.version, hostname=excluded.hostname, last_seen=excluded.last_seen`),
+			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(),
+		)
+	}
+	info := state.AgentInfo{ID: agentID, SPIFFEID: spiffeID}
 	payload, err := json.Marshal(info)
 	if err != nil {
 		return
 	}
 	s.broadcast(&controllerpb.ControlMessage{
-		Type:    "tunneler_allow",
+		Type:    "agent_allow",
 		Payload: payload,
 	})
 }
@@ -172,6 +286,29 @@ type connectorClient struct {
 	sendMu      sync.Mutex
 	connectorID string
 	signingKey  []byte
+}
+
+func (c *connectorClient) send(msg *controllerpb.ControlMessage) error {
+	if c == nil || msg == nil {
+		return nil
+	}
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return c.stream.Send(msg)
+}
+
+// IsStreamActive returns true if a connector with the given ID currently has
+// an active gRPC control-plane stream. Both the raw connector ID and its SPIFFE
+// ID key are checked.
+func (s *ControlPlaneServer) IsStreamActive(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, c := range s.clients {
+		if key == id || c.connectorID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ControlPlaneServer) addClient(id string, c *connectorClient) {
@@ -195,27 +332,23 @@ func (s *ControlPlaneServer) broadcast(msg *controllerpb.ControlMessage) {
 	s.mu.Unlock()
 
 	for _, c := range clients {
-		c.sendMu.Lock()
-		_ = c.stream.Send(msg)
-		c.sendMu.Unlock()
+		_ = c.send(msg)
 	}
 }
 
 func (s *ControlPlaneServer) sendAllowlist(c *connectorClient) {
-	if s.tunnelers == nil {
+	if s.agents == nil {
 		return
 	}
-	list := s.tunnelers.List()
+	list := s.agents.List()
 	payload, err := json.Marshal(list)
 	if err != nil {
 		return
 	}
-	c.sendMu.Lock()
-	_ = c.stream.Send(&controllerpb.ControlMessage{
-		Type:    "tunneler_allowlist",
+	_ = c.send(&controllerpb.ControlMessage{
+		Type:    "agent_allowlist",
 		Payload: payload,
 	})
-	c.sendMu.Unlock()
 }
 
 // ACL notifications
@@ -276,12 +409,15 @@ func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient) {
 	if err != nil {
 		return
 	}
-	c.sendMu.Lock()
-	_ = c.stream.Send(&controllerpb.ControlMessage{
+	err = c.send(&controllerpb.ControlMessage{
 		Type:    "policy_snapshot",
 		Payload: payload,
 	})
-	c.sendMu.Unlock()
+	if err != nil {
+		log.Printf("failed to send policy snapshot to connector %s: %v", c.connectorID, err)
+		return
+	}
+	log.Printf("policy snapshot sent to connector %s (%d resources)", c.connectorID, len(snap.Resources))
 }
 
 func parseConnectorID(spiffeID string) string {

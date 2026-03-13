@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ztna-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ztnaadmin
+      POSTGRES_PASSWORD: inkztnapass
+      POSTGRES_DB: ztna
+    ports:
+      - "5432:5432"
+    volumes:
+      - ztna-pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ztnaadmin -d ztna"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  ztna-pgdata:

@@ -13,8 +13,14 @@ import {
   Subject,
   RemoteNetwork,
   Connector,
-  Tunneler,
+  Agent,
   ResourceType,
+  FirewallStatus,
+  DiscoveredResource,
+  ScanJob,
+  DiagnosticsData,
+  PingResult,
+  AccessTrace,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -79,6 +85,39 @@ export async function getConnector(connectorId: string) {
   );
 }
 
+export async function revokeConnector(connectorId: string): Promise<void> {
+  await request(`/api/connectors/${encodeURIComponent(connectorId)}/revoke`, {
+    method: 'POST',
+  });
+}
+
+export async function grantConnector(connectorId: string): Promise<void> {
+  await request(`/api/connectors/${encodeURIComponent(connectorId)}/grant`, {
+    method: 'POST',
+  });
+}
+
+// API: Get single agent with details
+export async function getAgent(agentId: string) {
+  return request<{ agent: Agent | null; network: RemoteNetwork | undefined; logs: any[] }>(
+    `/api/agents/${agentId}`
+  );
+}
+
+// API: Revoke an agent
+export async function revokeAgent(agentId: string): Promise<void> {
+  await request(`/api/agents/${encodeURIComponent(agentId)}/revoke`, {
+    method: 'POST',
+  });
+}
+
+// API: Grant an agent
+export async function grantAgent(agentId: string): Promise<void> {
+  await request(`/api/agents/${encodeURIComponent(agentId)}/grant`, {
+    method: 'POST',
+  });
+}
+
 // API: Get all remote networks
 export async function getRemoteNetworks(): Promise<RemoteNetwork[]> {
   return request<RemoteNetwork[]>('/api/remote-networks');
@@ -91,14 +130,25 @@ export async function addRemoteNetwork(data: { name: string; location: string })
   });
 }
 
+export async function deleteRemoteNetwork(networkId: string): Promise<void> {
+  await request(`/api/remote-networks/${encodeURIComponent(networkId)}`, {
+    method: 'DELETE',
+  });
+}
+
 // API: Get all connectors
 export async function getConnectors(): Promise<Connector[]> {
   return request<Connector[]>('/api/connectors');
 }
 
-// API: Get all tunnelers
-export async function getTunnelers(): Promise<Tunneler[]> {
-  return request<Tunneler[]>('/api/tunnelers');
+// API: Get all agents
+export async function getAgents(): Promise<Agent[]> {
+  return request<Agent[]>('/api/agents');
+}
+
+// API: Delete (revoke) an agent
+export async function deleteAgent(agentId: string): Promise<void> {
+  await request(`/api/agents/${agentId}`, { method: 'DELETE' });
 }
 
 // API: Get all subjects (Users, Groups, Service Accounts)
@@ -249,6 +299,39 @@ export async function updateResource(
   });
 }
 
+// API: Set resource firewall status (protect or unprotect)
+export async function setResourceFirewallStatus(
+  resourceId: string,
+  status: FirewallStatus
+): Promise<{ firewall_status: string }> {
+  return request<{ firewall_status: string }>(`/api/resources/${resourceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ firewall_status: status }),
+  });
+}
+
+// API: Delete a resource
+export async function deleteResource(resourceId: string): Promise<void> {
+  await request(`/api/resources/${resourceId}`, { method: 'DELETE' });
+}
+
+// API: Delete (revoke) a connector
+export async function deleteConnector(connectorId: string): Promise<void> {
+  await request(`/api/connectors/${connectorId}`, { method: 'DELETE' });
+}
+
+// API: Add a new agent
+export async function addAgent(data: {
+  name: string;
+  connectorId?: string;
+  remoteNetworkId?: string;
+}): Promise<void> {
+  await request('/api/agents', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 // API: Add a new connector
 export async function addConnector(data: {
   name: string;
@@ -257,17 +340,6 @@ export async function addConnector(data: {
   await request('/api/connectors', {
     method: 'POST',
     body: JSON.stringify(data),
-  });
-}
-
-// API: Simulate a connector sending a heartbeat (going online)
-export async function simulateConnectorHeartbeat(
-  connectorId: string,
-  enrollmentToken?: string
-): Promise<void> {
-  await request(`/api/connectors/${connectorId}/heartbeat`, {
-    method: 'POST',
-    body: JSON.stringify(enrollmentToken ? { enrollmentToken } : {}),
   });
 }
 
@@ -337,5 +409,57 @@ export async function removeGroupMember(
 ): Promise<void> {
   await request(`/api/groups/${groupId}/members/${userId}`, {
     method: 'DELETE',
+  });
+}
+
+// API: Invite user via email
+export async function inviteUser(email: string, workspaceId?: string): Promise<{ status: string; invite_url?: string }> {
+  const body: Record<string, string> = { email };
+  if (workspaceId) {
+    body.workspace_id = workspaceId;
+  }
+  return request<{ status: string; invite_url?: string }>('/api/users/invite', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+// API: Start network discovery scan
+export async function startNetworkScan(
+  connectorId: string,
+  targets: string[],
+  ports: number[]
+): Promise<{ request_id: string }> {
+  return request<{ request_id: string }>('/api/discovery/scan', {
+    method: 'POST',
+    body: JSON.stringify({ connector_id: connectorId, targets, ports }),
+  });
+}
+
+// API: Get scan status
+export async function getScanStatus(requestId: string): Promise<ScanJob> {
+  return request<ScanJob>(`/api/discovery/scan/${requestId}`);
+}
+
+// API: Get all discovery results
+export async function getDiscoveryResults(): Promise<DiscoveredResource[]> {
+  return request<DiscoveredResource[]>('/api/discovery/results');
+}
+
+// API: Diagnostics
+export async function getDiagnostics(): Promise<DiagnosticsData> {
+  return request<DiagnosticsData>('/api/diagnostics');
+}
+
+export async function pingConnector(connectorId: string): Promise<PingResult> {
+  return request<PingResult>(`/api/diagnostics/ping/${encodeURIComponent(connectorId)}`, {
+    method: 'POST',
+  });
+}
+
+export async function traceAccess(userId: string, resourceId: string): Promise<AccessTrace> {
+  return request<AccessTrace>('/api/diagnostics/trace', {
+    method: 'POST',
+    body: JSON.stringify({ userId, resourceId }),
   });
 }

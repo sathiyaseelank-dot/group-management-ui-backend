@@ -4,17 +4,17 @@ use std::sync::RwLock;
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub struct TunnelerInfo {
-    pub tunneler_id: String,
+pub struct AgentInfo {
+    pub agent_id: String,
     pub spiffe_id: String,
 }
 
-/// In-memory SPIFFE-ID allowlist for tunnelers.
-pub struct TunnelerAllowlist {
+/// In-memory SPIFFE-ID allowlist for agents.
+pub struct AgentAllowlist {
     inner: RwLock<HashSet<String>>,
 }
 
-impl TunnelerAllowlist {
+impl AgentAllowlist {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(HashSet::new()),
@@ -25,7 +25,7 @@ impl TunnelerAllowlist {
         self.inner.read().unwrap().contains(spiffe_id)
     }
 
-    pub fn replace(&self, items: Vec<TunnelerInfo>) {
+    pub fn replace(&self, items: Vec<AgentInfo>) {
         let mut w = self.inner.write().unwrap();
         *w = items
             .into_iter()
@@ -42,7 +42,7 @@ impl TunnelerAllowlist {
     }
 }
 
-impl Default for TunnelerAllowlist {
+impl Default for AgentAllowlist {
     fn default() -> Self {
         Self::new()
     }

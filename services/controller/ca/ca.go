@@ -101,6 +101,60 @@ func LoadCA(certPEM, keyPEM []byte) (*CA, error) {
 	return &CA{cert: cert, key: ecKey}, nil
 }
 
+// IssueWorkspaceCA creates a sub-CA certificate for a workspace trust domain.
+// The sub-CA has IsCA: true, MaxPathLen: 0 (cannot issue further sub-CAs),
+// and URI name constraints scoped to its SPIFFE trust domain.
+func IssueWorkspaceCA(parent *CA, trustDomain string, ttl time.Duration) (certPEM, keyPEM []byte, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate workspace CA key: %w", err)
+	}
+
+	serialMax := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, serialMax)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate serial: %w", err)
+	}
+
+	spiffeURI, err := url.Parse("spiffe://" + trustDomain)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid trust domain: %w", err)
+	}
+
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   "Workspace CA - " + trustDomain,
+			Organization: []string{"ZTNA Workspace"},
+		},
+		URIs:                  []*url.URL{spiffeURI},
+		NotBefore:             now.Add(-1 * time.Minute),
+		NotAfter:              now.Add(ttl),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLen:            0,
+		MaxPathLenZero:        true,
+		PermittedURIDomains:   []string{"spiffe://" + trustDomain},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, parent.cert, &key.PublicKey, parent.key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sign workspace CA: %w", err)
+	}
+
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal workspace CA key: %w", err)
+	}
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+
+	return certPEM, keyPEM, nil
+}
+
 // IssueWorkloadCert issues a short-lived workload certificate with the given SPIFFE ID.
 func IssueWorkloadCert(c *CA, spiffeID string, pubKey crypto.PublicKey, ttl time.Duration, dnsNames []string, ipAddrs []net.IP) ([]byte, error) {
 	spiffeURI, err := url.Parse(spiffeID)

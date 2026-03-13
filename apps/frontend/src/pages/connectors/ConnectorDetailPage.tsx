@@ -1,17 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { createEnrollmentToken, getConnector, simulateConnectorHeartbeat } from '@/lib/mock-api';
+import { createEnrollmentToken, deleteConnector, getConnector, grantConnector, revokeConnector } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, ArrowLeft, AlertTriangle, Terminal, Copy, HeartPulse, CheckCircle, RefreshCw } from 'lucide-react';
+import { Loader2, ArrowLeft, AlertTriangle, Terminal, Copy, CheckCircle, RefreshCw, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
 import { ConnectorInfoSection } from '@/components/dashboard/connectors/connector-info-section';
 import { ConnectorLogs } from '@/components/dashboard/connectors/connector-logs';
 import { toast } from 'sonner';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+
+function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+}
 
 interface LogEntry {
   id: number;
@@ -21,38 +40,31 @@ interface LogEntry {
 
 export default function ConnectorDetailPage() {
   const { connectorId } = useParams();
+  const navigate = useNavigate();
   const [connector, setConnector] = useState<Connector | null>(null);
   const [network, setNetwork] = useState<RemoteNetwork | undefined>(undefined);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSimulatingHeartbeat, setIsSimulatingHeartbeat] = useState(false);
   const [enrollmentToken, setEnrollmentToken] = useState<string>('');
   const [tokenLoading, setTokenLoading] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
-  const [autoHeartbeatSent, setAutoHeartbeatSent] = useState(false);
 
   // Auto-detect controller IP from the browser's current hostname.
   // When accessed from another machine (e.g. 192.168.1.x), this gives the correct LAN IP.
   const detectedHost = window.location.hostname || '127.0.0.1';
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
-  const [policySigningKey, setPolicySigningKey] = useState('');
-
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
-    const policyKeyLine = policySigningKey
-      ? `  POLICY_SIGNING_KEY="${policySigningKey}" \\\n`
-      : '';
     return (
       `curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/setup.sh | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
       `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${enrollmentToken}" \\\n` +
-      policyKeyLine +
       `  bash`
     );
-  }, [enrollmentToken, controllerAddr, controllerHttpAddr, policySigningKey, connectorId]);
+  }, [enrollmentToken, controllerAddr, controllerHttpAddr, connectorId]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -101,54 +113,66 @@ export default function ConnectorDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (!connectorId || !connector || !connector.installed) return;
-    if (connector.status === 'online') return;
-    if (!enrollmentToken || autoHeartbeatSent) return;
-    const sendHeartbeat = async () => {
-      setAutoHeartbeatSent(true);
-      try {
-        await simulateConnectorHeartbeat(connectorId as string, enrollmentToken);
-        await loadConnectorData({ silent: true });
-      } catch (error) {
-        console.error('Failed to auto-send heartbeat:', error);
-      }
-    };
-    sendHeartbeat();
-  }, [autoHeartbeatSent, connector, connectorId, enrollmentToken]);
-
-  useEffect(() => {
     if (!connectorId) return;
-    if (connector?.installed) return;
+    // Poll every 5s until installed, then every 10s to track live online/offline status.
+    const delay = connector?.installed ? 10000 : 5000;
     const interval = setInterval(() => {
       loadConnectorData({ silent: true });
-    }, 5000);
+    }, delay);
     return () => clearInterval(interval);
   }, [connector?.installed, connectorId]);
 
-  const handleRevoke = () => {
-    toast.warning('This is a placeholder action.', {
-      description: `In a real application, this would revoke the connector's keys.`,
-    });
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [isRevokingAccess, setIsRevokingAccess] = useState(false);
+
+
+  const handleDelete = async () => {
+    if (!connectorId) return;
+    if (!window.confirm(`Delete connector "${connector?.name ?? connectorId}"? This will remove it from the controller.`)) return;
+    setIsRevoking(true);
+    try {
+      await deleteConnector(connectorId);
+      toast.success('Connector deleted successfully.');
+      navigate('/dashboard/connectors');
+    } catch (error) {
+      toast.error('Failed to delete connector. Check that the backend is running.');
+    } finally {
+      setIsRevoking(false);
+    }
+  };
+
+  const handleRevoke = async () => {
+    if (!connectorId) return;
+    setIsRevokingAccess(true);
+    try {
+      await revokeConnector(connectorId);
+      toast.success('Connector access revoked.');
+      await loadConnectorData({ silent: true });
+    } catch (error) {
+      toast.error('Failed to revoke connector access.');
+    } finally {
+      setIsRevokingAccess(false);
+    }
+  };
+
+  const handleGrant = async () => {
+    if (!connectorId) return;
+    setIsRevokingAccess(true);
+    try {
+      await grantConnector(connectorId);
+      toast.success('Connector access granted.');
+      await loadConnectorData({ silent: true });
+    } catch (error) {
+      toast.error('Failed to grant connector access.');
+    } finally {
+      setIsRevokingAccess(false);
+    }
   };
 
   const handleCopyCommand = () => {
     if (!INSTALL_COMMAND) return;
-    navigator.clipboard.writeText(INSTALL_COMMAND);
+    copyToClipboard(INSTALL_COMMAND);
     toast.success('Installation command copied to clipboard!');
-  };
-
-  const handleSimulateHeartbeat = async () => {
-    if (!connectorId) return;
-    setIsSimulatingHeartbeat(true);
-    try {
-      await simulateConnectorHeartbeat(connectorId as string, enrollmentToken);
-      toast.success('Connector status updated to online!');
-      loadConnectorData({ silent: true });
-    } catch (error) {
-      toast.error('Failed to simulate heartbeat.');
-    } finally {
-      setIsSimulatingHeartbeat(false);
-    }
   };
 
   // Shared install card used in both the "not found" and "not installed" states
@@ -184,18 +208,6 @@ export default function ConnectorDetailPage() {
             />
             <p className="text-xs text-muted-foreground">
               The CA certificate is fetched automatically from this address.
-            </p>
-          </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="policySigningKey">Policy Signing Key (Optional)</Label>
-            <Input
-              id="policySigningKey"
-              value={policySigningKey}
-              onChange={(e) => setPolicySigningKey(e.target.value)}
-              placeholder="Leave empty to derive from mTLS"
-            />
-            <p className="text-xs text-muted-foreground">
-              The connector derives the policy key from the mTLS session by default. Only set this if derivation fails.
             </p>
           </div>
         </div>
@@ -261,7 +273,7 @@ export default function ConnectorDetailPage() {
     );
   }
 
-  if (!connector.installed) {
+  if (!connector.installed && connector.status !== 'revoked') {
     return (
       <div className="space-y-6 p-6">
         <Link to="/dashboard/connectors">
@@ -305,24 +317,31 @@ export default function ConnectorDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          {connector.status === 'offline' && (
+          {connector.status !== 'revoked' && (
+            <Button
+              variant="outline"
+              className="gap-2 text-orange-500 border-orange-500 hover:text-orange-600 hover:border-orange-600"
+              onClick={handleRevoke}
+              disabled={isRevokingAccess}
+            >
+              {isRevokingAccess ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldOff className="h-4 w-4" />}
+              Revoke
+            </Button>
+          )}
+          {connector.status === 'revoked' && (
             <Button
               variant="outline"
               className="gap-2 text-green-500 border-green-500 hover:text-green-600 hover:border-green-600"
-              onClick={handleSimulateHeartbeat}
-              disabled={isSimulatingHeartbeat}
+              onClick={handleGrant}
+              disabled={isRevokingAccess}
             >
-              {isSimulatingHeartbeat ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <HeartPulse className="h-4 w-4" />
-              )}
-              Simulate Heartbeat / Go Online
+              {isRevokingAccess ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              Grant
             </Button>
           )}
-          <Button variant="destructive" className="gap-2" onClick={handleRevoke}>
-            <AlertTriangle className="h-4 w-4" />
-            Revoke
+          <Button variant="destructive" className="gap-2" onClick={handleDelete} disabled={isRevoking}>
+            {isRevoking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Delete
           </Button>
         </div>
       </div>

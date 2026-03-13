@@ -20,6 +20,7 @@ import (
 	"controller/api"
 	"controller/ca"
 	controllerpb "controller/gen/controllerpb"
+	"controller/mailer"
 	"controller/state"
 
 	"google.golang.org/grpc"
@@ -97,19 +98,32 @@ func main() {
 
 	creds := credentials.NewTLS(tlsConfig)
 
-	db, err := state.OpenSQLite(os.Getenv("DB_PATH"))
+	db, err := state.Open(os.Getenv("DATABASE_URL"), os.Getenv("DB_PATH"))
 	if err != nil {
-		log.Fatalf("failed to open sqlite db: %v", err)
+		log.Fatalf("failed to open db: %v", err)
 	}
 	defer db.Close()
 
 	registry := state.NewRegistry()
-	tunnelerRegistry := state.NewTunnelerRegistry()
-	tunnelerStatus := state.NewTunnelerStatusRegistry()
+	agentRegistry := state.NewAgentRegistry()
+	agentStatus := state.NewAgentStatusRegistry()
 	aclStore := state.NewACLStoreWithDB(db)
 	tokenStore := state.NewTokenStoreWithDB(0, db)
 	userStore := state.NewUserStore(db)
 	remoteNetStore := state.NewRemoteNetworkStore(db)
+	workspaceStore := state.NewWorkspaceStore(db)
+
+	idpEncKey := []byte(os.Getenv("IDP_ENCRYPTION_KEY"))
+	if len(idpEncKey) == 0 {
+		idpEncKey = []byte(os.Getenv("JWT_SECRET"))
+	}
+	idpStore := state.NewIdentityProviderStore(db, idpEncKey)
+	sessionStore := state.NewSessionStore(db)
+
+	systemDomain := os.Getenv("SYSTEM_DOMAIN")
+	if systemDomain == "" {
+		systemDomain = "zerotrust.com"
+	}
 
 	// ---- gRPC server ----
 	grpcServer := grpc.NewServer(
@@ -121,9 +135,11 @@ func main() {
 		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "tunneler")),
 	)
 
-	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, tunnelerRegistry, tunnelerStatus, aclStore, db, []byte(policySigningKey), policyTTL)
+	scanStore := state.NewScanStore()
+	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, agentRegistry, agentStatus, aclStore, db, []byte(policySigningKey), policyTTL, scanStore)
 	_ = state.LoadConnectorsFromDB(db, registry)
-	_ = state.LoadTunnelersFromDB(db, tunnelerStatus)
+	_ = state.LoadAgentRegistryFromDB(db, agentRegistry)
+	_ = state.LoadAgentsFromDB(db, agentStatus)
 	_ = state.LoadACLsFromDB(db, aclStore)
 	controlPlaneServer.NotifyACLInit()
 	go func() {
@@ -133,6 +149,19 @@ func main() {
 			_ = state.PruneAuditLogs(db, time.Now().Add(-24*time.Hour))
 		}
 	}()
+	// Mark connectors and tunnelers offline when their last heartbeat is stale.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			cutoff := time.Now().Add(-45 * time.Second).Unix()
+			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
+			_, _ = db.Exec(state.Rebind(`UPDATE tunnelers  SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
+		}
+	}()
+
+	// ---- trust domain validator (multi-tenant) ----
+	api.SetTrustDomainValidator(api.NewTrustDomainValidator(trustDomain, systemDomain))
 
 	// ---- enrollment service ----
 	enrollServer := api.NewEnrollmentServer(
@@ -143,31 +172,106 @@ func main() {
 		registry,
 		controlPlaneServer,
 	)
+	enrollServer.DB = db
+	enrollServer.Workspaces = workspaceStore
+	enrollServer.SystemDomain = systemDomain
 
 	controllerpb.RegisterEnrollmentServiceServer(grpcServer, enrollServer)
 	controllerpb.RegisterControlPlaneServer(grpcServer, controlPlaneServer)
+
+	// ---- OAuth + mailer config (optional) ----
+	var oauthCfg = admin.BuildGoogleOAuthConfig(
+		os.Getenv("GOOGLE_CLIENT_ID"),
+		os.Getenv("GOOGLE_CLIENT_SECRET"),
+		os.Getenv("OAUTH_REDIRECT_URL"),
+	)
+	var githubOAuthCfg = admin.BuildGitHubOAuthConfig(
+		os.Getenv("GITHUB_CLIENT_ID"),
+		os.Getenv("GITHUB_CLIENT_SECRET"),
+		os.Getenv("GITHUB_OAUTH_REDIRECT_URL"),
+	)
+
+	adminLoginEmails := map[string]struct{}{}
+	if raw := os.Getenv("ADMIN_LOGIN_EMAILS"); raw != "" {
+		for _, e := range strings.Split(raw, ",") {
+			if em := strings.TrimSpace(strings.ToLower(e)); em != "" {
+				adminLoginEmails[em] = struct{}{}
+			}
+		}
+	}
+
+	var m *mailer.Mailer
+	if host := os.Getenv("SMTP_HOST"); host != "" {
+		m = mailer.New(
+			host,
+			os.Getenv("SMTP_PORT"),
+			os.Getenv("SMTP_USER"),
+			os.Getenv("SMTP_PASS"),
+			os.Getenv("SMTP_FROM"),
+		)
+	}
 
 	// ---- admin HTTP server ----
 	adminMux := http.NewServeMux()
 	adminServer := &admin.Server{
 		Tokens:            tokenStore,
 		Reg:               registry,
-		Tunnelers:         tunnelerStatus,
+		Agents:            agentStatus,
 		ACLs:              aclStore,
 		ACLNotify:         controlPlaneServer,
 		Users:             userStore,
 		RemoteNet:         remoteNetStore,
+		ScanStore:         scanStore,
+		ControlPlane:      controlPlaneServer,
+		StreamChecker:     controlPlaneServer,
 		AdminAuthToken:    adminAuthToken,
 		InternalAuthToken: internalAuthToken,
 		CACertPEM:         caCertPEM,
+		OAuthConfig:       oauthCfg,
+		GitHubOAuthConfig: githubOAuthCfg,
+		JWTSecret:         []byte(os.Getenv("JWT_SECRET")),
+		AdminLoginEmails:  adminLoginEmails,
+		DashboardURL:      os.Getenv("DASHBOARD_URL"),
+		InviteBaseURL:     os.Getenv("INVITE_BASE_URL"),
+		Mailer:            m,
+		Workspaces:        workspaceStore,
+		IntermediateCA:    caInst,
+		SystemDomain:      systemDomain,
+		IdPs:              idpStore,
+		Sessions:          sessionStore,
+		SecureCookies:     os.Getenv("SECURE_COOKIES") == "true",
+		AllowedOrigins:    parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
 	}
 	adminServer.RegisterRoutes(adminMux)
+	adminServer.RegisterOAuthRoutes(adminMux)
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := sessionStore.CleanExpired(); err != nil {
+				log.Printf("session cleanup: %v", err)
+			}
+		}
+	}()
 	go func() {
 		log.Printf("admin HTTP server listening %s", adminAddr)
 		if err := http.ListenAndServe(adminAddr, adminMux); err != nil {
 			log.Fatalf("admin HTTP server failed: %v", err)
 		}
 	}()
+
+	// ---- OAuth callback listener ----
+	// Google OAuth apps register specific redirect URIs (e.g. :8080).
+	// If OAUTH_CALLBACK_ADDR is set, start an additional listener on that address
+	// serving the same mux so the registered callback URIs resolve correctly.
+	if oauthCallbackAddr := strings.TrimSpace(os.Getenv("OAUTH_CALLBACK_ADDR")); oauthCallbackAddr != "" && oauthCallbackAddr != adminAddr {
+		go func() {
+			log.Printf("OAuth callback listener on %s", oauthCallbackAddr)
+			if err := http.ListenAndServe(oauthCallbackAddr, adminMux); err != nil {
+				log.Fatalf("OAuth callback listener failed: %v", err)
+			}
+		}()
+	}
 
 	// ---- listen ----
 	lis, err := net.Listen("tcp", ":8443")
@@ -197,6 +301,19 @@ func loadCAFromFiles(certPEM, keyPEM []byte) ([]byte, []byte) {
 		}
 	}
 	return certPEM, keyPEM
+}
+
+func parseAllowedOrigins(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func normalizeTrustDomain(v string) string {

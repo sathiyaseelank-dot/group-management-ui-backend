@@ -1,7 +1,8 @@
-import express from 'express'
+import express, { Request, Response } from 'express'
 import cors from 'cors'
 import compression from 'compression'
 import path from 'path'
+import { getBackendUrl } from '../lib/proxy'
 
 import groupsRouter from './routes/groups'
 import usersRouter from './routes/users'
@@ -12,8 +13,11 @@ import accessRulesRouter from './routes/access-rules'
 import subjectsRouter from './routes/subjects'
 import tokensRouter from './routes/tokens'
 import serviceAccountsRouter from './routes/service-accounts'
-import tunnelersRouter from './routes/tunnelers'
+import agentsRouter from './routes/agents'
 import policyRouter from './routes/policy'
+import auditLogsRouter from './routes/audit-logs'
+import discoveryRouter from './routes/discovery'
+import workspacesRouter from './routes/workspaces'
 
 const app = express()
 
@@ -30,8 +34,21 @@ app.use('/api/access-rules', accessRulesRouter)
 app.use('/api/subjects', subjectsRouter)
 app.use('/api/tokens', tokensRouter)
 app.use('/api/service-accounts', serviceAccountsRouter)
-app.use('/api/tunnelers', tunnelersRouter)
+app.use('/api/agents', agentsRouter)
 app.use('/api/policy', policyRouter)
+app.use('/api/audit-logs', auditLogsRouter)
+app.use('/api/discovery', discoveryRouter)
+app.use('/api/workspaces', workspacesRouter)
+
+// POST /api/auth/logout — forwards to controller OAuth logout, then signals client to clear token
+app.post('/api/auth/logout', async (_req: Request, res: Response) => {
+  try {
+    await fetch(`${getBackendUrl()}/oauth/logout`, { method: 'POST' })
+  } catch {
+    // Best-effort
+  }
+  res.json({ status: 'logged out' })
+})
 
 // Serve built Vite app in production
 if (process.env.NODE_ENV === 'production') {

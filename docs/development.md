@@ -6,7 +6,7 @@ This project is designed for 4-member parallel development:
 
 - **Member 1**: Controller (Go backend)
 - **Member 2**: Connector (Rust gateway)
-- **Member 3**: Tunneler (Rust client)
+- **Member 3**: Agent (Rust client)
 - **Member 4**: Frontend (React UI)
 
 ## Getting Started
@@ -32,9 +32,9 @@ cd services/connector
 cargo build
 ```
 
-**Tunneler (Rust):**
+**Agent (Rust):**
 ```bash
-cd services/tunneler
+cd services/agent
 cargo build
 ```
 
@@ -53,7 +53,7 @@ main                    # Production code
 ├── develop            # Integration branch
 ├── feature/controller-*
 ├── feature/connector-*
-├── feature/tunneler-*
+├── feature/agent-*
 └── feature/frontend-*
 ```
 
@@ -124,20 +124,20 @@ make test-connector
 - `src/grpc/` - gRPC handlers
 - `Cargo.toml` - Dependencies
 
-### Tunneler (Rust)
+### Agent (Rust)
 
-**Directory:** `services/tunneler/`
+**Directory:** `services/agent/`
 
 **Running:**
 ```bash
-make dev-tunneler
+make dev-agent
 # or
-cd services/tunneler && cargo run
+cd services/agent && cargo run
 ```
 
 **Testing:**
 ```bash
-make test-tunneler
+make test-agent
 ```
 
 ### Frontend (React)
@@ -234,7 +234,7 @@ go mod tidy
 
 **Rust:**
 ```bash
-cd services/connector  # or tunneler
+cd services/connector  # or agent
 cargo update
 ```
 

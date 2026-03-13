@@ -1,0 +1,46 @@
+/**
+ * Decode JWT payload (base64, no crypto verification - that's server-side).
+ */
+export function decodeJWTPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const payload = parts[1]
+    const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+    return JSON.parse(decoded)
+  } catch {
+    return null
+  }
+}
+
+export function getWorkspaceClaims(token: string | null) {
+  if (!token) return null
+  const payload = decodeJWTPayload(token)
+  if (!payload) return null
+  const wid = payload.wid as string | undefined
+  const wslug = payload.wslug as string | undefined
+  const wrole = payload.wrole as string | undefined
+  if (!wid) return null
+  return { wid, wslug: wslug ?? '', wrole: wrole ?? 'member' }
+}
+
+export function isAdminRole(token: string | null): boolean {
+  const claims = getWorkspaceClaims(token)
+  if (!claims) return false
+  return claims.wrole === 'admin' || claims.wrole === 'owner'
+}
+
+export function getAudience(token: string | null): string | null {
+  if (!token) return null
+  const payload = decodeJWTPayload(token)
+  if (!payload) return null
+  return (payload.aud as string) ?? null
+}
+
+export function isDeviceToken(token: string | null): boolean {
+  return getAudience(token) === 'device'
+}
+
+export function isAdminToken(token: string | null): boolean {
+  return getAudience(token) === 'admin'
+}

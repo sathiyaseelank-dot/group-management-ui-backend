@@ -64,10 +64,12 @@ export function AccessRulesTable({
     const loadCounts = async () => {
       try {
         const entries = await Promise.all(
-          accessRules.map(async (rule) => {
-            const count = await getAccessRuleIdentityCount(rule.id);
-            return [rule.id, count] as const;
-          })
+          accessRules
+            .filter((rule) => rule?.id)
+            .map(async (rule) => {
+              const count = await getAccessRuleIdentityCount(rule.id);
+              return [rule.id, count] as const;
+            })
         );
         const map: Record<string, number> = {};
         entries.forEach(([id, count]) => {
@@ -82,9 +84,10 @@ export function AccessRulesTable({
   }, [accessRules]);
 
   const formatGroups = useCallback(
-    (groupIds: string[]) => {
-      if (groupIds.length === 0) return 'No groups';
-      const names = groupIds.map((id) => groupMap[id] || id);
+    (groupIds?: string[]) => {
+      const ids = Array.isArray(groupIds) ? groupIds : [];
+      if (ids.length === 0) return 'No groups';
+      const names = ids.map((id) => groupMap[id] || id);
       return names.join(', ');
     },
     [groupMap]
@@ -150,8 +153,8 @@ export function AccessRulesTable({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {accessRules.map((rule) => (
-                    <TableRow key={rule.id}>
+                  {accessRules.map((rule, index) => (
+                    <TableRow key={rule.id || `rule-${index}`}>
                       <TableCell className="font-medium">
                         {rule.name}
                       </TableCell>

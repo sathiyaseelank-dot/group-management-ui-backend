@@ -11,7 +11,7 @@ import {
   ServiceAccount,
   Subject,
   SubjectType,
-  Tunneler,
+  Agent,
   User,
 } from './types';
 
@@ -242,9 +242,9 @@ export function updateConnectorHeartbeat(connectorId: string, lastPolicyVersion:
   return { updateAvailable, currentVersion };
 }
 
-export function listTunnelers(): Tunneler[] {
+export function listAgents(): Agent[] {
   const db = getDb();
-  const rows = db.prepare('SELECT * FROM tunnelers ORDER BY name ASC').all();
+  const rows = db.prepare('SELECT * FROM agents ORDER BY name ASC').all();
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -252,7 +252,7 @@ export function listTunnelers(): Tunneler[] {
     version: row.version,
     hostname: row.hostname,
     remoteNetworkId: row.remote_network_id,
-  } as Tunneler));
+  } as Agent));
 }
 
 export function listUsers(): User[] {

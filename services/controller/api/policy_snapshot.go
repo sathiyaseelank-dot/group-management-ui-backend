@@ -1,6 +1,7 @@
 package api
 
 import (
+	"controller/state"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -36,6 +37,7 @@ type PolicyResource struct {
 	PortFrom          *int     `json:"port_from,omitempty"`
 	PortTo            *int     `json:"port_to,omitempty"`
 	AllowedIdentities []string `json:"allowed_identities"`
+	FirewallStatus    string   `json:"firewall_status"`
 }
 
 // UI helpers (shared with admin UI compile endpoints).
@@ -118,35 +120,45 @@ func normalizeSnapshot(snap PolicySnapshot) PolicySnapshot {
 
 func lookupConnectorNetwork(db *sql.DB, connectorID string) (string, error) {
 	var networkID sql.NullString
-	if err := db.QueryRow(`SELECT remote_network_id FROM connectors WHERE id = ?`, connectorID).Scan(&networkID); err != nil {
+	if err := db.QueryRow(state.Rebind(`SELECT remote_network_id FROM connectors WHERE id = ?`), connectorID).Scan(&networkID); err != nil {
 		return "", err
 	}
-	if !networkID.Valid || strings.TrimSpace(networkID.String) == "" {
+	if networkID.Valid && strings.TrimSpace(networkID.String) != "" {
+		return networkID.String, nil
+	}
+	// Fallback: check the remote_network_connectors junction table
+	var assigned sql.NullString
+	if err := db.QueryRow(state.Rebind(`SELECT network_id FROM remote_network_connectors WHERE connector_id = ? LIMIT 1`), connectorID).Scan(&assigned); err != nil {
 		return "", fmt.Errorf("connector %s has no network", connectorID)
 	}
-	return networkID.String, nil
+	if assigned.Valid && strings.TrimSpace(assigned.String) != "" {
+		return assigned.String, nil
+	}
+	return "", fmt.Errorf("connector %s has no network", connectorID)
 }
 
 func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, error) {
-	rows, err := db.Query(`SELECT id, type, address, protocol, port_from, port_to FROM resources WHERE remote_network_id = ? ORDER BY id ASC`, remoteNetworkID)
+	rows, err := db.Query(state.Rebind(`SELECT id, type, address, protocol, port_from, port_to, firewall_status FROM resources WHERE remote_network_id = ? ORDER BY id ASC`), remoteNetworkID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	identityStmt, _ := db.Prepare(`SELECT DISTINCT u.certificate_identity as identity
+	identityStmt, _ := db.Prepare(state.Rebind(`SELECT DISTINCT u.certificate_identity as identity
     FROM access_rules ar
     JOIN access_rule_groups arg ON arg.rule_id = ar.id
     JOIN user_group_members gm ON gm.group_id = arg.group_id
     JOIN users u ON u.id = gm.user_id
     WHERE ar.resource_id = ? AND ar.enabled = 1 AND u.certificate_identity IS NOT NULL
-    ORDER BY u.certificate_identity ASC`)
+      AND LOWER(TRIM(u.status)) = 'active'
+    ORDER BY u.certificate_identity ASC`))
 	resources := []PolicyResource{}
 	for rows.Next() {
 		var id, resType, address string
 		var protocol sql.NullString
 		var portFrom sql.NullInt64
 		var portTo sql.NullInt64
-		if err := rows.Scan(&id, &resType, &address, &protocol, &portFrom, &portTo); err != nil {
+		var firewallStatus sql.NullString
+		if err := rows.Scan(&id, &resType, &address, &protocol, &portFrom, &portTo, &firewallStatus); err != nil {
 			return nil, err
 		}
 		identities := []string{}
@@ -162,6 +174,10 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 				idRows.Close()
 			}
 		}
+		fwStatus := "unprotected"
+		if firewallStatus.Valid && firewallStatus.String != "" {
+			fwStatus = firewallStatus.String
+		}
 		res := PolicyResource{
 			ResourceID:        id,
 			Type:              normalizeResourceType(resType, address),
@@ -169,6 +185,7 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 			Port:              0,
 			Protocol:          "TCP",
 			AllowedIdentities: identities,
+			FirewallStatus:    fwStatus,
 		}
 		if protocol.Valid && protocol.String != "" {
 			res.Protocol = protocol.String
@@ -205,13 +222,13 @@ func policyHash(resources []PolicyResource) string {
 func policyVersion(db *sql.DB, connectorID, policyHash, compiledAt string) int {
 	var version int
 	var existingHash sql.NullString
-	_ = db.QueryRow(`SELECT version, policy_hash FROM connector_policy_versions WHERE connector_id = ?`, connectorID).Scan(&version, &existingHash)
+	_ = db.QueryRow(state.Rebind(`SELECT version, policy_hash FROM connector_policy_versions WHERE connector_id = ?`), connectorID).Scan(&version, &existingHash)
 	if version == 0 || !existingHash.Valid || existingHash.String != policyHash {
 		version = version + 1
 	}
-	_, _ = db.Exec(`INSERT INTO connector_policy_versions (connector_id, version, compiled_at, policy_hash)
+	_, _ = db.Exec(state.Rebind(`INSERT INTO connector_policy_versions (connector_id, version, compiled_at, policy_hash)
     VALUES (?, ?, ?, ?)
-    ON CONFLICT(connector_id) DO UPDATE SET version=excluded.version, compiled_at=excluded.compiled_at, policy_hash=excluded.policy_hash`, connectorID, version, compiledAt, policyHash)
+    ON CONFLICT(connector_id) DO UPDATE SET version=excluded.version, compiled_at=excluded.compiled_at, policy_hash=excluded.policy_hash`), connectorID, version, compiledAt, policyHash)
 	return version
 }
 

@@ -1,5 +1,5 @@
 /// Build a rustls ServerConfig for the connector's :9443 gRPC server.
-/// Requires tunneler mTLS with SPIFFE verification.
+/// Requires agent mTLS with SPIFFE verification.
 use anyhow::Result;
 use rustls::{
     client::danger::HandshakeSignatureValid,
@@ -10,14 +10,14 @@ use rustls::{
 
 use crate::tls::cert_store::CertStore;
 
-/// Extracts the SPIFFE ID from a verified client cert and checks it is a tunneler.
+/// Extracts the SPIFFE ID from a verified client cert and checks it is an agent (SPIFFE role: tunneler for wire compat).
 #[derive(Debug)]
-pub struct SpiffeTunnelerVerifier {
+pub struct SpiffeAgentVerifier {
     pub trust_domain: String,
     pub ca_cert_der: Vec<u8>,
 }
 
-impl ClientCertVerifier for SpiffeTunnelerVerifier {
+impl ClientCertVerifier for SpiffeAgentVerifier {
     fn root_hint_subjects(&self) -> &[DistinguishedName] {
         &[]
     }
@@ -110,7 +110,7 @@ pub fn build_server_tls(
 ) -> Result<rustls::ServerConfig> {
     let ca_der = pem_to_der(ca_pem)?;
 
-    let verifier = std::sync::Arc::new(SpiffeTunnelerVerifier {
+    let verifier = std::sync::Arc::new(SpiffeAgentVerifier {
         trust_domain: trust_domain.to_string(),
         ca_cert_der: ca_der,
     });

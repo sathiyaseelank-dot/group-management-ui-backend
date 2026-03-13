@@ -51,7 +51,7 @@ export default function RemoteNetworksPage() {
       </div>
 
       {/* Remote Networks List */}
-      <RemoteNetworksList networks={networks} />
+      <RemoteNetworksList networks={networks} onNetworkDeleted={loadNetworks} />
 
       <AddRemoteNetworkModal
         isOpen={isAddModalOpen}

@@ -12,6 +12,8 @@ interface BackendUser {
   Email?: string
   status?: string
   Status?: string
+  role?: string
+  Role?: string
   certificate_identity?: string
   CertificateIdentity?: string
   created_at?: string
@@ -34,6 +36,7 @@ function mapBackendUser(user: BackendUser, groups: string[]) {
   const name = user.name ?? user.Name ?? ''
   const email = user.email ?? user.Email ?? ''
   const status = (user.status ?? user.Status ?? 'active').toLowerCase()
+  const role = user.role ?? user.Role ?? 'member'
   const certificateIdentity = user.certificate_identity ?? user.CertificateIdentity ?? undefined
   const createdAt = user.created_at ?? user.CreatedAt ?? ''
   return {
@@ -41,6 +44,7 @@ function mapBackendUser(user: BackendUser, groups: string[]) {
     name,
     email,
     status,
+    role,
     certificateIdentity,
     groups,
     createdAt,
@@ -145,6 +149,19 @@ router.delete('/:userId', async (req: Request, res: Response) => {
     const { userId } = req.params
     const result = await proxyToBackend(`/api/admin/users/${userId}`, {
       method: 'DELETE',
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
+// POST /api/users/invite — forwards to controller invite endpoint
+router.post('/invite', async (req: Request, res: Response) => {
+  try {
+    const result = await proxyToBackend('/api/admin/users/invite', {
+      method: 'POST',
+      body: JSON.stringify(req.body),
     })
     res.json(result)
   } catch (error) {

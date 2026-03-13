@@ -3,7 +3,7 @@
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plug, CircleDot, CircleDotDashed, Globe } from 'lucide-react';
+import { Plug, CircleDot, CircleDotDashed, Globe, Ban } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
@@ -34,12 +34,14 @@ export function ConnectorInfoSection({ connector, network }: ConnectorInfoSectio
           <Label htmlFor="status">Status</Label>
           <p id="status">
             <Badge variant="outline" className="gap-1">
-              {connector.status === 'online' ? (
+              {connector.status === 'revoked' ? (
+                <Ban className="h-3 w-3 text-red-500" />
+              ) : connector.status === 'online' ? (
                 <CircleDot className="h-3 w-3 fill-green-500 text-green-500" />
               ) : (
                 <CircleDotDashed className="h-3 w-3 fill-muted-foreground text-muted-foreground" />
               )}
-              {connector.status === 'online' ? 'Online' : 'Offline'}
+              {connector.status === 'revoked' ? 'Revoked' : connector.status === 'online' ? 'Online' : 'Offline'}
             </Badge>
           </p>
         </div>

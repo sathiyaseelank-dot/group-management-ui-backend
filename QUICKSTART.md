@@ -38,11 +38,11 @@ cargo build
 make dev-connector
 ```
 
-#### Working on Tunneler?
+#### Working on Agent?
 ```bash
-cd services/tunneler
+cd services/agent
 cargo build
-make dev-tunneler
+make dev-agent
 ```
 
 #### Working on Frontend?
@@ -58,7 +58,7 @@ make dev-frontend
 services/
   ├── controller/    ← Go backend (CA + API)
   ├── connector/     ← Rust gateway
-  └── tunneler/      ← Rust client
+  └── agent/         ← Rust client (nftables firewall enforcer)
 
 apps/
   └── frontend/      ← React UI
@@ -83,7 +83,7 @@ make build-controller       # Build your component
 ```bash
 make dev-controller         # Run with hot reload
 make dev-connector
-make dev-tunneler
+make dev-agent
 make dev-frontend
 ```
 
@@ -131,7 +131,7 @@ git push origin feature/component-description
 |-----------|-----------|------|-------|
 | Controller | `services/controller/` | Go | Member 1 |
 | Connector | `services/connector/` | Rust | Member 2 |
-| Tunneler | `services/tunneler/` | Rust | Member 3 |
+| Agent | `services/agent/` | Rust | Member 3 |
 | Frontend | `apps/frontend/` | React | Member 4 |
 
 ## 🔗 Integration Points
@@ -156,7 +156,7 @@ git push origin feature/component-description
 feat(controller): add user enrollment endpoint
 fix(connector): resolve connection timeout
 docs(api): update authentication flow
-test(tunneler): add integration tests
+test(agent): add integration tests
 refactor(frontend): improve component structure
 ```
 
@@ -226,7 +226,7 @@ make help    # Shows all available commands
 - [Go Tour](https://go.dev/tour/)
 - [Effective Go](https://go.dev/doc/effective_go)
 
-### Rust (Connector/Tunneler)
+### Rust (Connector/Agent)
 - [Rust Book](https://doc.rust-lang.org/book/)
 - [Rust by Example](https://doc.rust-lang.org/rust-by-example/)
 

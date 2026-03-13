@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"database/sql"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -28,20 +29,23 @@ import (
 type EnrollmentServer struct {
 	controllerpb.UnimplementedEnrollmentServiceServer
 
-	CA          *ca.CA
-	CAPEM       []byte
-	TrustDomain string
-	Tokens      *state.TokenStore
-	Registry    *state.Registry
-	Notifier    TunnelerNotifier
+	CA           *ca.CA
+	CAPEM        []byte
+	TrustDomain  string
+	DB           *sql.DB
+	Tokens       *state.TokenStore
+	Registry     *state.Registry
+	Notifier     AgentNotifier
+	Workspaces   *state.WorkspaceStore // nil if multi-tenant disabled
+	SystemDomain string                // e.g. "zerotrust.com"
 }
 
-type TunnelerNotifier interface {
-	NotifyTunnelerAllowed(tunnelerID, spiffeID string)
+type AgentNotifier interface {
+	NotifyAgentAllowed(agentID, spiffeID, version, hostname string)
 }
 
 // NewEnrollmentServer creates a new EnrollmentServer.
-func NewEnrollmentServer(caInst *ca.CA, caPEM []byte, trustDomain string, tokens *state.TokenStore, registry *state.Registry, notifier TunnelerNotifier) *EnrollmentServer {
+func NewEnrollmentServer(caInst *ca.CA, caPEM []byte, trustDomain string, tokens *state.TokenStore, registry *state.Registry, notifier AgentNotifier) *EnrollmentServer {
 	return &EnrollmentServer{
 		CA:          caInst,
 		CAPEM:       caPEM,
@@ -53,6 +57,8 @@ func NewEnrollmentServer(caInst *ca.CA, caPEM []byte, trustDomain string, tokens
 }
 
 // EnrollConnector enrolls a connector and issues a short-lived certificate.
+// If the enrollment token belongs to a workspace, the cert is issued by the workspace CA
+// with the workspace's trust domain. Otherwise, the global intermediate CA is used.
 func (s *EnrollmentServer) EnrollConnector(
 	ctx context.Context,
 	req *controllerpb.EnrollRequest,
@@ -74,22 +80,38 @@ func (s *EnrollmentServer) EnrollConnector(
 	}
 	logPublicKey("enroll-connector", pubKey, req.GetPublicKey())
 
-	if err := s.authorizeConnectorToken(req.GetToken(), req.GetId()); err != nil {
+	workspaceID, err := s.authorizeConnectorTokenWithWorkspace(req.GetToken(), req.GetId())
+	if err != nil {
 		return nil, err
 	}
 
-	spiffeID := fmt.Sprintf(
-		"spiffe://%s/connector/%s",
-		s.TrustDomain,
-		req.GetId(),
-	)
+	// Determine which CA and trust domain to use.
+	issuerCA := s.CA
+	issuerCAPEM := s.CAPEM
+	trustDomain := s.TrustDomain
+
+	if workspaceID != "" && s.Workspaces != nil {
+		ws, err := s.Workspaces.GetWorkspace(workspaceID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "workspace lookup failed: %v", err)
+		}
+		wsCA, err := ca.LoadCA([]byte(ws.CACertPEM), []byte(ws.CAKeyPEM))
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "workspace CA load failed: %v", err)
+		}
+		issuerCA = wsCA
+		issuerCAPEM = []byte(ws.CACertPEM)
+		trustDomain = ws.TrustDomain
+	}
+
+	spiffeID := fmt.Sprintf("spiffe://%s/connector/%s", trustDomain, req.GetId())
 	var ipAddrs []net.IP
 	if ip := net.ParseIP(req.GetPrivateIp()); ip != nil {
 		ipAddrs = []net.IP{ip}
 	}
 
 	certPEM, err := ca.IssueWorkloadCert(
-		s.CA,
+		issuerCA,
 		spiffeID,
 		pubKey,
 		5*time.Minute,
@@ -101,15 +123,14 @@ func (s *EnrollmentServer) EnrollConnector(
 	}
 	logIssuedCert("enroll-connector", spiffeID, certPEM)
 
-	// Registration side-effect: log enrollment details.
 	logEnrollment("connector", req.GetId(), req.GetPrivateIp(), req.GetVersion())
 	if s.Registry != nil {
-		s.Registry.Register(req.GetId(), req.GetPrivateIp(), req.GetVersion())
+		s.Registry.RegisterWithWorkspace(req.GetId(), req.GetPrivateIp(), req.GetVersion(), workspaceID)
 	}
 
 	return &controllerpb.EnrollResponse{
 		Certificate:   certPEM,
-		CaCertificate: s.CAPEM,
+		CaCertificate: issuerCAPEM,
 	}, nil
 }
 
@@ -132,21 +153,36 @@ func (s *EnrollmentServer) EnrollTunneler(
 	}
 	logPublicKey("enroll-tunneler", pubKey, req.GetPublicKey())
 
-	if err := s.authorizeConnectorToken(req.GetToken(), req.GetId()); err != nil {
+	workspaceID, err := s.authorizeConnectorTokenWithWorkspace(req.GetToken(), req.GetId())
+	if err != nil {
 		return nil, err
 	}
 
-	spiffeID := fmt.Sprintf(
-		"spiffe://%s/tunneler/%s",
-		s.TrustDomain,
-		req.GetId(),
-	)
+	issuerCA := s.CA
+	issuerCAPEM := s.CAPEM
+	trustDomain := s.TrustDomain
+
+	if workspaceID != "" && s.Workspaces != nil {
+		ws, err := s.Workspaces.GetWorkspace(workspaceID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "workspace lookup failed: %v", err)
+		}
+		wsCA, err := ca.LoadCA([]byte(ws.CACertPEM), []byte(ws.CAKeyPEM))
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "workspace CA load failed: %v", err)
+		}
+		issuerCA = wsCA
+		issuerCAPEM = []byte(ws.CACertPEM)
+		trustDomain = ws.TrustDomain
+	}
+
+	spiffeID := fmt.Sprintf("spiffe://%s/tunneler/%s", trustDomain, req.GetId())
 
 	certPEM, err := ca.IssueWorkloadCert(
-		s.CA,
+		issuerCA,
 		spiffeID,
 		pubKey,
-		30*time.Minute,
+		5*time.Minute,
 		nil,
 		nil,
 	)
@@ -155,12 +191,12 @@ func (s *EnrollmentServer) EnrollTunneler(
 	}
 	logIssuedCert("enroll-tunneler", spiffeID, certPEM)
 	if s.Notifier != nil {
-		s.Notifier.NotifyTunnelerAllowed(req.GetId(), spiffeID)
+		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), req.GetPrivateIp())
 	}
 
 	return &controllerpb.EnrollResponse{
 		Certificate:   certPEM,
-		CaCertificate: s.CAPEM,
+		CaCertificate: issuerCAPEM,
 	}, nil
 }
 
@@ -180,7 +216,8 @@ func (s *EnrollmentServer) Renew(
 	}
 	logPublicKey("renew", pubKey, req.GetPublicKey())
 
-	role, id, err := s.identityFromContext(ctx)
+	callerSPIFFE, _ := SPIFFEIDFromContext(ctx)
+	role, id, err := s.identityFromContextMultiDomain(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -188,12 +225,25 @@ func (s *EnrollmentServer) Renew(
 		return nil, status.Error(codes.PermissionDenied, "id mismatch for renewal")
 	}
 
-	spiffeID := fmt.Sprintf("spiffe://%s/%s/%s", s.TrustDomain, role, req.GetId())
+	// Use the same trust domain from the caller's existing SPIFFE ID.
+	spiffeID := callerSPIFFE
 
-	ttl := 30 * time.Minute
-	if role == "connector" {
-		ttl = 5 * time.Minute
+	// Determine which CA to use for renewal.
+	issuerCA := s.CA
+	issuerCAPEM := s.CAPEM
+
+	if role == "connector" && s.Registry != nil && s.Workspaces != nil {
+		if rec, ok := s.Registry.Get(req.GetId()); ok && rec.WorkspaceID != "" {
+			if ws, err := s.Workspaces.GetWorkspace(rec.WorkspaceID); err == nil {
+				if wsCA, err := ca.LoadCA([]byte(ws.CACertPEM), []byte(ws.CAKeyPEM)); err == nil {
+					issuerCA = wsCA
+					issuerCAPEM = []byte(ws.CACertPEM)
+				}
+			}
+		}
 	}
+
+	ttl := 5 * time.Minute
 	var ipAddrs []net.IP
 	if role == "connector" && s.Registry != nil {
 		if rec, ok := s.Registry.Get(req.GetId()); ok {
@@ -203,15 +253,24 @@ func (s *EnrollmentServer) Renew(
 		}
 	}
 
-	certPEM, err := ca.IssueWorkloadCert(s.CA, spiffeID, pubKey, ttl, nil, ipAddrs)
+	certPEM, err := ca.IssueWorkloadCert(issuerCA, spiffeID, pubKey, ttl, nil, ipAddrs)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "certificate renewal failed: %v", err)
 	}
 	logIssuedCert("renew", spiffeID, certPEM)
+	if role == "connector" && s.DB != nil {
+		nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+		_, _ = s.DB.Exec(
+			state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`),
+			req.GetId(),
+			nowISO,
+			"certificate renewed successfully",
+		)
+	}
 
 	return &controllerpb.EnrollResponse{
 		Certificate:   certPEM,
-		CaCertificate: s.CAPEM,
+		CaCertificate: issuerCAPEM,
 	}, nil
 }
 
@@ -248,14 +307,15 @@ func (s *EnrollmentServer) authorize(ctx context.Context, expectedRole, expected
 	return nil
 }
 
-func (s *EnrollmentServer) authorizeConnectorToken(token, connectorID string) error {
+func (s *EnrollmentServer) authorizeConnectorTokenWithWorkspace(token, connectorID string) (string, error) {
 	if s.Tokens == nil {
-		return status.Error(codes.FailedPrecondition, "token service unavailable")
+		return "", status.Error(codes.FailedPrecondition, "token service unavailable")
 	}
-	if err := s.Tokens.ConsumeToken(token, connectorID); err != nil {
-		return status.Error(codes.PermissionDenied, "invalid enrollment token")
+	wsID, err := s.Tokens.ConsumeTokenWithWorkspace(token, connectorID)
+	if err != nil {
+		return "", status.Error(codes.PermissionDenied, "invalid enrollment token")
 	}
-	return nil
+	return wsID, nil
 }
 
 func (s *EnrollmentServer) identityFromContext(ctx context.Context) (string, string, error) {
@@ -274,6 +334,29 @@ func (s *EnrollmentServer) identityFromContext(ctx context.Context) (string, str
 		return "", "", status.Error(codes.Unauthenticated, "invalid SPIFFE id")
 	}
 
+	return role, id, nil
+}
+
+// identityFromContextMultiDomain extracts role and ID from SPIFFE, supporting any trust domain.
+func (s *EnrollmentServer) identityFromContextMultiDomain(ctx context.Context) (string, string, error) {
+	spiffeID, ok := SPIFFEIDFromContext(ctx)
+	if !ok {
+		return "", "", status.Error(codes.Unauthenticated, "missing SPIFFE identity")
+	}
+	role, ok := RoleFromContext(ctx)
+	if !ok {
+		return "", "", status.Error(codes.Unauthenticated, "missing SPIFFE role")
+	}
+	// Parse ID from spiffe://DOMAIN/ROLE/ID
+	trimmed := strings.TrimPrefix(spiffeID, "spiffe://")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 3 {
+		return "", "", status.Error(codes.Unauthenticated, "invalid SPIFFE id")
+	}
+	id := parts[2]
+	if id == "" {
+		return "", "", status.Error(codes.Unauthenticated, "invalid SPIFFE id")
+	}
 	return role, id, nil
 }
 

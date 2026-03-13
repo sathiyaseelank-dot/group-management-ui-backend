@@ -78,4 +78,17 @@ router.get('/:networkId', async (req: Request, res: Response) => {
   }
 })
 
+// DELETE /api/remote-networks/:networkId
+router.delete('/:networkId', async (req: Request, res: Response) => {
+  try {
+    const { networkId } = req.params
+    const result = await proxyToBackend(`/api/remote-networks/${networkId}`, {
+      method: 'DELETE',
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
 export default router

@@ -55,7 +55,7 @@ func (s *RemoteNetworkStore) CreateNetwork(n *RemoteNetwork) error {
 	}
 	tagsJSON, _ := json.Marshal(n.Tags)
 	_, err := s.db.Exec(
-		`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		Rebind(`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`),
 		n.ID, n.Name, n.Location, string(tagsJSON),
 		n.CreatedAt.Format(time.RFC3339), n.UpdatedAt.Format(time.RFC3339),
 	)
@@ -63,7 +63,7 @@ func (s *RemoteNetworkStore) CreateNetwork(n *RemoteNetwork) error {
 }
 
 func (s *RemoteNetworkStore) ListNetworkConnectors(networkID string) ([]string, error) {
-	rows, err := s.db.Query(`SELECT connector_id FROM remote_network_connectors WHERE network_id = ? ORDER BY connector_id ASC`, networkID)
+	rows, err := s.db.Query(Rebind(`SELECT connector_id FROM remote_network_connectors WHERE network_id = ? ORDER BY connector_id ASC`), networkID)
 	if err != nil {
 		return nil, err
 	}
@@ -84,13 +84,13 @@ func (s *RemoteNetworkStore) ListNetworkConnectors(networkID string) ([]string, 
 
 func (s *RemoteNetworkStore) AssignConnector(networkID, connectorID string) error {
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO remote_network_connectors (network_id, connector_id) VALUES (?, ?)`,
+		Rebind(`INSERT INTO remote_network_connectors (network_id, connector_id) VALUES (?, ?) ON CONFLICT DO NOTHING`),
 		networkID, connectorID,
 	)
 	return err
 }
 
 func (s *RemoteNetworkStore) RemoveConnector(networkID, connectorID string) error {
-	_, err := s.db.Exec(`DELETE FROM remote_network_connectors WHERE network_id = ? AND connector_id = ?`, networkID, connectorID)
+	_, err := s.db.Exec(Rebind(`DELETE FROM remote_network_connectors WHERE network_id = ? AND connector_id = ?`), networkID, connectorID)
 	return err
 }
