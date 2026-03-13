@@ -130,6 +130,10 @@ install -m 0644 "${tmpdir}/connector.service" "${systemd_dst}"
 
 systemctl daemon-reload
 systemctl enable connector.service
+systemctl stop connector.service 2>/dev/null || true
+# Clear any saved enrollment from the previous install so a new CONNECTOR_ID
+# always performs a fresh enrollment instead of reusing an old certificate.
+rm -rf /var/lib/private/connector /var/lib/connector /run/connector
 systemctl start connector.service
 
 # Unset sensitive env vars.
