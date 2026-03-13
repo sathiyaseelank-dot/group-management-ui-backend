@@ -182,6 +182,9 @@ async fn handle_agent_message(
             )
             .await;
         }
+        "agent_log" => {
+            let _ = send_ch.send(msg.clone()).await;
+        }
         _ => {}
     }
 }
@@ -260,4 +263,3 @@ fn extract_spiffe_id_from_request<T>(
     crate::tls::spiffe::extract_spiffe_id(cert)
         .map_err(|e| Status::unauthenticated(format!("SPIFFE extract failed: {}", e)))
 }
-

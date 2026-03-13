@@ -22,6 +22,13 @@ pub struct FirewallState {
     pub protected_ports: Vec<PortRule>,
 }
 
+#[derive(Debug, Clone)]
+pub struct FirewallPolicySummary {
+    pub action: String,
+    pub protected_port_count: usize,
+    pub ports: String,
+}
+
 struct ProtectionEntry {
     port: u16,
     protocol: String,
@@ -248,25 +255,41 @@ impl FirewallEnforcer {
 pub async fn handle_firewall_policy(
     payload: &[u8],
     enforcer: &FirewallEnforcer,
-) -> Result<()> {
+) -> Result<FirewallPolicySummary> {
     let policy: FirewallPolicy = serde_json::from_slice(payload)
         .context("failed to parse firewall_policy message")?;
+    let protected_ports = format_port_rules(&policy.protected_ports);
+    let summary = FirewallPolicySummary {
+        action: policy.action.clone(),
+        protected_port_count: policy.protected_ports.len(),
+        ports: protected_ports.clone(),
+    };
 
     match policy.action.as_str() {
         "sync" => {
+            info!(
+                "firewall policy received: action=sync reason=\"connector pushed protected resource firewall update\" protected_ports={} ports={}",
+                policy.protected_ports.len(),
+                protected_ports,
+            );
             enforcer.sync_policy(&policy.protected_ports).await?;
             // Persist state after sync
             let state = enforcer.get_state().await;
             if let Err(e) = crate::persistence::save_firewall_state(&state) {
                 warn!("failed to persist firewall state: {}", e);
             }
+            info!(
+                "firewall policy applied: action=sync protected_ports={} ports={}",
+                policy.protected_ports.len(),
+                protected_ports,
+            );
         }
         other => {
             warn!("unknown firewall policy action: {}", other);
         }
     }
 
-    Ok(())
+    Ok(summary)
 }
 
 /// Run an nft command, returning an error if it fails.
@@ -325,6 +348,18 @@ fn parse_handle(output: &str) -> Option<u64> {
         }
     }
     None
+}
+
+fn format_port_rules(rules: &[PortRule]) -> String {
+    let ports: Vec<String> = rules
+        .iter()
+        .map(|rule| format!("{}/{}", rule.port, rule.protocol))
+        .collect();
+    if ports.is_empty() {
+        "none".to_string()
+    } else {
+        ports.join(",")
+    }
 }
 
 #[cfg(test)]

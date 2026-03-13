@@ -184,7 +184,7 @@ async fn connect_to_connector(
             msg = stream.message() => {
                 match msg {
                     Ok(Some(m)) => {
-                        if let Err(e) = handle_inbound_message(&m, enforcer).await {
+                        if let Err(e) = handle_inbound_message(&m, enforcer, &stream_tx, agent_id).await {
                             warn!("failed to handle message type={}: {}", m.r#type, e);
                         }
                     }
@@ -212,10 +212,28 @@ async fn connect_to_connector(
 async fn handle_inbound_message(
     msg: &ControlMessage,
     enforcer: &Arc<FirewallEnforcer>,
+    stream_tx: &tokio::sync::mpsc::Sender<ControlMessage>,
+    agent_id: &str,
 ) -> Result<()> {
     match msg.r#type.as_str() {
         "firewall_policy" => {
-            crate::firewall::handle_firewall_policy(&msg.payload, enforcer).await?;
+            let summary = crate::firewall::handle_firewall_policy(&msg.payload, enforcer).await?;
+            let payload = serde_json::json!({
+                "agent_id": agent_id,
+                "message": format!(
+                    "firewall policy applied: action={} reason=connector pushed protected resource firewall update protected_ports={} ports={}",
+                    summary.action,
+                    summary.protected_port_count,
+                    summary.ports,
+                ),
+            });
+            let _ = stream_tx
+                .send(ControlMessage {
+                    r#type: "agent_log".to_string(),
+                    payload: serde_json::to_vec(&payload).unwrap_or_default(),
+                    ..Default::default()
+                })
+                .await;
         }
         "pong" => { /* expected response to ping */ }
         other => {

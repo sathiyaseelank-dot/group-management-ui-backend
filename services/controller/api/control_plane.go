@@ -215,6 +215,23 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 				}
 			}
 		}
+		if msg.GetType() == "agent_log" && s.db != nil {
+			var payload struct {
+				AgentID string `json:"agent_id"`
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil &&
+				strings.TrimSpace(payload.AgentID) != "" &&
+				strings.TrimSpace(payload.Message) != "" {
+				nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+				_, _ = s.db.Exec(
+					state.Rebind(`INSERT INTO tunneler_logs (tunneler_id, timestamp, message) VALUES (?, ?, ?)`),
+					payload.AgentID,
+					nowISO,
+					payload.Message,
+				)
+			}
+		}
 		if msg.GetType() == "scan_report" && s.scanStore != nil {
 			var report struct {
 				RequestID string                     `json:"request_id"`
@@ -458,6 +475,24 @@ func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient, trigger, rea
 		networkID,
 		prevHash,
 		newHash,
+	)
+	nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	uiMsg := fmt.Sprintf(
+		"policy snapshot pushed: version=%d previous_version=%d resources=%d reason=%s trigger=%s changed_fields=%s network_id=%s protected_hash=%s",
+		snap.SnapshotMeta.PolicyVersion,
+		previousVersion,
+		len(snap.Resources),
+		reason,
+		trigger,
+		changedFields,
+		networkID,
+		newHash,
+	)
+	_, _ = s.db.Exec(
+		state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`),
+		c.connectorID,
+		nowISO,
+		uiMsg,
 	)
 }
 

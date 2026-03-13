@@ -448,6 +448,20 @@ async fn handle_control_message(
                         "protected_ports": port_rules
                     });
                     if let Ok(data) = serde_json::to_vec(&policy) {
+                        let protected_resource_count = snap
+                            .resources
+                            .iter()
+                            .filter(|r| r.firewall_status == "protected")
+                            .count();
+                        let protected_port_count = port_rules.len();
+                        let protected_ports = format_port_rules(&port_rules);
+                        info!(
+                            "firewall policy pushed to agents: action=sync reason=\"policy snapshot applied for protected resources\" version={} protected_resources={} protected_ports={} ports={}",
+                            version,
+                            protected_resource_count,
+                            protected_port_count,
+                            protected_ports,
+                        );
                         latest_fw_policy.store(data.clone());
                         let _ = firewall_tx.send(data);
                     }
@@ -479,5 +493,24 @@ fn extract_port_rules(r: &policy::types::PolicyResource) -> Vec<serde_json::Valu
             "protocol": &r.protocol
         })],
         _ => vec![],
+    }
+}
+
+fn format_port_rules(rules: &[serde_json::Value]) -> String {
+    let ports: Vec<String> = rules
+        .iter()
+        .map(|rule| {
+            let port = rule.get("port").and_then(|v| v.as_u64()).unwrap_or_default();
+            let protocol = rule
+                .get("protocol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            format!("{}/{}", port, protocol)
+        })
+        .collect();
+    if ports.is_empty() {
+        "none".to_string()
+    } else {
+        ports.join(",")
     }
 }
