@@ -1,7 +1,7 @@
-/// ControlPlane gRPC server implementation (tunneler-facing).
-use crate::allowlist::TunnelerAllowlist;
+/// ControlPlane gRPC server implementation (agent-facing).
+use crate::allowlist::AgentAllowlist;
 use crate::policy::PolicyCache;
-use crate::tls::spiffe::tunneler_id_from_spiffe;
+use crate::tls::spiffe::agent_id_from_spiffe;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -17,10 +17,12 @@ pub use crate::enroll::pb::{
 pub struct ConnectorControlPlane {
     pub connector_id: String,
     pub send_ch: mpsc::Sender<ControlMessage>,
-    pub allowlist: Arc<TunnelerAllowlist>,
+    pub allowlist: Arc<AgentAllowlist>,
     pub acl: Arc<PolicyCache>,
     pub trust_domain: String,
-    pub tunneler_registry: Arc<crate::TunnelerRegistry>,
+    pub agent_registry: Arc<crate::AgentRegistry>,
+    pub firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
+    pub latest_fw_policy: crate::LatestFirewallPolicy,
 }
 
 #[tonic::async_trait]
@@ -36,17 +38,17 @@ impl ControlPlane for ConnectorControlPlane {
         // In tonic, the peer cert is available via request extensions
         let spiffe_id = extract_spiffe_id_from_request(&request, &self.trust_domain)?;
 
-        // Verify it's a tunneler and is allowed
+        // Verify it's an agent (SPIFFE role kept as "tunneler" for wire compat) and is allowed
         crate::tls::spiffe::verify_spiffe_uri(&spiffe_id, &self.trust_domain, "tunneler")
             .map_err(|e| Status::permission_denied(format!("SPIFFE verify: {}", e)))?;
 
         if !self.allowlist.allowed(&spiffe_id) {
-            return Err(Status::permission_denied("tunneler not in allowlist"));
+            return Err(Status::permission_denied("agent not in allowlist"));
         }
 
-        let tunneler_id = tunneler_id_from_spiffe(&spiffe_id)
+        let agent_id = agent_id_from_spiffe(&spiffe_id)
             .unwrap_or_else(|| "unknown".to_string());
-    info!("tunneler connected: {}", spiffe_id);
+        info!("agent connected: {}", spiffe_id);
 
         let mut in_stream = request.into_inner();
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(16);
@@ -54,46 +56,70 @@ impl ControlPlane for ConnectorControlPlane {
         let send_ch = self.send_ch.clone();
         let acl = self.acl.clone();
         let connector_id = self.connector_id.clone();
-        let tunneler_registry = self.tunneler_registry.clone();
+        let agent_registry = self.agent_registry.clone();
+        let mut firewall_rx = self.firewall_tx.subscribe();
+        let latest_fw_policy = self.latest_fw_policy.clone();
 
         tokio::spawn(async move {
+            // Send the current firewall policy immediately to this agent
+            if let Some(data) = latest_fw_policy.get() {
+                let _ = tx.send(Ok(ControlMessage {
+                    r#type: "firewall_policy".to_string(),
+                    payload: data,
+                    ..Default::default()
+                })).await;
+            }
+
             loop {
-                match in_stream.message().await {
-                    Ok(None) => break,
-                    Ok(Some(msg)) => {
-                        handle_tunneler_message(
-                            &msg,
-                            &spiffe_id,
-                            &tunneler_id,
-                            &connector_id,
-                            &tx,
-                            &send_ch,
-                            &acl,
-                            &tunneler_registry,
-                        )
-                        .await;
+                tokio::select! {
+                    msg = in_stream.message() => {
+                        match msg {
+                            Ok(None) => break,
+                            Ok(Some(msg)) => {
+                                handle_agent_message(
+                                    &msg,
+                                    &spiffe_id,
+                                    &agent_id,
+                                    &connector_id,
+                                    &tx,
+                                    &send_ch,
+                                    &acl,
+                                    &agent_registry,
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                warn!("agent stream error: {}", e);
+                                break;
+                            }
+                        }
                     }
-                    Err(e) => {
-                        warn!("tunneler stream error: {}", e);
-                        break;
+                    Ok(data) = firewall_rx.recv() => {
+                        let _ = tx.send(Ok(ControlMessage {
+                            r#type: "firewall_policy".to_string(),
+                            payload: data,
+                            ..Default::default()
+                        })).await;
                     }
                 }
             }
+            agent_registry.remove(&agent_id);
+            info!("agent disconnected: {}", spiffe_id);
         });
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
     }
 }
 
-async fn handle_tunneler_message(
+async fn handle_agent_message(
     msg: &ControlMessage,
     spiffe_id: &str,
-    tunneler_id: &str,
+    agent_id: &str,
     connector_id: &str,
     tx: &mpsc::Sender<Result<ControlMessage, Status>>,
     send_ch: &mpsc::Sender<ControlMessage>,
     acl: &Arc<PolicyCache>,
-    tunneler_registry: &Arc<crate::TunnelerRegistry>,
+    agent_registry: &Arc<crate::AgentRegistry>,
 ) {
     match msg.r#type.as_str() {
         "ping" => {
@@ -104,27 +130,27 @@ async fn handle_tunneler_message(
                 }))
                 .await;
         }
-        "tunneler_heartbeat" => {
-            // Record the tunneler's status; it will be included in the next
+        "agent_heartbeat" => {
+            // Record the agent's status; it will be included in the next
             // connector heartbeat to the controller rather than forwarded as
             // a separate message.
             let status = if msg.status.is_empty() { "ONLINE" } else { &msg.status };
-            tunneler_registry.update(tunneler_id, status);
-            info!("tunneler heartbeat: tunneler_id={} spiffe_id={} status={}", tunneler_id, spiffe_id, status);
+            agent_registry.update(agent_id, status);
+            info!("agent heartbeat: agent_id={} spiffe_id={} status={}", agent_id, spiffe_id, status);
         }
-        "tunneler_request" => {
+        "agent_request" => {
             #[derive(Deserialize)]
-            struct TunnelerRequest {
+            struct AgentRequest {
                 destination: String,
                 protocol: String,
                 port: u16,
             }
-            let req: TunnelerRequest = match serde_json::from_slice(&msg.payload) {
+            let req: AgentRequest = match serde_json::from_slice(&msg.payload) {
                 Ok(r) => r,
                 Err(_) => {
                     send_decision(
                         spiffe_id,
-                        tunneler_id,
+                        agent_id,
                         "",
                         "",
                         "",
@@ -143,7 +169,7 @@ async fn handle_tunneler_message(
                 acl.allowed(spiffe_id, &req.destination, &req.protocol, req.port);
             send_decision(
                 spiffe_id,
-                tunneler_id,
+                agent_id,
                 &req.destination,
                 &req.protocol,
                 &resource_id,
@@ -163,7 +189,7 @@ async fn handle_tunneler_message(
 #[allow(clippy::too_many_arguments)]
 async fn send_decision(
     spiffe_id: &str,
-    tunneler_id: &str,
+    agent_id: &str,
     dest: &str,
     protocol: &str,
     _resource_id: &str,
@@ -176,13 +202,13 @@ async fn send_decision(
 ) {
     let decision = if allowed { "allow" } else { "deny" };
     tracing::info!(
-        "acl decision: principal={} tunneler_id={} resource_id={} dest={} protocol={} port={} decision={} reason={}",
-        spiffe_id, tunneler_id, resource_id, dest, protocol, port, decision, reason
+        "acl decision: principal={} agent_id={} resource_id={} dest={} protocol={} port={} decision={} reason={}",
+        spiffe_id, agent_id, resource_id, dest, protocol, port, decision, reason
     );
 
     #[derive(Serialize)]
     struct DecisionPayload<'a> {
-        tunneler_id: &'a str,
+        agent_id: &'a str,
         spiffe_id: &'a str,
         resource_id: &'a str,
         destination: &'a str,
@@ -193,7 +219,7 @@ async fn send_decision(
         connector_id: &'a str,
     }
     let payload = DecisionPayload {
-        tunneler_id,
+        agent_id,
         spiffe_id,
         resource_id,
         destination: dest,
@@ -234,5 +260,4 @@ fn extract_spiffe_id_from_request<T>(
     crate::tls::spiffe::extract_spiffe_id(cert)
         .map_err(|e| Status::unauthenticated(format!("SPIFFE extract failed: {}", e)))
 }
-
 

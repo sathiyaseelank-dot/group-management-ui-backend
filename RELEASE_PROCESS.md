@@ -42,18 +42,18 @@ Release Job:
     └─ Upload to GitHub Release
 ```
 
-#### Workflow 2: Tunneler Release
-**File:** `.github/workflows/release-tunneler-rs.yml`
+#### Workflow 2: Agent Release
+**File:** `.github/workflows/release-agent-rs.yml`
 
 ```
 Trigger: Tag pushed (v*)
     ↓
 Build Job (Parallel):
     ├─ Build for x86_64 (amd64)
-    │   └─ Output: tunneler-linux-amd64
+    │   └─ Output: agent-linux-amd64
     │
     └─ Build for aarch64 (arm64)
-        └─ Output: tunneler-linux-arm64
+        └─ Output: agent-linux-arm64
     ↓
 Release Job:
     ├─ Download both artifacts
@@ -67,8 +67,8 @@ GitHub automatically:
 2. Uploads 4 binaries:
    - `grpcconnector2-rs-linux-amd64`
    - `grpcconnector2-rs-linux-arm64`
-   - `tunneler-linux-amd64`
-   - `tunneler-linux-arm64`
+   - `agent-linux-amd64`
+   - `agent-linux-arm64`
 
 ### Step 4: Deployment Scripts Download Binaries
 
@@ -117,7 +117,7 @@ Developer                GitHub Actions              GitHub Release           Us
     ├──────────────────────────>│                           │                      │
     │                           │                           │                      │
     │                           │ Trigger workflows         │                      │
-    │                           │ (connector + tunneler)    │                      │
+    │                           │ (connector + agent)       │                      │
     │                           │                           │                      │
     │                           │ Build amd64 + arm64       │                      │
     │                           │ (4 binaries total)        │                      │
@@ -150,12 +150,12 @@ Developer                GitHub Actions              GitHub Release           Us
 **In GitHub Release:**
 - `grpcconnector2-rs-linux-amd64` (Rust connector, x86_64)
 - `grpcconnector2-rs-linux-arm64` (Rust connector, ARM64)
-- `tunneler-linux-amd64` (Rust tunneler, x86_64)
-- `tunneler-linux-arm64` (Rust tunneler, ARM64)
+- `agent-linux-amd64` (Rust agent, x86_64)
+- `agent-linux-arm64` (Rust agent, ARM64)
 
 **After Installation:**
 - `/usr/bin/grpcconnector2` (renamed, no `-rs` suffix)
-- `/usr/bin/tunneler` (renamed)
+- `/usr/bin/agent` (renamed)
 
 ### Why "latest" Works
 
@@ -188,7 +188,7 @@ GitHub UI → Actions → Select workflow → Run workflow
 
 ✅ **Code Changes**
 ```bash
-# Made changes to connector/tunneler code
+# Made changes to connector/agent code
 git add services/connector/src/main.rs
 git commit -m "feat: add new feature"
 git tag v1.0.1
@@ -289,7 +289,7 @@ curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts
 cd services/connector
 cargo build --release
 
-cd services/tunneler
+cd services/agent
 cargo build --release
 ```
 

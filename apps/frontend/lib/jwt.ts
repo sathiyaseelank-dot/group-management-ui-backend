@@ -29,3 +29,18 @@ export function isAdminRole(token: string | null): boolean {
   if (!claims) return false
   return claims.wrole === 'admin' || claims.wrole === 'owner'
 }
+
+export function getAudience(token: string | null): string | null {
+  if (!token) return null
+  const payload = decodeJWTPayload(token)
+  if (!payload) return null
+  return (payload.aud as string) ?? null
+}
+
+export function isDeviceToken(token: string | null): boolean {
+  return getAudience(token) === 'device'
+}
+
+export function isAdminToken(token: string | null): boolean {
+  return getAudience(token) === 'admin'
+}

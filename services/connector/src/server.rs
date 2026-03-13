@@ -1,5 +1,5 @@
-/// Tunneler-facing gRPC server on :9443
-use crate::allowlist::TunnelerAllowlist;
+/// Agent-facing gRPC server on :9443
+use crate::allowlist::AgentAllowlist;
 use crate::control_plane::{ConnectorControlPlane, ControlPlaneServer};
 use crate::policy::PolicyCache;
 use crate::tls::cert_store::CertStore;
@@ -75,11 +75,13 @@ pub async fn server_loop(
     trust_domain: String,
     store: CertStore,
     ca_pem: Vec<u8>,
-    allowlist: Arc<TunnelerAllowlist>,
+    allowlist: Arc<AgentAllowlist>,
     acl: Arc<PolicyCache>,
     send_ch: mpsc::Sender<ControlMessage>,
     connector_id: String,
-    tunneler_registry: Arc<crate::TunnelerRegistry>,
+    agent_registry: Arc<crate::AgentRegistry>,
+    firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
+    latest_fw_policy: crate::LatestFirewallPolicy,
 ) {
     let mut backoff = std::time::Duration::from_secs(2);
     loop {
@@ -92,7 +94,9 @@ pub async fn server_loop(
             acl.clone(),
             send_ch.clone(),
             connector_id.clone(),
-            tunneler_registry.clone(),
+            agent_registry.clone(),
+            firewall_tx.clone(),
+            latest_fw_policy.clone(),
         )
         .await
         {
@@ -113,11 +117,13 @@ async fn run_server(
     trust_domain: &str,
     store: &CertStore,
     ca_pem: &[u8],
-    allowlist: Arc<TunnelerAllowlist>,
+    allowlist: Arc<AgentAllowlist>,
     acl: Arc<PolicyCache>,
     send_ch: mpsc::Sender<ControlMessage>,
     connector_id: String,
-    tunneler_registry: Arc<crate::TunnelerRegistry>,
+    agent_registry: Arc<crate::AgentRegistry>,
+    firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
+    latest_fw_policy: crate::LatestFirewallPolicy,
 ) -> Result<()> {
     let server_tls = crate::tls::server_cfg::build_server_tls(store, ca_pem, trust_domain)?;
     let tls_acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server_tls));
@@ -131,7 +137,9 @@ async fn run_server(
         allowlist,
         acl,
         trust_domain: trust_domain.to_string(),
-        tunneler_registry,
+        agent_registry,
+        firewall_tx,
+        latest_fw_policy,
     };
 
     info!("connector server listening on {}", listen_addr);

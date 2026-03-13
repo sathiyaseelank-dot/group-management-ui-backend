@@ -68,7 +68,7 @@ function initSchema(db: Database.Database) {
       FOREIGN KEY (remote_network_id) REFERENCES remote_networks(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS tunnelers (
+    CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -90,6 +90,7 @@ function initSchema(db: Database.Database) {
       alias TEXT,
       description TEXT NOT NULL,
       remote_network_id TEXT,
+      firewall_status TEXT NOT NULL DEFAULT 'unprotected',
       FOREIGN KEY (remote_network_id) REFERENCES remote_networks(id) ON DELETE SET NULL
     );
 
@@ -158,6 +159,14 @@ function ensureResourceProtocolColumns(db: Database.Database) {
   }
   if (!hasPortTo) {
     db.exec(`ALTER TABLE resources ADD COLUMN port_to INTEGER`);
+  }
+}
+
+function ensureResourceFirewallStatus(db: Database.Database) {
+  const columns = db.prepare('PRAGMA table_info(resources)').all() as { name: string }[];
+  const hasColumn = columns.some((col) => col.name === 'firewall_status');
+  if (!hasColumn) {
+    db.exec(`ALTER TABLE resources ADD COLUMN firewall_status TEXT NOT NULL DEFAULT 'unprotected'`);
   }
 }
 
@@ -284,8 +293,8 @@ function seedIfNeeded(db: Database.Database) {
   const insertConnector = db.prepare(
     'INSERT INTO connectors (id, name, status, version, hostname, remote_network_id, last_seen, last_policy_version, last_seen_at, installed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
-  const insertTunneler = db.prepare(
-    'INSERT INTO tunnelers (id, name, status, version, hostname, remote_network_id) VALUES (?, ?, ?, ?, ?, ?)'
+  const insertAgent = db.prepare(
+    'INSERT INTO agents (id, name, status, version, hostname, remote_network_id) VALUES (?, ?, ?, ?, ?, ?)'
   );
   const insertResource = db.prepare(
     'INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -368,26 +377,26 @@ function seedIfNeeded(db: Database.Database) {
       1
     );
 
-    // Tunnelers
-    insertTunneler.run(
+    // Agents
+    insertAgent.run(
       'tun_1',
-      'AWS-Prod-Tunneler-1',
+      'AWS-Prod-Agent-1',
       'online',
       '1.0.0',
       'tun-172-31-0-10.ec2.internal',
       'net_1'
     );
-    insertTunneler.run(
+    insertAgent.run(
       'tun_2',
-      'AWS-Prod-Tunneler-2',
+      'AWS-Prod-Agent-2',
       'offline',
       '1.0.0',
       'tun-172-31-0-11.ec2.internal',
       'net_1'
     );
-    insertTunneler.run(
+    insertAgent.run(
       'tun_3',
-      'Office-Tunneler-1',
+      'Office-Agent-1',
       'online',
       '1.0.1',
       'tun-office-server.local',
@@ -493,6 +502,7 @@ export function getDb() {
     ensureConnectorInstalledColumn(dbInstance);
     ensureUserCertificateIdentity(dbInstance);
     ensureResourceProtocolColumns(dbInstance);
+    ensureResourceFirewallStatus(dbInstance);
     ensureConnectorPolicyColumns(dbInstance);
     ensureConnectorPolicyVersionsTable(dbInstance);
     ensureAccessRuleSchema(dbInstance);

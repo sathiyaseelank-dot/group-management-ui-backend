@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -24,7 +25,7 @@ type ConnectorStreamChecker interface {
 type Server struct {
 	Tokens    *state.TokenStore
 	Reg       *state.Registry
-	Tunnelers *state.TunnelerStatusRegistry
+	Agents    *state.AgentStatusRegistry
 	ACLs      *state.ACLStore
 	ACLNotify ACLNotifier
 	Users     *state.UserStore
@@ -56,6 +57,14 @@ type Server struct {
 	Workspaces     *state.WorkspaceStore
 	IntermediateCA *ca.CA
 	SystemDomain   string // e.g. "zerotrust.com"
+
+	// Phase 1: Multi-IdP
+	IdPs *state.IdentityProviderStore
+
+	// Phase 2: Session management
+	Sessions       *state.SessionStore
+	SecureCookies  bool
+	AllowedOrigins []string
 }
 
 // db returns the underlying *sql.DB via the ACLStore, or nil.
@@ -67,15 +76,15 @@ func (s *Server) db() *sql.DB {
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
-	// CA cert is public — no auth required. Connectors and tunnelers fetch it
+	// CA cert is public — no auth required. Connectors and agents fetch it
 	// during bootstrap before any trust is established (same pattern as Vault
 	// /v1/pki/ca/pem, Consul /v1/connect/ca/roots, Teleport, etc.)
 	mux.HandleFunc("/ca.crt", s.handleCACert)
 	mux.Handle("/api/admin/tokens", s.adminAuth(http.HandlerFunc(s.handleCreateToken)))
 	mux.Handle("/api/admin/connectors", s.adminAuth(http.HandlerFunc(s.handleListConnectors)))
 	mux.Handle("/api/admin/connectors/", s.adminAuth(http.HandlerFunc(s.handleConnectorSubroutes)))
-	mux.Handle("/api/admin/tunnelers", s.adminAuth(http.HandlerFunc(s.handleListTunnelers)))
-	mux.Handle("/api/admin/tunnelers/", s.adminAuth(http.HandlerFunc(s.handleTunnelerSubroutes)))
+	mux.Handle("/api/admin/agents", s.adminAuth(http.HandlerFunc(s.handleListAgents)))
+	mux.Handle("/api/admin/agents/", s.adminAuth(http.HandlerFunc(s.handleAgentSubroutes)))
 	mux.Handle("/api/admin/resources", s.adminAuth(http.HandlerFunc(s.handleResources)))
 	mux.Handle("/api/admin/resources/", s.adminAuth(http.HandlerFunc(s.handleResourceSubroutes)))
 	mux.Handle("/api/admin/audit", s.adminAuth(http.HandlerFunc(s.handleAuditLog)))
@@ -105,20 +114,36 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 			http.Error(w, "admin auth not configured", http.StatusServiceUnavailable)
 			return
 		}
-		// Accept Bearer ADMIN_AUTH_TOKEN (existing BFF flow).
+		// Accept Bearer ADMIN_AUTH_TOKEN (BFF compat).
 		auth := r.Header.Get("Authorization")
 		if auth == "Bearer "+s.AdminAuthToken {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Accept valid JWT session (OAuth browser flow).
+		// Accept valid JWT session.
 		if len(s.JWTSecret) > 0 {
-			if email, err := s.sessionFromRequest(r); err == nil {
-				if !s.isAdminEmail(email) {
+			claims, err := parseAllClaims(s.getTokenFromRequest(r), s.JWTSecret)
+			if err == nil {
+				// Reject device tokens on admin endpoints.
+				if claims.aud == "device" {
+					http.Error(w, "device tokens cannot access admin endpoints", http.StatusUnauthorized)
+					return
+				}
+				// Validate session not revoked (if Sessions store and jti present).
+				if s.Sessions != nil && claims.jti != "" {
+					if valid, err := s.Sessions.IsValid(claims.jti); err == nil && !valid {
+						http.Error(w, "session revoked or expired", http.StatusUnauthorized)
+						return
+					}
+				}
+				if !s.isAdminEmail(claims.email) {
 					http.Error(w, "forbidden", http.StatusForbidden)
 					return
 				}
-				ctx := withSessionEmail(r.Context(), email)
+				ctx := withSessionEmail(r.Context(), claims.email)
+				if claims.userID != "" {
+					ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, claims.wsRole)
+				}
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -151,6 +176,31 @@ func (s *Server) isAdminEmail(email string) bool {
 		return false
 	}
 	return role == "admin" || role == "owner"
+}
+
+// deviceAuth accepts only device JWTs (aud:"device").
+func (s *Server) deviceAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(s.JWTSecret) == 0 {
+			http.Error(w, "JWT not configured", http.StatusServiceUnavailable)
+			return
+		}
+		claims, err := parseAllClaims(s.getTokenFromRequest(r), s.JWTSecret)
+		if err != nil || claims.aud != "device" {
+			http.Error(w, "unauthorized: device token required", http.StatusUnauthorized)
+			return
+		}
+		if s.Sessions != nil && claims.jti != "" {
+			if valid, err := s.Sessions.IsValid(claims.jti); err == nil && !valid {
+				http.Error(w, "session revoked or expired", http.StatusUnauthorized)
+				return
+			}
+		}
+		ctx := withSessionEmail(r.Context(), claims.email)
+		ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, "member")
+		ctx = context.WithValue(ctx, contextKey("device_id"), claims.deviceID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func (s *Server) internalAuth(next http.Handler) http.Handler {
@@ -361,54 +411,74 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) handleListTunnelers(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.Tunnelers == nil {
-		writeJSON(w, http.StatusOK, []interface{}{})
+	if s.ACLs == nil || s.ACLs.DB() == nil {
+		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	records := s.Tunnelers.List()
-	now := time.Now().UTC()
-	type respTunneler struct {
-		ID          string `json:"id"`
-		Status      string `json:"status"`
-		ConnectorID string `json:"connector_id"`
-		LastSeen    string `json:"last_seen"`
+	db := s.ACLs.DB()
+	rows, err := db.Query(`SELECT id, version, hostname, connector_id, remote_network_id, last_seen FROM tunnelers`)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
 	}
-	resp := make([]respTunneler, 0, len(records))
-	for _, rec := range records {
+	defer rows.Close()
+	now := time.Now().UTC().Unix()
+	type respAgent struct {
+		ID              string `json:"id"`
+		Status          string `json:"status"`
+		Version         string `json:"version"`
+		Hostname        string `json:"hostname"`
+		ConnectorID     string `json:"connector_id"`
+		RemoteNetworkID string `json:"remote_network_id"`
+		LastSeen        string `json:"last_seen"`
+	}
+	resp := make([]respAgent, 0)
+	for rows.Next() {
+		var id, version, hostname, connectorID, remoteNetworkID string
+		var lastSeen int64
+		if err := rows.Scan(&id, &version, &hostname, &connectorID, &remoteNetworkID, &lastSeen); err != nil {
+			continue
+		}
 		status := "OFFLINE"
-		if now.Sub(rec.LastSeen) < 30*time.Second {
+		if now-lastSeen < 30 {
 			status = "ONLINE"
 		}
-		resp = append(resp, respTunneler{
-			ID:          rec.ID,
-			Status:      status,
-			ConnectorID: rec.ConnectorID,
-			LastSeen:    humanizeDuration(now.Sub(rec.LastSeen)),
+		resp = append(resp, respAgent{
+			ID:              id,
+			Status:          status,
+			Version:         version,
+			Hostname:        hostname,
+			ConnectorID:     connectorID,
+			RemoteNetworkID: remoteNetworkID,
+			LastSeen:        humanizeDuration(time.Duration(now-lastSeen) * time.Second),
 		})
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) handleTunnelerSubroutes(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/api/admin/tunnelers/")
+	id := strings.TrimPrefix(r.URL.Path, "/api/admin/agents/")
 	if id == "" {
-		http.Error(w, "tunneler id required", http.StatusBadRequest)
+		http.Error(w, "agent id required", http.StatusBadRequest)
 		return
 	}
-	if s.Tunnelers != nil {
-		s.Tunnelers.Delete(id)
+	if s.Agents != nil {
+		s.Agents.Delete(id)
 	}
 	if s.ACLs != nil && s.ACLs.DB() != nil {
-		_, _ = s.ACLs.DB().Exec(`DELETE FROM tunnelers WHERE id = ?`, id)
+		db := s.ACLs.DB()
+		_, _ = db.Exec(`DELETE FROM tunnelers WHERE id = ?`, id)
+		// Revoke the enrollment token so the agent cannot re-enroll after deletion.
+		_, _ = db.Exec(`DELETE FROM tokens WHERE connector_id = ?`, id)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

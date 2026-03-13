@@ -33,17 +33,17 @@ type EnrollmentServer struct {
 	TrustDomain  string
 	Tokens       *state.TokenStore
 	Registry     *state.Registry
-	Notifier     TunnelerNotifier
+	Notifier     AgentNotifier
 	Workspaces   *state.WorkspaceStore // nil if multi-tenant disabled
 	SystemDomain string                // e.g. "zerotrust.com"
 }
 
-type TunnelerNotifier interface {
-	NotifyTunnelerAllowed(tunnelerID, spiffeID string)
+type AgentNotifier interface {
+	NotifyAgentAllowed(agentID, spiffeID, version, hostname string)
 }
 
 // NewEnrollmentServer creates a new EnrollmentServer.
-func NewEnrollmentServer(caInst *ca.CA, caPEM []byte, trustDomain string, tokens *state.TokenStore, registry *state.Registry, notifier TunnelerNotifier) *EnrollmentServer {
+func NewEnrollmentServer(caInst *ca.CA, caPEM []byte, trustDomain string, tokens *state.TokenStore, registry *state.Registry, notifier AgentNotifier) *EnrollmentServer {
 	return &EnrollmentServer{
 		CA:          caInst,
 		CAPEM:       caPEM,
@@ -189,7 +189,7 @@ func (s *EnrollmentServer) EnrollTunneler(
 	}
 	logIssuedCert("enroll-tunneler", spiffeID, certPEM)
 	if s.Notifier != nil {
-		s.Notifier.NotifyTunnelerAllowed(req.GetId(), spiffeID)
+		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), req.GetPrivateIp())
 	}
 
 	return &controllerpb.EnrollResponse{

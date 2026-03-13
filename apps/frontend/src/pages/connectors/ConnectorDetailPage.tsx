@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { createEnrollmentToken, deleteConnector, getConnector } from '@/lib/mock-api';
+import { createEnrollmentToken, deleteConnector, getConnector, grantConnector, revokeConnector } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, ArrowLeft, AlertTriangle, Terminal, Copy, CheckCircle, RefreshCw } from 'lucide-react';
+import { Loader2, ArrowLeft, AlertTriangle, Terminal, Copy, CheckCircle, RefreshCw, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
 import { ConnectorInfoSection } from '@/components/dashboard/connectors/connector-info-section';
 import { ConnectorLogs } from '@/components/dashboard/connectors/connector-logs';
 import { toast } from 'sonner';
@@ -123,19 +123,49 @@ export default function ConnectorDetailPage() {
   }, [connector?.installed, connectorId]);
 
   const [isRevoking, setIsRevoking] = useState(false);
+  const [isRevokingAccess, setIsRevokingAccess] = useState(false);
 
-  const handleRevoke = async () => {
+
+  const handleDelete = async () => {
     if (!connectorId) return;
-    if (!window.confirm(`Revoke connector "${connector?.name ?? connectorId}"? This will remove it from the controller.`)) return;
+    if (!window.confirm(`Delete connector "${connector?.name ?? connectorId}"? This will remove it from the controller.`)) return;
     setIsRevoking(true);
     try {
       await deleteConnector(connectorId);
-      toast.success('Connector revoked successfully.');
+      toast.success('Connector deleted successfully.');
       navigate('/dashboard/connectors');
     } catch (error) {
-      toast.error('Failed to revoke connector. Check that the backend is running.');
+      toast.error('Failed to delete connector. Check that the backend is running.');
     } finally {
       setIsRevoking(false);
+    }
+  };
+
+  const handleRevoke = async () => {
+    if (!connectorId) return;
+    setIsRevokingAccess(true);
+    try {
+      await revokeConnector(connectorId);
+      toast.success('Connector access revoked.');
+      await loadConnectorData({ silent: true });
+    } catch (error) {
+      toast.error('Failed to revoke connector access.');
+    } finally {
+      setIsRevokingAccess(false);
+    }
+  };
+
+  const handleGrant = async () => {
+    if (!connectorId) return;
+    setIsRevokingAccess(true);
+    try {
+      await grantConnector(connectorId);
+      toast.success('Connector access granted.');
+      await loadConnectorData({ silent: true });
+    } catch (error) {
+      toast.error('Failed to grant connector access.');
+    } finally {
+      setIsRevokingAccess(false);
     }
   };
 
@@ -243,7 +273,7 @@ export default function ConnectorDetailPage() {
     );
   }
 
-  if (!connector.installed) {
+  if (!connector.installed && connector.status !== 'revoked') {
     return (
       <div className="space-y-6 p-6">
         <Link to="/dashboard/connectors">
@@ -287,9 +317,31 @@ export default function ConnectorDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="destructive" className="gap-2" onClick={handleRevoke} disabled={isRevoking}>
-            {isRevoking ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
-            Revoke
+          {connector.status !== 'revoked' && (
+            <Button
+              variant="outline"
+              className="gap-2 text-orange-500 border-orange-500 hover:text-orange-600 hover:border-orange-600"
+              onClick={handleRevoke}
+              disabled={isRevokingAccess}
+            >
+              {isRevokingAccess ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldOff className="h-4 w-4" />}
+              Revoke
+            </Button>
+          )}
+          {connector.status === 'revoked' && (
+            <Button
+              variant="outline"
+              className="gap-2 text-green-500 border-green-500 hover:text-green-600 hover:border-green-600"
+              onClick={handleGrant}
+              disabled={isRevokingAccess}
+            >
+              {isRevokingAccess ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              Grant
+            </Button>
+          )}
+          <Button variant="destructive" className="gap-2" onClick={handleDelete} disabled={isRevoking}>
+            {isRevoking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Delete
           </Button>
         </div>
       </div>

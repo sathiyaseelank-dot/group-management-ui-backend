@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - `services/controller/`: Go control plane (gRPC + admin HTTP API).
 - `services/connector/`: Rust gateway service.
-- `services/tunneler/`: Rust client service.
+- `services/agent/`: Rust client service (nftables firewall enforcer).
 - `apps/frontend/`: Vite + React + TypeScript UI plus Express server.
 - `shared/proto/`: Protobuf definitions shared across services.
 - `shared/configs/`: Config and `.env` examples.
@@ -13,9 +13,9 @@
 ## Build, Test, and Development Commands
 Run from repo root unless noted.
 - `make build-all`: Build all components.
-- `make dev-controller|dev-connector|dev-tunneler|dev-frontend`: Run a single component in dev mode.
+- `make dev-controller|dev-connector|dev-agent|dev-frontend`: Run a single component in dev mode.
 - `make test-all`: Run all component test suites.
-- `make test-controller|test-connector|test-tunneler|test-frontend`: Run component tests.
+- `make test-controller|test-connector|test-agent|test-frontend`: Run component tests.
 - `make clean`: Clear build artifacts.
 
 Component-local equivalents:
@@ -36,7 +36,7 @@ Component-local equivalents:
 
 ## Commit & Pull Request Guidelines
 - Commit messages generally follow Conventional Commits, often with scopes:
-  - Examples: `feat(controller): ...`, `fix: ...`, `chore: ...`, `test(tunneler): ...`.
+  - Examples: `feat(controller): ...`, `fix: ...`, `chore: ...`, `test(agent): ...`.
 - PRs target the `develop` branch and should include:
   - Clear description, linked issue (if any), and tests run.
   - Updates to docs or configs when behavior or env vars change.

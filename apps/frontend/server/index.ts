@@ -13,7 +13,7 @@ import accessRulesRouter from './routes/access-rules'
 import subjectsRouter from './routes/subjects'
 import tokensRouter from './routes/tokens'
 import serviceAccountsRouter from './routes/service-accounts'
-import tunnelersRouter from './routes/tunnelers'
+import agentsRouter from './routes/agents'
 import policyRouter from './routes/policy'
 import auditLogsRouter from './routes/audit-logs'
 import discoveryRouter from './routes/discovery'
@@ -34,7 +34,7 @@ app.use('/api/access-rules', accessRulesRouter)
 app.use('/api/subjects', subjectsRouter)
 app.use('/api/tokens', tokensRouter)
 app.use('/api/service-accounts', serviceAccountsRouter)
-app.use('/api/tunnelers', tunnelersRouter)
+app.use('/api/agents', agentsRouter)
 app.use('/api/policy', policyRouter)
 app.use('/api/audit-logs', auditLogsRouter)
 app.use('/api/discovery', discoveryRouter)

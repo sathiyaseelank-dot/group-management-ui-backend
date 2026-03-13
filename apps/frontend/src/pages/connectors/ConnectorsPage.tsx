@@ -52,7 +52,7 @@ export default function ConnectorsPage() {
       </div>
 
       {/* Connectors List */}
-      <ConnectorsList connectors={connectors} />
+      <ConnectorsList connectors={connectors} onConnectorDeleted={loadConnectors} />
 
       <AddConnectorModal
         isOpen={isAddOpen}

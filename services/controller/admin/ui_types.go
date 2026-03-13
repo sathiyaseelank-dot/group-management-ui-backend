@@ -33,16 +33,17 @@ type uiGroupMember struct {
 }
 
 type uiResource struct {
-	ID            string  `json:"id"`
-	Name          string  `json:"name"`
-	Type          string  `json:"type"`
-	Address       string  `json:"address"`
-	Protocol      string  `json:"protocol"`
-	PortFrom      *int    `json:"portFrom"`
-	PortTo        *int    `json:"portTo"`
-	Alias         *string `json:"alias,omitempty"`
-	Description   string  `json:"description"`
-	RemoteNetwork *string `json:"remoteNetworkId,omitempty"`
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Type           string  `json:"type"`
+	Address        string  `json:"address"`
+	Protocol       string  `json:"protocol"`
+	PortFrom       *int    `json:"portFrom"`
+	PortTo         *int    `json:"portTo"`
+	Alias          *string `json:"alias,omitempty"`
+	Description    string  `json:"description"`
+	RemoteNetwork  *string `json:"remoteNetworkId,omitempty"`
+	FirewallStatus string  `json:"firewallStatus"`
 }
 
 type uiAccessRule struct {
@@ -67,6 +68,7 @@ type uiConnector struct {
 	LastPolicyVersion int     `json:"lastPolicyVersion"`
 	LastSeenAt        *string `json:"lastSeenAt"`
 	PrivateIP         string  `json:"privateIp"`
+	Revoked           bool    `json:"revoked"`
 }
 
 type uiRemoteNetwork struct {
@@ -86,13 +88,18 @@ type uiConnectorLog struct {
 	Message   string `json:"message"`
 }
 
-type uiTunneler struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Status          string `json:"status"`
-	Version         string `json:"version"`
-	Hostname        string `json:"hostname"`
-	RemoteNetworkID string `json:"remoteNetworkId"`
+type uiAgent struct {
+	ID              string  `json:"id"`
+	Name            string  `json:"name"`
+	Status          string  `json:"status"`
+	Version         string  `json:"version"`
+	Hostname        string  `json:"hostname"`
+	RemoteNetworkID string  `json:"remoteNetworkId"`
+	ConnectorID     string  `json:"connectorId"`
+	Revoked         bool    `json:"revoked"`
+	Installed       bool    `json:"installed"`
+	LastSeen        string  `json:"lastSeen"`
+	LastSeenAt      *string `json:"lastSeenAt"`
 }
 
 type uiServiceAccount struct {

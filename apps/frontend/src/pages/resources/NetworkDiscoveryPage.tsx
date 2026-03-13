@@ -116,8 +116,15 @@ export default function NetworkDiscoveryPage() {
 
   const handleAddResource = async (resource: DiscoveredResource) => {
     try {
+      const connectorId = resource.reachableFrom || selectedConnector
+      const connector = connectors.find((c) => c.id === connectorId)
+      const networkId = connector?.remoteNetworkId
+      if (!networkId) {
+        setError('No remote network found for this connector. Assign the connector to a remote network first.')
+        return
+      }
       await addResource({
-        network_id: '',
+        network_id: networkId,
         name: `${resource.serviceName && resource.serviceName !== 'Unknown' ? resource.serviceName + '@' : ''}${resource.ip}:${resource.port}`,
         type: 'STANDARD',
         address: resource.ip,

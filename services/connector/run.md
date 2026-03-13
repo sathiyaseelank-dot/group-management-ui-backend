@@ -206,7 +206,7 @@ sudo journalctl -u grpcconnector2.service -f
 
 ## Using the Frontend (Optional)
 
-The Next.js admin UI provides a dashboard to manage connectors, tunnelers, resources, and policies.
+The Next.js admin UI provides a dashboard to manage connectors, agents, resources, and policies.
 
 ```bash
 cd frontend
@@ -233,8 +233,8 @@ If the connector was installed via the setup script:
 # Connector
 sudo bash scripts/uninstall-connector.sh
 
-# Tunneler (if installed)
-sudo bash scripts/uninstall-tunneler.sh
+# Agent (if installed)
+sudo bash scripts/uninstall-agent.sh
 ```
 
 These scripts stop the service, remove the binary, config, systemd unit, and runtime directory.
@@ -268,7 +268,7 @@ These scripts stop the service, remove the binary, config, systemd unit, and run
 | `TRUST_DOMAIN` | No | `mycorp.internal` | SPIFFE trust domain |
 | `CONTROLLER_CA` | No* | -- | PEM CA cert (inline) |
 | `CONTROLLER_CA_PATH` | No* | -- | Path to CA cert file |
-| `CONNECTOR_LISTEN_ADDR` | No | `<private_ip>:9443` | Address for tunneler connections |
+| `CONNECTOR_LISTEN_ADDR` | No | `<private_ip>:9443` | Address for agent connections |
 | `CONNECTOR_VERSION` | No | build info | Version string |
 | `POLICY_STALE_GRACE_SECONDS` | No | `600` | Seconds before stale policy expires |
 
@@ -292,7 +292,7 @@ These scripts stop the service, remove the binary, config, systemd unit, and run
 |---|---|---|---|
 | `8443` | Controller | gRPC + mTLS | Enrollment, renewal, control plane |
 | `8081` | Controller | HTTP | Admin API, CA cert endpoint |
-| `9443` | Connector | gRPC + mTLS | Inbound tunneler connections |
+| `9443` | Connector | gRPC + mTLS | Inbound agent connections |
 | `3001` | Frontend | HTTP | Admin dashboard (dev) |
 
 ---

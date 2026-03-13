@@ -5,85 +5,85 @@ import (
 	"time"
 )
 
-type TunnelerInfo struct {
-	ID       string `json:"tunneler_id"`
+type AgentInfo struct {
+	ID       string `json:"agent_id"`
 	SPIFFEID string `json:"spiffe_id"`
 }
 
-type TunnelerRegistry struct {
+type AgentRegistry struct {
 	mu    sync.RWMutex
-	items []TunnelerInfo
+	items []AgentInfo
 	seen  map[string]struct{}
 }
 
-func NewTunnelerRegistry() *TunnelerRegistry {
-	return &TunnelerRegistry{
+func NewAgentRegistry() *AgentRegistry {
+	return &AgentRegistry{
 		seen: make(map[string]struct{}),
 	}
 }
 
-func (r *TunnelerRegistry) Add(tunnelerID, spiffeID string) {
+func (r *AgentRegistry) Add(agentID, spiffeID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.seen[tunnelerID]; ok {
+	if _, ok := r.seen[agentID]; ok {
 		return
 	}
-	r.seen[tunnelerID] = struct{}{}
-	r.items = append(r.items, TunnelerInfo{ID: tunnelerID, SPIFFEID: spiffeID})
+	r.seen[agentID] = struct{}{}
+	r.items = append(r.items, AgentInfo{ID: agentID, SPIFFEID: spiffeID})
 }
 
-func (r *TunnelerRegistry) List() []TunnelerInfo {
+func (r *AgentRegistry) List() []AgentInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]TunnelerInfo, len(r.items))
+	out := make([]AgentInfo, len(r.items))
 	copy(out, r.items)
 	return out
 }
 
-type TunnelerStatusRecord struct {
+type AgentStatusRecord struct {
 	ID          string
 	SPIFFEID    string
 	ConnectorID string
 	LastSeen    time.Time
 }
 
-type TunnelerStatusRegistry struct {
+type AgentStatusRegistry struct {
 	mu      sync.RWMutex
-	records map[string]TunnelerStatusRecord
+	records map[string]AgentStatusRecord
 }
 
-func NewTunnelerStatusRegistry() *TunnelerStatusRegistry {
-	return &TunnelerStatusRegistry{records: make(map[string]TunnelerStatusRecord)}
+func NewAgentStatusRegistry() *AgentStatusRegistry {
+	return &AgentStatusRegistry{records: make(map[string]AgentStatusRecord)}
 }
 
-func (r *TunnelerStatusRegistry) Record(tunnelerID, spiffeID, connectorID string) {
+func (r *AgentStatusRegistry) Record(agentID, spiffeID, connectorID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.records[tunnelerID] = TunnelerStatusRecord{
-		ID:          tunnelerID,
+	r.records[agentID] = AgentStatusRecord{
+		ID:          agentID,
 		SPIFFEID:    spiffeID,
 		ConnectorID: connectorID,
 		LastSeen:    time.Now().UTC(),
 	}
 }
 
-func (r *TunnelerStatusRegistry) Get(tunnelerID string) (TunnelerStatusRecord, bool) {
+func (r *AgentStatusRegistry) Get(agentID string) (AgentStatusRecord, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	rec, ok := r.records[tunnelerID]
+	rec, ok := r.records[agentID]
 	return rec, ok
 }
 
-func (r *TunnelerStatusRegistry) Delete(tunnelerID string) {
+func (r *AgentStatusRegistry) Delete(agentID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.records, tunnelerID)
+	delete(r.records, agentID)
 }
 
-func (r *TunnelerStatusRegistry) List() []TunnelerStatusRecord {
+func (r *AgentStatusRegistry) List() []AgentStatusRecord {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]TunnelerStatusRecord, 0, len(r.records))
+	out := make([]AgentStatusRecord, 0, len(r.records))
 	for _, rec := range r.records {
 		out = append(out, rec)
 	}

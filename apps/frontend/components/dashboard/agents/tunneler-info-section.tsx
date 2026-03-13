@@ -1,0 +1,78 @@
+'use client';
+
+import { Agent, RemoteNetwork } from '@/lib/types';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Cable, CircleDot, CircleDotDashed, Globe, Ban } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Link } from 'react-router-dom';
+
+interface AgentInfoSectionProps {
+  agent: Agent;
+  network?: RemoteNetwork;
+}
+
+export function AgentInfoSection({ agent, network }: AgentInfoSectionProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Cable className="h-5 w-5" />
+          Agent Details
+        </CardTitle>
+        <CardDescription>
+          Information about this agent.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="flex flex-col space-y-1.5">
+          <Label htmlFor="name">Name</Label>
+          <p id="name" className="font-semibold">{agent.name}</p>
+        </div>
+        <div className="flex flex-col space-y-1.5">
+          <Label htmlFor="status">Status</Label>
+          <p id="status">
+            <Badge variant="outline" className="gap-1">
+              {agent.status === 'revoked' ? (
+                <Ban className="h-3 w-3 text-red-500" />
+              ) : agent.status === 'online' ? (
+                <CircleDot className="h-3 w-3 fill-green-500 text-green-500" />
+              ) : (
+                <CircleDotDashed className="h-3 w-3 fill-muted-foreground text-muted-foreground" />
+              )}
+              {agent.status === 'revoked' ? 'Revoked' : agent.status === 'online' ? 'Online' : 'Offline'}
+            </Badge>
+          </p>
+        </div>
+        <div className="flex flex-col space-y-1.5">
+          <Label htmlFor="version">Version</Label>
+          <p id="version" className="font-semibold">{agent.version || '—'}</p>
+        </div>
+        <div className="flex flex-col space-y-1.5">
+          <Label htmlFor="lastSeen">Last Seen</Label>
+          <p id="lastSeen" className="text-sm text-muted-foreground">
+            {agent.lastSeen ? new Date(agent.lastSeen).toLocaleString() : '—'}
+          </p>
+        </div>
+        <div className="flex flex-col space-y-1.5">
+          <Label htmlFor="network">Remote Network</Label>
+          {network ? (
+            <Link to={`/dashboard/remote-networks/${network.id}`}>
+              <Button variant="link" className="p-0 h-auto justify-start gap-1">
+                <Globe className="h-3 w-3" />
+                {network.name}
+              </Button>
+            </Link>
+          ) : (
+            <p className="text-muted-foreground text-sm">N/A</p>
+          )}
+        </div>
+        <div className="flex flex-col space-y-1.5 col-span-2">
+          <Label htmlFor="hostname">Hostname</Label>
+          <p id="hostname" className="font-mono text-xs text-muted-foreground">{agent.hostname || '—'}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

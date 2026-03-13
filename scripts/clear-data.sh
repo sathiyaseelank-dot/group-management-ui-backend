@@ -4,14 +4,14 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 # Zero-Trust data reset script
 # Clears all database data: controller SQLite, frontend SQLite,
-# and connector/tunneler enrollment state.
+# and connector/agent enrollment state.
 #
 # Usage:
 #   ./clear-data.sh              # interactive (prompts for each section)
 #   ./clear-data.sh --all        # clear everything without prompts
 #   ./clear-data.sh --controller # controller DB only
 #   ./clear-data.sh --frontend   # frontend DB only
-#   ./clear-data.sh --enrollment # connector + tunneler enrollment state only
+#   ./clear-data.sh --enrollment # connector + agent enrollment state only
 # ─────────────────────────────────────────────────────────────────────────────
 
 REPO_DIR="${REPO_DIR:-/home/bairava/zero-trust}"
@@ -19,7 +19,7 @@ REPO_DIR="${REPO_DIR:-/home/bairava/zero-trust}"
 CONTROLLER_DB="${REPO_DIR}/services/controller/controller.db"
 FRONTEND_DB="${REPO_DIR}/apps/frontend/ztna.db"
 CONNECTOR_STATE_DIR="/var/lib/connector"
-TUNNELER_STATE_DIR="/var/lib/tunneler"
+AGENT_STATE_DIR="/var/lib/agent"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -78,9 +78,9 @@ echo ""
 if [[ "$MODE" == "interactive" ]]; then
     echo "  Select what to clear:"
     echo ""
-    confirm "Clear controller database (connectors, tunnelers, tokens, audit logs, users)?" && DO_CONTROLLER=true
+    confirm "Clear controller database (connectors, agents, tokens, audit logs, users)?" && DO_CONTROLLER=true
     confirm "Clear frontend database (demo users, groups, resources, access rules)?" && DO_FRONTEND=true
-    confirm "Clear connector + tunneler enrollment state (forces re-enrollment on next start)?" && DO_ENROLLMENT=true
+    confirm "Clear connector + agent enrollment state (forces re-enrollment on next start)?" && DO_ENROLLMENT=true
     echo ""
 fi
 
@@ -93,11 +93,11 @@ if [[ "$DO_ENROLLMENT" == "true" ]]; then
     else
         warn "connector.service not running"
     fi
-    if systemctl is-active --quiet tunneler.service 2>/dev/null; then
-        systemctl stop tunneler.service
-        ok "tunneler.service stopped"
+    if systemctl is-active --quiet agent.service 2>/dev/null; then
+        systemctl stop agent.service
+        ok "agent.service stopped"
     else
-        warn "tunneler.service not running"
+        warn "agent.service not running"
     fi
     echo ""
 fi
@@ -140,12 +140,12 @@ if [[ "$DO_ENROLLMENT" == "true" ]]; then
     fi
     echo ""
 
-    echo "── Tunneler Enrollment State ────────────────────────"
-    if [[ -d "$TUNNELER_STATE_DIR" ]]; then
-        rm -f "${TUNNELER_STATE_DIR}"/*.json "${TUNNELER_STATE_DIR}"/*.pem "${TUNNELER_STATE_DIR}"/*.der 2>/dev/null || true
-        ok "Cleared: ${TUNNELER_STATE_DIR}"
+    echo "── Agent Enrollment State ───────────────────────────"
+    if [[ -d "$AGENT_STATE_DIR" ]]; then
+        rm -f "${AGENT_STATE_DIR}"/*.json "${AGENT_STATE_DIR}"/*.pem "${AGENT_STATE_DIR}"/*.der 2>/dev/null || true
+        ok "Cleared: ${AGENT_STATE_DIR}"
     else
-        warn "Not found: ${TUNNELER_STATE_DIR}"
+        warn "Not found: ${AGENT_STATE_DIR}"
     fi
     echo ""
 fi

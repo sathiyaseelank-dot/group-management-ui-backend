@@ -85,7 +85,10 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			version TEXT NOT NULL DEFAULT '',
 			hostname TEXT NOT NULL DEFAULT '',
 			remote_network_id TEXT NOT NULL DEFAULT '',
-			last_seen INTEGER NOT NULL DEFAULT 0
+			last_seen INTEGER NOT NULL DEFAULT 0,
+			revoked INTEGER NOT NULL DEFAULT 0,
+			last_seen_at TEXT NOT NULL DEFAULT '',
+			installed INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS resources (
 			id TEXT PRIMARY KEY,
@@ -99,7 +102,8 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			alias TEXT,
 			description TEXT NOT NULL DEFAULT '',
 			remote_network_id TEXT NOT NULL DEFAULT '',
-			connector_id TEXT NOT NULL DEFAULT ''
+			connector_id TEXT NOT NULL DEFAULT '',
+			firewall_status TEXT NOT NULL DEFAULT 'unprotected'
 		)`,
 		`CREATE TABLE IF NOT EXISTS authorizations (
 			resource_id TEXT NOT NULL,
@@ -192,6 +196,12 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			timestamp TEXT NOT NULL DEFAULT '',
 			message TEXT NOT NULL DEFAULT ''
 		)`,
+		`CREATE TABLE IF NOT EXISTS tunneler_logs (
+			id ` + serial + `,
+			tunneler_id TEXT NOT NULL DEFAULT '',
+			timestamp TEXT NOT NULL DEFAULT '',
+			message TEXT NOT NULL DEFAULT ''
+		)`,
 		`CREATE TABLE IF NOT EXISTS invite_tokens (
 			token TEXT PRIMARY KEY,
 			email TEXT NOT NULL DEFAULT '',
@@ -232,6 +242,40 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			expires_at INTEGER NOT NULL DEFAULT 0,
 			used INTEGER NOT NULL DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS identity_providers (
+			id TEXT PRIMARY KEY,
+			workspace_id TEXT NOT NULL DEFAULT '',
+			provider_type TEXT NOT NULL,
+			client_id TEXT NOT NULL,
+			client_secret_encrypted TEXT NOT NULL,
+			redirect_uri TEXT NOT NULL DEFAULT '',
+			issuer_url TEXT NOT NULL DEFAULT '',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS sessions (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			workspace_id TEXT NOT NULL DEFAULT '',
+			session_type TEXT NOT NULL,
+			device_id TEXT NOT NULL DEFAULT '',
+			refresh_token_hash TEXT NOT NULL DEFAULT '',
+			ip_address TEXT NOT NULL DEFAULT '',
+			user_agent TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL DEFAULT 0,
+			expires_at INTEGER NOT NULL DEFAULT 0,
+			revoked INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS device_auth_requests (
+			state TEXT PRIMARY KEY,
+			workspace_id TEXT NOT NULL,
+			code_challenge TEXT NOT NULL,
+			redirect_uri TEXT NOT NULL,
+			idp_id TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL DEFAULT 0,
+			expires_at INTEGER NOT NULL DEFAULT 0
+		)`,
 	}
 
 	for _, s := range stmts {
@@ -243,6 +287,9 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 	// Add new columns for existing databases.
 	if dialect == "postgres" {
 		_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS installed INTEGER NOT NULL DEFAULT 0`)
 	}
 
 	// Phase 2 migration: add workspace_id columns to existing tables.
@@ -250,6 +297,14 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		return err
 	}
 
+	// Phase 3 migration: add firewall_status column to resources.
+	if dialect == "postgres" {
+		_, _ = db.Exec(`ALTER TABLE resources ADD COLUMN IF NOT EXISTS firewall_status TEXT NOT NULL DEFAULT 'unprotected'`)
+	} else {
+		if !sqliteColumnExists(db, "resources", "firewall_status") {
+			_, _ = db.Exec(`ALTER TABLE resources ADD COLUMN firewall_status TEXT NOT NULL DEFAULT 'unprotected'`)
+		}
+	}
 
 	return nil
 }

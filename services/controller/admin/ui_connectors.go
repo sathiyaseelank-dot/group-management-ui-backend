@@ -20,7 +20,7 @@ func (s *Server) handleUIConnectors(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		wsID := workspaceIDFromContext(r.Context())
 		wsClause, wsArgs := wsWhereOnly(wsID, "")
-		rows, err := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, last_seen FROM connectors`+wsClause+` ORDER BY name ASC`), wsArgs...)
+		rows, err := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, revoked, last_seen FROM connectors`+wsClause+` ORDER BY name ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list connectors", http.StatusInternalServerError)
 			return
@@ -77,15 +77,43 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 	connectorID := parts[0]
 	if len(parts) == 1 {
 		if r.Method == http.MethodDelete {
+			// Cascade-delete agents (tunnelers) bound to this connector.
+			var agentIDs []string
+			aRows, _ := db.Query(state.Rebind(`SELECT id FROM tunnelers WHERE connector_id = ?`), connectorID)
+			if aRows != nil {
+				for aRows.Next() {
+					var aid string
+					if err := aRows.Scan(&aid); err == nil {
+						agentIDs = append(agentIDs, aid)
+					}
+				}
+				aRows.Close()
+			}
+			for _, aid := range agentIDs {
+				if s.Agents != nil {
+					s.Agents.Delete(aid)
+				}
+			}
+			_, _ = db.Exec(state.Rebind(`DELETE FROM tunnelers WHERE connector_id = ?`), connectorID)
+
+			// Delete connector tokens, logs, and policy versions.
+			if s.Tokens != nil {
+				_ = s.Tokens.DeleteByConnectorID(connectorID)
+			}
+			_, _ = db.Exec(state.Rebind(`DELETE FROM tokens WHERE connector_id = ?`), connectorID)
+			_, _ = db.Exec(state.Rebind(`DELETE FROM connector_logs WHERE connector_id = ?`), connectorID)
+			_, _ = db.Exec(state.Rebind(`DELETE FROM connector_policy_versions WHERE connector_id = ?`), connectorID)
+			_, _ = db.Exec(state.Rebind(`DELETE FROM remote_network_connectors WHERE connector_id = ?`), connectorID)
+
+			// Remove connector from in-memory registry and DB.
 			if s.Reg != nil {
 				s.Reg.Delete(connectorID)
 			}
 			if s.ACLs != nil && s.ACLs.DB() != nil {
 				_ = state.DeleteConnectorFromDB(s.ACLs.DB(), connectorID)
 			}
-			if s.Tokens != nil {
-				_ = s.Tokens.DeleteByConnectorID(connectorID)
-			}
+			_, _ = db.Exec(state.Rebind(`DELETE FROM connectors WHERE id = ?`), connectorID)
+
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		}
@@ -93,7 +121,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		row := db.QueryRow(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, last_seen FROM connectors WHERE id = ?`), connectorID)
+		row := db.QueryRow(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, revoked, last_seen FROM connectors WHERE id = ?`), connectorID)
 		connector, ok := scanUIConnector(row)
 		if !ok {
 			writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -176,6 +204,19 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 		}
 		nowISO := isoStringNow()
 		_, _ = db.Exec(state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`), connectorID, nowISO, "connector revoked")
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+	if len(parts) >= 2 && parts[1] == "grant" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.ACLs != nil && s.ACLs.DB() != nil {
+			_ = state.GrantConnectorInDB(s.ACLs.DB(), connectorID)
+		}
+		nowISO := isoStringNow()
+		_, _ = db.Exec(state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`), connectorID, nowISO, "connector access granted")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}

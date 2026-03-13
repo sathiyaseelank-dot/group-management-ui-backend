@@ -24,8 +24,8 @@ import (
 type ControlPlaneServer struct {
 	controllerpb.UnimplementedControlPlaneServer
 	registry       *state.Registry
-	tunnelers      *state.TunnelerRegistry
-	tunnelerStatus *state.TunnelerStatusRegistry
+	agents      *state.AgentRegistry
+	agentStatus *state.AgentStatusRegistry
 	acls           *state.ACLStore
 	db             *sql.DB
 	signingKey     []byte
@@ -36,12 +36,12 @@ type ControlPlaneServer struct {
 }
 
 // NewControlPlaneServer creates a new control plane server.
-func NewControlPlaneServer(trustDomain string, registry *state.Registry, tunnelers *state.TunnelerRegistry, tunnelerStatus *state.TunnelerStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration, scanStore *state.ScanStore) *ControlPlaneServer {
+func NewControlPlaneServer(trustDomain string, registry *state.Registry, agents *state.AgentRegistry, agentStatus *state.AgentStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration, scanStore *state.ScanStore) *ControlPlaneServer {
 	_ = trustDomain
 	return &ControlPlaneServer{
 		registry:       registry,
-		tunnelers:      tunnelers,
-		tunnelerStatus: tunnelerStatus,
+		agents:      agents,
+		agentStatus: agentStatus,
 		acls:           acls,
 		db:             db,
 		signingKey:     signingKey,
@@ -141,37 +141,37 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 			}
 			log.Printf("heartbeat: connector_id=%s private_ip=%s status=%s", msg.GetConnectorId(), msg.GetPrivateIp(), msg.GetStatus())
 
-			// Connector embeds tunneler statuses in the heartbeat payload.
-			if s.tunnelerStatus != nil && len(msg.GetPayload()) > 0 {
-				var tunnelers []struct {
-					TunnelerID string `json:"tunneler_id"`
-					Status     string `json:"status"`
+			// Connector embeds agent statuses in the heartbeat payload.
+			if s.agentStatus != nil && len(msg.GetPayload()) > 0 {
+				var agents []struct {
+					AgentID string `json:"agent_id"`
+					Status  string `json:"status"`
 				}
-				if err := json.Unmarshal(msg.GetPayload(), &tunnelers); err == nil {
-					for _, t := range tunnelers {
-						s.tunnelerStatus.Record(t.TunnelerID, "", msg.GetConnectorId())
-						log.Printf("tunneler heartbeat: tunneler_id=%s connector_id=%s status=%s", t.TunnelerID, msg.GetConnectorId(), t.Status)
+				if err := json.Unmarshal(msg.GetPayload(), &agents); err == nil {
+					for _, t := range agents {
+						s.agentStatus.Record(t.AgentID, "", msg.GetConnectorId())
+						log.Printf("agent heartbeat: agent_id=%s connector_id=%s status=%s", t.AgentID, msg.GetConnectorId(), t.Status)
 						if s.acls != nil && s.acls.DB() != nil {
-							if rec, ok := s.tunnelerStatus.Get(t.TunnelerID); ok {
-								_ = state.SaveTunnelerToDB(s.acls.DB(), rec)
+							if rec, ok := s.agentStatus.Get(t.AgentID); ok {
+								_ = state.SaveAgentToDB(s.acls.DB(), rec)
 							}
 						}
 					}
 				}
 			}
 		}
-		if msg.GetType() == "tunneler_heartbeat" && s.tunnelerStatus != nil {
+		if msg.GetType() == "agent_heartbeat" && s.agentStatus != nil {
 			var payload struct {
-				TunnelerID  string `json:"tunneler_id"`
+				AgentID     string `json:"agent_id"`
 				SPIFFEID    string `json:"spiffe_id"`
 				Status      string `json:"status"`
 				ConnectorID string `json:"connector_id"`
 			}
 			if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
-				s.tunnelerStatus.Record(payload.TunnelerID, payload.SPIFFEID, payload.ConnectorID)
+				s.agentStatus.Record(payload.AgentID, payload.SPIFFEID, payload.ConnectorID)
 				if s.acls != nil && s.acls.DB() != nil {
-					if rec, ok := s.tunnelerStatus.Get(payload.TunnelerID); ok {
-						_ = state.SaveTunnelerToDB(s.acls.DB(), rec)
+					if rec, ok := s.agentStatus.Get(payload.AgentID); ok {
+						_ = state.SaveAgentToDB(s.acls.DB(), rec)
 					}
 				}
 			}
@@ -181,7 +181,7 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 			if s.acls != nil && s.acls.DB() != nil {
 				var payload struct {
 					PrincipalSPIFFE string `json:"spiffe_id"`
-					TunnelerID      string `json:"tunneler_id"`
+					AgentID         string `json:"agent_id"`
 					ResourceID      string `json:"resource_id"`
 					Destination     string `json:"destination"`
 					Protocol        string `json:"protocol"`
@@ -201,7 +201,7 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 						state.Rebind(`INSERT INTO audit_logs (principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at, workspace_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 						payload.PrincipalSPIFFE,
-						payload.TunnelerID,
+						payload.AgentID,
 						payload.ResourceID,
 						payload.Destination,
 						payload.Protocol,
@@ -255,18 +255,28 @@ func (s *ControlPlaneServer) SendToConnector(connectorID string, msgType string,
 	})
 }
 
-// NotifyTunnelerAllowed broadcasts a newly enrolled tunneler to all connectors.
-func (s *ControlPlaneServer) NotifyTunnelerAllowed(tunnelerID, spiffeID string) {
-	if s.tunnelers != nil {
-		s.tunnelers.Add(tunnelerID, spiffeID)
+// NotifyAgentAllowed broadcasts a newly enrolled agent to all connectors
+// and persists to DB so the allowlist survives controller restarts.
+func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, hostname string) {
+	if s.agents != nil {
+		s.agents.Add(agentID, spiffeID)
 	}
-	info := state.TunnelerInfo{ID: tunnelerID, SPIFFEID: spiffeID}
+	// Persist to DB so LoadAgentRegistryFromDB restores the allowlist on restart.
+	if s.db != nil {
+		_, _ = s.db.Exec(
+			state.Rebind(`INSERT INTO tunnelers (id, spiffe_id, connector_id, version, hostname, last_seen)
+			VALUES (?, ?, '', ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, version=excluded.version, hostname=excluded.hostname, last_seen=excluded.last_seen`),
+			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(),
+		)
+	}
+	info := state.AgentInfo{ID: agentID, SPIFFEID: spiffeID}
 	payload, err := json.Marshal(info)
 	if err != nil {
 		return
 	}
 	s.broadcast(&controllerpb.ControlMessage{
-		Type:    "tunneler_allow",
+		Type:    "agent_allow",
 		Payload: payload,
 	})
 }
@@ -327,16 +337,16 @@ func (s *ControlPlaneServer) broadcast(msg *controllerpb.ControlMessage) {
 }
 
 func (s *ControlPlaneServer) sendAllowlist(c *connectorClient) {
-	if s.tunnelers == nil {
+	if s.agents == nil {
 		return
 	}
-	list := s.tunnelers.List()
+	list := s.agents.List()
 	payload, err := json.Marshal(list)
 	if err != nil {
 		return
 	}
 	_ = c.send(&controllerpb.ControlMessage{
-		Type:    "tunneler_allowlist",
+		Type:    "agent_allowlist",
 		Payload: payload,
 	})
 }

@@ -116,6 +116,91 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		return
 	}
 	networkID := strings.Split(path, "/")[0]
+	if r.Method == http.MethodDelete {
+		// Collect connector IDs belonging to this network.
+		var connectorIDs []string
+		cRows, _ := db.Query(state.Rebind(`SELECT id FROM connectors WHERE remote_network_id = ?`), networkID)
+		if cRows != nil {
+			for cRows.Next() {
+				var cid string
+				if err := cRows.Scan(&cid); err == nil {
+					connectorIDs = append(connectorIDs, cid)
+				}
+			}
+			cRows.Close()
+		}
+
+		// Collect agent (tunneler) IDs belonging to this network.
+		var agentIDs []string
+		aRows, _ := db.Query(state.Rebind(`SELECT id FROM tunnelers WHERE remote_network_id = ?`), networkID)
+		if aRows != nil {
+			for aRows.Next() {
+				var aid string
+				if err := aRows.Scan(&aid); err == nil {
+					agentIDs = append(agentIDs, aid)
+				}
+			}
+			aRows.Close()
+		}
+
+		// Collect resource IDs for access-rule cleanup.
+		var resourceIDs []string
+		rRows, _ := db.Query(state.Rebind(`SELECT id FROM resources WHERE remote_network_id = ?`), networkID)
+		if rRows != nil {
+			for rRows.Next() {
+				var rid string
+				if err := rRows.Scan(&rid); err == nil {
+					resourceIDs = append(resourceIDs, rid)
+				}
+			}
+			rRows.Close()
+		}
+
+		// Delete access rules and authorizations tied to these resources.
+		for _, rid := range resourceIDs {
+			_, _ = db.Exec(state.Rebind(`DELETE FROM access_rule_groups WHERE rule_id IN (SELECT id FROM access_rules WHERE resource_id = ?)`), rid)
+			_, _ = db.Exec(state.Rebind(`DELETE FROM access_rules WHERE resource_id = ?`), rid)
+			_, _ = db.Exec(state.Rebind(`DELETE FROM authorizations WHERE resource_id = ?`), rid)
+			if s.ACLs != nil {
+				s.ACLs.DeleteResource(rid)
+			}
+		}
+
+		// Delete resources in this network.
+		_, _ = db.Exec(state.Rebind(`DELETE FROM resources WHERE remote_network_id = ?`), networkID)
+
+		// Delete tokens and logs for each connector, then remove connectors.
+		for _, cid := range connectorIDs {
+			if s.Tokens != nil {
+				_ = s.Tokens.DeleteByConnectorID(cid)
+			}
+			_, _ = db.Exec(state.Rebind(`DELETE FROM tokens WHERE connector_id = ?`), cid)
+			_, _ = db.Exec(state.Rebind(`DELETE FROM connector_logs WHERE connector_id = ?`), cid)
+			_, _ = db.Exec(state.Rebind(`DELETE FROM connector_policy_versions WHERE connector_id = ?`), cid)
+			if s.Reg != nil {
+				s.Reg.Delete(cid)
+			}
+		}
+		_, _ = db.Exec(state.Rebind(`DELETE FROM connectors WHERE remote_network_id = ?`), networkID)
+
+		// Delete agents (tunnelers) in this network and clean in-memory registry.
+		for _, aid := range agentIDs {
+			if s.Agents != nil {
+				s.Agents.Delete(aid)
+			}
+		}
+		_, _ = db.Exec(state.Rebind(`DELETE FROM tunnelers WHERE remote_network_id = ?`), networkID)
+
+		// Clean up join table and the network itself.
+		_, _ = db.Exec(state.Rebind(`DELETE FROM remote_network_connectors WHERE network_id = ?`), networkID)
+		_, err := db.Exec(state.Rebind(`DELETE FROM remote_networks WHERE id = ?`), networkID)
+		if err != nil {
+			http.Error(w, "failed to delete remote network", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -167,7 +252,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		}
 		connectorRows.Close()
 	}
-	resourceRows, _ := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id FROM resources WHERE remote_network_id = ? ORDER BY name ASC`), networkID)
+	resourceRows, _ := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources WHERE remote_network_id = ? ORDER BY name ASC`), networkID)
 	resources := []uiResource{}
 	if resourceRows != nil {
 		for resourceRows.Next() {

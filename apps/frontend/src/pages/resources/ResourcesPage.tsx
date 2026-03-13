@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getResources, getRemoteNetworks } from '@/lib/mock-api';
+import { getResources, getRemoteNetworks, deleteResource } from '@/lib/mock-api';
 import { Resource, RemoteNetwork } from '@/lib/types';
 import { ResourcesList } from '@/components/dashboard/resources/resources-list';
 import { Loader2, Plus } from 'lucide-react';
@@ -40,6 +40,15 @@ export default function ResourcesPage() {
     setIsEditModalOpen(true);
   };
 
+  const handleDeleteResource = async (resourceId: string) => {
+    try {
+      await deleteResource(resourceId);
+      loadData();
+    } catch (error) {
+      console.error('Failed to delete resource:', error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -69,6 +78,8 @@ export default function ResourcesPage() {
         resources={resources}
         remoteNetworks={remoteNetworks}
         onEdit={handleEditClick}
+        onDelete={handleDeleteResource}
+        onFirewallStatusChange={loadData}
       />
 
       {/* Add Resource Modal */}

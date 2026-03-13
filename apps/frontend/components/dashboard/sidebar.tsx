@@ -42,7 +42,7 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Networks', href: '/dashboard/remote-networks' },
       { label: 'Connectors', href: '/dashboard/connectors' },
-      { label: 'Tunnelers', href: '/dashboard/tunnelers' },
+      { label: 'Agents', href: '/dashboard/agents' },
     ],
   },
 

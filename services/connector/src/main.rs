@@ -12,7 +12,7 @@ mod server;
 mod tls;
 mod watchdog;
 
-use allowlist::{TunnelerAllowlist, TunnelerInfo};
+use allowlist::{AgentAllowlist, AgentInfo};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use enroll::pb::ControlMessage;
@@ -21,36 +21,67 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 use tls::cert_store::CertStore;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, warn};
 
-/// Tracks the last-known status of each connected tunneler.
-/// Updated by the tunneler-facing server; read by the controller heartbeat.
+/// Stores the latest firewall policy bytes so new agent connections
+/// receive the current policy immediately upon connecting.
 #[derive(Clone)]
-pub struct TunnelerRegistry {
+pub struct LatestFirewallPolicy {
+    inner: Arc<std::sync::RwLock<Option<Vec<u8>>>>,
+}
+
+impl LatestFirewallPolicy {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(std::sync::RwLock::new(None)),
+        }
+    }
+
+    pub fn store(&self, data: Vec<u8>) {
+        if let Ok(mut w) = self.inner.write() {
+            *w = Some(data);
+        }
+    }
+
+    pub fn get(&self) -> Option<Vec<u8>> {
+        self.inner.read().ok().and_then(|r| r.clone())
+    }
+}
+
+/// Tracks the last-known status of each connected agent.
+/// Updated by the agent-facing server; read by the controller heartbeat.
+#[derive(Clone)]
+pub struct AgentRegistry {
     inner: Arc<RwLock<HashMap<String, String>>>,
 }
 
-impl TunnelerRegistry {
+impl AgentRegistry {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    pub fn update(&self, tunneler_id: &str, status: &str) {
+    pub fn update(&self, agent_id: &str, status: &str) {
         if let Ok(mut map) = self.inner.write() {
-            map.insert(tunneler_id.to_string(), status.to_string());
+            map.insert(agent_id.to_string(), status.to_string());
         }
     }
 
-    pub fn snapshot(&self) -> Vec<TunnelerStatusEntry> {
+    pub fn remove(&self, agent_id: &str) {
+        if let Ok(mut map) = self.inner.write() {
+            map.remove(agent_id);
+        }
+    }
+
+    pub fn snapshot(&self) -> Vec<AgentStatusEntry> {
         self.inner
             .read()
             .map(|map| {
                 map.iter()
-                    .map(|(id, st)| TunnelerStatusEntry {
-                        tunneler_id: id.clone(),
+                    .map(|(id, st)| AgentStatusEntry {
+                        agent_id: id.clone(),
                         status: st.clone(),
                     })
                     .collect()
@@ -60,8 +91,8 @@ impl TunnelerRegistry {
 }
 
 #[derive(serde::Serialize)]
-pub struct TunnelerStatusEntry {
-    pub tunneler_id: String,
+pub struct AgentStatusEntry {
+    pub agent_id: String,
     pub status: String,
 }
 
@@ -172,12 +203,14 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     let enrolled_connector_id = tls::spiffe::connector_id_from_spiffe(&result.spiffe_id)
         .unwrap_or_else(|| cfg.connector_id.clone());
 
-    let allowlist = Arc::new(TunnelerAllowlist::new());
+    let allowlist = Arc::new(AgentAllowlist::new());
     let acl = Arc::new(PolicyCache::new(cfg.policy_key.clone(), cfg.stale_grace));
     let (send_ch, recv_ch) = mpsc::channel::<ControlMessage>(16);
-    let tunneler_registry = Arc::new(TunnelerRegistry::new());
+    let agent_registry = Arc::new(AgentRegistry::new());
+    let (firewall_tx, _) = broadcast::channel::<Vec<u8>>(16);
+    let latest_fw_policy = LatestFirewallPolicy::new();
 
-    // Start tunneler-facing gRPC server
+    // Start agent-facing gRPC server
     tokio::spawn(server::server_loop(
         cfg.listen_addr.clone(),
         cfg.trust_domain.clone(),
@@ -187,7 +220,9 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         acl.clone(),
         send_ch.clone(),
         enrolled_connector_id.clone(),
-        tunneler_registry.clone(),
+        agent_registry.clone(),
+        firewall_tx.clone(),
+        latest_fw_policy.clone(),
     ));
 
     // Start certificate renewal loop
@@ -211,7 +246,9 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         acl.clone(),
         send_ch,
         recv_ch,
-        tunneler_registry,
+        agent_registry,
+        firewall_tx,
+        latest_fw_policy,
     )
     .await;
 
@@ -227,11 +264,13 @@ async fn control_plane_loop(
     private_ip: String,
     store: CertStore,
     ca_pem: Vec<u8>,
-    allowlist: Arc<TunnelerAllowlist>,
+    allowlist: Arc<AgentAllowlist>,
     acl: Arc<PolicyCache>,
     send_ch: mpsc::Sender<ControlMessage>,
     mut recv_ch: mpsc::Receiver<ControlMessage>,
-    tunneler_registry: Arc<TunnelerRegistry>,
+    agent_registry: Arc<AgentRegistry>,
+    firewall_tx: broadcast::Sender<Vec<u8>>,
+    latest_fw_policy: LatestFirewallPolicy,
 ) {
     let mut backoff = Duration::from_secs(2);
     loop {
@@ -246,7 +285,9 @@ async fn control_plane_loop(
             &acl,
             &send_ch,
             &mut recv_ch,
-            &tunneler_registry,
+            &agent_registry,
+            &firewall_tx,
+            &latest_fw_policy,
         )
         .await
         {
@@ -269,11 +310,13 @@ async fn connect_control_plane(
     private_ip: &str,
     store: &CertStore,
     ca_pem: &[u8],
-    allowlist: &Arc<TunnelerAllowlist>,
+    allowlist: &Arc<AgentAllowlist>,
     acl: &Arc<PolicyCache>,
     _send_ch: &mpsc::Sender<ControlMessage>,
     recv_ch: &mut mpsc::Receiver<ControlMessage>,
-    tunneler_registry: &Arc<TunnelerRegistry>,
+    agent_registry: &Arc<AgentRegistry>,
+    firewall_tx: &broadcast::Sender<Vec<u8>>,
+    latest_fw_policy: &LatestFirewallPolicy,
 ) -> Result<()> {
     let policy_cb = {
         let acl = acl.clone();
@@ -338,7 +381,7 @@ async fn connect_control_plane(
                                 }
                             });
                         } else {
-                            handle_control_message(&m, allowlist, acl);
+                            handle_control_message(&m, allowlist, acl, firewall_tx, latest_fw_policy).await;
                         }
                     }
                     Ok(None) => return Ok(()),
@@ -349,8 +392,8 @@ async fn connect_control_plane(
                 stream_tx.send(out_msg).await?;
             }
             _ = heartbeat.tick() => {
-                let tunnelers = tunneler_registry.snapshot();
-                let payload = serde_json::to_vec(&tunnelers).unwrap_or_default();
+                let agents = agent_registry.snapshot();
+                let payload = serde_json::to_vec(&agents).unwrap_or_default();
                 stream_tx.send(ControlMessage {
                     r#type: "heartbeat".to_string(),
                     connector_id: connector_id.to_string(),
@@ -364,19 +407,21 @@ async fn connect_control_plane(
     }
 }
 
-fn handle_control_message(
+async fn handle_control_message(
     msg: &ControlMessage,
-    allowlist: &Arc<TunnelerAllowlist>,
+    allowlist: &Arc<AgentAllowlist>,
     acl: &Arc<PolicyCache>,
+    firewall_tx: &broadcast::Sender<Vec<u8>>,
+    latest_fw_policy: &LatestFirewallPolicy,
 ) {
     match msg.r#type.as_str() {
-        "tunneler_allowlist" => {
-            if let Ok(items) = serde_json::from_slice::<Vec<TunnelerInfo>>(&msg.payload) {
+        "agent_allowlist" => {
+            if let Ok(items) = serde_json::from_slice::<Vec<AgentInfo>>(&msg.payload) {
                 allowlist.replace(items);
             }
         }
-        "tunneler_allow" => {
-            if let Ok(item) = serde_json::from_slice::<TunnelerInfo>(&msg.payload) {
+        "agent_allow" => {
+            if let Ok(item) = serde_json::from_slice::<AgentInfo>(&msg.payload) {
                 allowlist.add(&item.spiffe_id);
             }
         }
@@ -384,12 +429,28 @@ fn handle_control_message(
             if let Ok(snap) = serde_json::from_slice::<PolicySnapshot>(&msg.payload) {
                 let version = snap.snapshot_meta.policy_version;
                 let resource_count = snap.resources.len();
-                if acl.replace_snapshot(snap) {
+                if acl.replace_snapshot(snap.clone()) {
                     info!(
                         "policy snapshot applied: version={} resources={}",
                         version,
                         resource_count
                     );
+
+                    // Extract port rules from protected resources and broadcast to agents.
+                    let port_rules: Vec<serde_json::Value> = snap
+                        .resources
+                        .iter()
+                        .filter(|r| r.firewall_status == "protected")
+                        .flat_map(|r| extract_port_rules(r))
+                        .collect();
+                    let policy = serde_json::json!({
+                        "action": "sync",
+                        "protected_ports": port_rules
+                    });
+                    if let Ok(data) = serde_json::to_vec(&policy) {
+                        latest_fw_policy.store(data.clone());
+                        let _ = firewall_tx.send(data);
+                    }
                 } else {
                     warn!(
                         "policy snapshot rejected: version={} resources={}",
@@ -400,5 +461,23 @@ fn handle_control_message(
             }
         }
         _ => {}
+    }
+}
+
+fn extract_port_rules(r: &policy::types::PolicyResource) -> Vec<serde_json::Value> {
+    match (r.port_from, r.port_to) {
+        (Some(from), Some(to)) => (from..=to)
+            .map(|p| {
+                serde_json::json!({
+                    "port": p,
+                    "protocol": &r.protocol
+                })
+            })
+            .collect(),
+        _ if r.port > 0 => vec![serde_json::json!({
+            "port": r.port,
+            "protocol": &r.protocol
+        })],
+        _ => vec![],
     }
 }

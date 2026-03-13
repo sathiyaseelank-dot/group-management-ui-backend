@@ -265,7 +265,21 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 			// For workspace invites, sign a workspace JWT so the user lands directly in the workspace.
 			if isWorkspaceInvite && s.Workspaces != nil && userID != "" && wsInviteID != "" {
 				if ws, wsErr := s.Workspaces.GetWorkspace(wsInviteID); wsErr == nil {
-					wsToken, wsJWTErr := s.signWorkspaceJWT(email, userID, ws.ID, ws.Slug, wsInviteRole)
+					inviteSessionID, _ := randomHex(16)
+					if s.Sessions != nil {
+						sess := &state.Session{
+							ID:          inviteSessionID,
+							UserID:      userID,
+							WorkspaceID: ws.ID,
+							SessionType: "admin",
+							IPAddress:   r.RemoteAddr,
+							UserAgent:   r.Header.Get("User-Agent"),
+							CreatedAt:   time.Now().Unix(),
+							ExpiresAt:   time.Now().Add(24 * time.Hour).Unix(),
+						}
+						_ = s.Sessions.Create(sess)
+					}
+					wsToken, wsJWTErr := s.signAdminJWT(email, userID, ws.ID, ws.Slug, wsInviteRole, inviteSessionID)
 					if wsJWTErr == nil {
 						s.setSessionCookie(w, wsToken)
 						dashboardURL := s.resolveDashboardURL(returnTo)
@@ -309,8 +323,34 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 			}
 		}
 
-		jwtToken, err := s.signSessionJWT(email)
-		if err != nil {
+		sessionID, _ := randomHex(16)
+		var userID, wsID, wsSlug, wsRole string
+		if s.Users != nil && s.Workspaces != nil {
+			if u, lookupErr := s.Workspaces.GetUserByEmail(email); lookupErr == nil {
+				userID = u.ID
+			}
+		}
+		if s.Sessions != nil {
+			sess := &state.Session{
+				ID:          sessionID,
+				UserID:      userID,
+				WorkspaceID: wsID,
+				SessionType: "admin",
+				IPAddress:   r.RemoteAddr,
+				UserAgent:   r.Header.Get("User-Agent"),
+				CreatedAt:   time.Now().Unix(),
+				ExpiresAt:   time.Now().Add(24 * time.Hour).Unix(),
+			}
+			_ = s.Sessions.Create(sess)
+		}
+		var jwtToken string
+		var jwtErr error
+		if wsID != "" {
+			jwtToken, jwtErr = s.signAdminJWT(email, userID, wsID, wsSlug, wsRole, sessionID)
+		} else {
+			jwtToken, jwtErr = s.signSessionJWT(email)
+		}
+		if jwtErr != nil {
 			http.Error(w, "failed to create session", http.StatusInternalServerError)
 			return
 		}

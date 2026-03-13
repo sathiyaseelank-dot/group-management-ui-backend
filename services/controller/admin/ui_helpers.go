@@ -48,7 +48,8 @@ func scanUIResource(scanner interface{ Scan(dest ...any) error }) (uiResource, b
 	var portTo sql.NullInt64
 	var alias sql.NullString
 	var remoteNet sql.NullString
-	if err := scanner.Scan(&res.ID, &res.Name, &res.Type, &res.Address, &protocol, &portFrom, &portTo, &alias, &res.Description, &remoteNet); err != nil {
+	var firewallStatus sql.NullString
+	if err := scanner.Scan(&res.ID, &res.Name, &res.Type, &res.Address, &protocol, &portFrom, &portTo, &alias, &res.Description, &remoteNet, &firewallStatus); err != nil {
 		return uiResource{}, false
 	}
 	res.Protocol = "TCP"
@@ -69,6 +70,10 @@ func scanUIResource(scanner interface{ Scan(dest ...any) error }) (uiResource, b
 	if remoteNet.Valid {
 		res.RemoteNetwork = &remoteNet.String
 	}
+	res.FirewallStatus = "unprotected"
+	if firewallStatus.Valid && firewallStatus.String != "" {
+		res.FirewallStatus = firewallStatus.String
+	}
 	return res, true
 }
 
@@ -88,8 +93,9 @@ func scanUIConnector(scanner interface{ Scan(dest ...any) error }) (uiConnector,
 	var installed sql.NullInt64
 	var lastPolicyVersion sql.NullInt64
 	var privateIP sql.NullString
+	var revoked sql.NullInt64
 	var lastSeenUnix sql.NullInt64
-	if err := scanner.Scan(&c.ID, &name, &status, &version, &hostname, &remoteNetworkID, &lastSeen, &lastSeenAt, &installed, &lastPolicyVersion, &privateIP, &lastSeenUnix); err != nil {
+	if err := scanner.Scan(&c.ID, &name, &status, &version, &hostname, &remoteNetworkID, &lastSeen, &lastSeenAt, &installed, &lastPolicyVersion, &privateIP, &revoked, &lastSeenUnix); err != nil {
 		return uiConnector{}, false
 	}
 	c.PrivateIP = privateIP.String
@@ -101,11 +107,13 @@ func scanUIConnector(scanner interface{ Scan(dest ...any) error }) (uiConnector,
 	if c.Status == "" {
 		c.Status = "offline"
 	}
-	// Derive live status from the last heartbeat timestamp.
-	// If the connector hasn't been seen within the stale threshold, treat it as offline
-	// regardless of what the stored status field says — this handles cases where the
-	// gRPC disconnect handler's UPDATE did not persist or was overwritten.
-	if c.Status == "online" && lastSeenUnix.Valid && lastSeenUnix.Int64 > 0 {
+	if revoked.Valid && revoked.Int64 != 0 {
+		c.Status = "revoked"
+		c.Revoked = true
+	} else if c.Status == "online" && lastSeenUnix.Valid && lastSeenUnix.Int64 > 0 {
+		// Derive live status from the last heartbeat timestamp. If the connector
+		// has not been seen within the stale threshold, treat it as offline even
+		// if the stored status still says online.
 		if time.Since(time.Unix(lastSeenUnix.Int64, 0)) > connectorStaleThreshold {
 			c.Status = "offline"
 		}
@@ -134,6 +142,54 @@ func scanUIConnector(scanner interface{ Scan(dest ...any) error }) (uiConnector,
 		c.LastPolicyVersion = int(lastPolicyVersion.Int64)
 	}
 	return c, true
+}
+
+func scanUIAgent(scanner interface{ Scan(dest ...any) error }) (uiAgent, bool) {
+	var t uiAgent
+	var name sql.NullString
+	var status sql.NullString
+	var version sql.NullString
+	var hostname sql.NullString
+	var remoteNetworkID sql.NullString
+	var connectorID sql.NullString
+	var revoked sql.NullInt64
+	var installed sql.NullInt64
+	var lastSeen sql.NullString
+	var lastSeenAt sql.NullString
+	if err := scanner.Scan(&t.ID, &name, &status, &version, &hostname, &remoteNetworkID, &connectorID, &revoked, &installed, &lastSeen, &lastSeenAt); err != nil {
+		return uiAgent{}, false
+	}
+	t.ConnectorID = connectorID.String
+	t.Name = strings.TrimSpace(name.String)
+	if t.Name == "" {
+		t.Name = t.ID
+	}
+	t.Status = strings.TrimSpace(status.String)
+	if t.Status == "" {
+		t.Status = "offline"
+	}
+	if revoked.Valid && revoked.Int64 != 0 {
+		t.Status = "revoked"
+		t.Revoked = true
+	}
+	t.Version = strings.TrimSpace(version.String)
+	t.Hostname = strings.TrimSpace(hostname.String)
+	t.RemoteNetworkID = strings.TrimSpace(remoteNetworkID.String)
+	t.Installed = installed.Valid && installed.Int64 != 0
+	if lastSeenAt.Valid && lastSeenAt.String != "" {
+		t.LastSeen = lastSeenAt.String
+		t.LastSeenAt = &lastSeenAt.String
+	} else if lastSeen.Valid {
+		if ts, err := strconv.ParseInt(lastSeen.String, 10, 64); err == nil {
+			iso := isoStringFromUnix(ts)
+			t.LastSeen = iso
+			t.LastSeenAt = &iso
+		} else {
+			t.LastSeen = lastSeen.String
+			t.LastSeenAt = &lastSeen.String
+		}
+	}
+	return t, true
 }
 
 func buildPorts(from, to *int) string {

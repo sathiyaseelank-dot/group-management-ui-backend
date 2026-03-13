@@ -37,6 +37,7 @@ type PolicyResource struct {
 	PortFrom          *int     `json:"port_from,omitempty"`
 	PortTo            *int     `json:"port_to,omitempty"`
 	AllowedIdentities []string `json:"allowed_identities"`
+	FirewallStatus    string   `json:"firewall_status"`
 }
 
 // UI helpers (shared with admin UI compile endpoints).
@@ -122,14 +123,22 @@ func lookupConnectorNetwork(db *sql.DB, connectorID string) (string, error) {
 	if err := db.QueryRow(state.Rebind(`SELECT remote_network_id FROM connectors WHERE id = ?`), connectorID).Scan(&networkID); err != nil {
 		return "", err
 	}
-	if !networkID.Valid || strings.TrimSpace(networkID.String) == "" {
+	if networkID.Valid && strings.TrimSpace(networkID.String) != "" {
+		return networkID.String, nil
+	}
+	// Fallback: check the remote_network_connectors junction table
+	var assigned sql.NullString
+	if err := db.QueryRow(state.Rebind(`SELECT network_id FROM remote_network_connectors WHERE connector_id = ? LIMIT 1`), connectorID).Scan(&assigned); err != nil {
 		return "", fmt.Errorf("connector %s has no network", connectorID)
 	}
-	return networkID.String, nil
+	if assigned.Valid && strings.TrimSpace(assigned.String) != "" {
+		return assigned.String, nil
+	}
+	return "", fmt.Errorf("connector %s has no network", connectorID)
 }
 
 func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, error) {
-	rows, err := db.Query(state.Rebind(`SELECT id, type, address, protocol, port_from, port_to FROM resources WHERE remote_network_id = ? ORDER BY id ASC`), remoteNetworkID)
+	rows, err := db.Query(state.Rebind(`SELECT id, type, address, protocol, port_from, port_to, firewall_status FROM resources WHERE remote_network_id = ? ORDER BY id ASC`), remoteNetworkID)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +157,8 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 		var protocol sql.NullString
 		var portFrom sql.NullInt64
 		var portTo sql.NullInt64
-		if err := rows.Scan(&id, &resType, &address, &protocol, &portFrom, &portTo); err != nil {
+		var firewallStatus sql.NullString
+		if err := rows.Scan(&id, &resType, &address, &protocol, &portFrom, &portTo, &firewallStatus); err != nil {
 			return nil, err
 		}
 		identities := []string{}
@@ -164,6 +174,10 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 				idRows.Close()
 			}
 		}
+		fwStatus := "unprotected"
+		if firewallStatus.Valid && firewallStatus.String != "" {
+			fwStatus = firewallStatus.String
+		}
 		res := PolicyResource{
 			ResourceID:        id,
 			Type:              normalizeResourceType(resType, address),
@@ -171,6 +185,7 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 			Port:              0,
 			Protocol:          "TCP",
 			AllowedIdentities: identities,
+			FirewallStatus:    fwStatus,
 		}
 		if protocol.Valid && protocol.String != "" {
 			res.Protocol = protocol.String

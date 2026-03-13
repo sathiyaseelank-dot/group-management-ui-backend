@@ -105,13 +105,20 @@ func main() {
 	defer db.Close()
 
 	registry := state.NewRegistry()
-	tunnelerRegistry := state.NewTunnelerRegistry()
-	tunnelerStatus := state.NewTunnelerStatusRegistry()
+	agentRegistry := state.NewAgentRegistry()
+	agentStatus := state.NewAgentStatusRegistry()
 	aclStore := state.NewACLStoreWithDB(db)
 	tokenStore := state.NewTokenStoreWithDB(0, db)
 	userStore := state.NewUserStore(db)
 	remoteNetStore := state.NewRemoteNetworkStore(db)
 	workspaceStore := state.NewWorkspaceStore(db)
+
+	idpEncKey := []byte(os.Getenv("IDP_ENCRYPTION_KEY"))
+	if len(idpEncKey) == 0 {
+		idpEncKey = []byte(os.Getenv("JWT_SECRET"))
+	}
+	idpStore := state.NewIdentityProviderStore(db, idpEncKey)
+	sessionStore := state.NewSessionStore(db)
 
 	systemDomain := os.Getenv("SYSTEM_DOMAIN")
 	if systemDomain == "" {
@@ -129,9 +136,10 @@ func main() {
 	)
 
 	scanStore := state.NewScanStore()
-	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, tunnelerRegistry, tunnelerStatus, aclStore, db, []byte(policySigningKey), policyTTL, scanStore)
+	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, agentRegistry, agentStatus, aclStore, db, []byte(policySigningKey), policyTTL, scanStore)
 	_ = state.LoadConnectorsFromDB(db, registry)
-	_ = state.LoadTunnelersFromDB(db, tunnelerStatus)
+	_ = state.LoadAgentRegistryFromDB(db, agentRegistry)
+	_ = state.LoadAgentsFromDB(db, agentStatus)
 	_ = state.LoadACLsFromDB(db, aclStore)
 	controlPlaneServer.NotifyACLInit()
 	go func() {
@@ -139,6 +147,16 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			_ = state.PruneAuditLogs(db, time.Now().Add(-24*time.Hour))
+		}
+	}()
+	// Mark connectors and tunnelers offline when their last heartbeat is stale.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			cutoff := time.Now().Add(-45 * time.Second).Unix()
+			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
+			_, _ = db.Exec(state.Rebind(`UPDATE tunnelers  SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
 		}
 	}()
 
@@ -197,7 +215,7 @@ func main() {
 	adminServer := &admin.Server{
 		Tokens:            tokenStore,
 		Reg:               registry,
-		Tunnelers:         tunnelerStatus,
+		Agents:            agentStatus,
 		ACLs:              aclStore,
 		ACLNotify:         controlPlaneServer,
 		Users:             userStore,
@@ -218,9 +236,22 @@ func main() {
 		Workspaces:        workspaceStore,
 		IntermediateCA:    caInst,
 		SystemDomain:      systemDomain,
+		IdPs:              idpStore,
+		Sessions:          sessionStore,
+		SecureCookies:     os.Getenv("SECURE_COOKIES") == "true",
+		AllowedOrigins:    parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
 	}
 	adminServer.RegisterRoutes(adminMux)
 	adminServer.RegisterOAuthRoutes(adminMux)
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := sessionStore.CleanExpired(); err != nil {
+				log.Printf("session cleanup: %v", err)
+			}
+		}
+	}()
 	go func() {
 		log.Printf("admin HTTP server listening %s", adminAddr)
 		if err := http.ListenAndServe(adminAddr, adminMux); err != nil {
@@ -269,6 +300,19 @@ func loadCAFromFiles(certPEM, keyPEM []byte) ([]byte, []byte) {
 		}
 	}
 	return certPEM, keyPEM
+}
+
+func parseAllowedOrigins(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func normalizeTrustDomain(v string) string {

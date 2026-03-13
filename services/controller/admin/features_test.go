@@ -36,7 +36,7 @@ func newTestServer(t *testing.T, db *sql.DB) (*Server, *mockNotifier) {
 	srv := &Server{
 		Tokens:            state.NewTokenStoreWithDB(60, db),
 		Reg:               state.NewRegistry(),
-		Tunnelers:         state.NewTunnelerStatusRegistry(),
+		Agents:            state.NewAgentStatusRegistry(),
 		ACLs:              state.NewACLStoreWithDB(db),
 		ACLNotify:         notify,
 		Users:             state.NewUserStore(db),

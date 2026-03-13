@@ -28,4 +28,10 @@ pub struct PolicyResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port_to: Option<u16>,
     pub allowed_identities: Vec<String>,
+    #[serde(default = "default_firewall_status")]
+    pub firewall_status: String,
+}
+
+fn default_firewall_status() -> String {
+    "unprotected".to_string()
 }

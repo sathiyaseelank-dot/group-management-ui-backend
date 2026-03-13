@@ -27,6 +27,7 @@ router.get('/', async (_req: Request, res: Response) => {
       protocol: r.protocol ?? r.Protocol ?? 'TCP',
       portFrom: r.portFrom ?? r.port_from ?? r.PortFrom,
       portTo: r.portTo ?? r.port_to ?? r.PortTo,
+      firewallStatus: r.firewallStatus ?? r.firewall_status ?? r.FirewallStatus ?? 'unprotected',
     }))
 
     res.json(formatted)
@@ -66,6 +67,33 @@ router.put('/:resourceId', async (req: Request, res: Response) => {
     const result = await proxyToBackend(`/api/resources/${resourceId}`, {
       method: 'PUT',
       body: JSON.stringify(req.body),
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
+// PATCH /api/resources/:resourceId (firewall status toggle)
+router.patch('/:resourceId', async (req: Request, res: Response) => {
+  try {
+    const { resourceId } = req.params
+    const result = await proxyToBackend(`/api/resources/${resourceId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(req.body),
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
+// DELETE /api/resources/:resourceId
+router.delete('/:resourceId', async (req: Request, res: Response) => {
+  try {
+    const { resourceId } = req.params
+    const result = await proxyToBackend(`/api/resources/${resourceId}`, {
+      method: 'DELETE',
     })
     res.json(result)
   } catch (error) {

@@ -50,6 +50,19 @@ router.delete('/:connectorId', async (req: Request, res: Response) => {
   }
 })
 
+// POST /api/connectors/:connectorId/grant
+router.post('/:connectorId/grant', async (req: Request, res: Response) => {
+  try {
+    const { connectorId } = req.params
+    const result = await proxyToBackend(`/api/connectors/${connectorId}/grant`, {
+      method: 'POST',
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
 // POST /api/connectors/:connectorId/revoke
 router.post('/:connectorId/revoke', async (req: Request, res: Response) => {
   try {
