@@ -178,7 +178,7 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			}
 			memRows.Close()
 		}
-		resRows, _ := db.Query(state.Rebind(`SELECT r.id, r.name, r.type, r.address, r.protocol, r.port_from, r.port_to, r.alias, r.description, r.remote_network_id
+		resRows, _ := db.Query(state.Rebind(`SELECT r.id, r.name, r.type, r.address, r.protocol, r.port_from, r.port_to, r.alias, r.description, r.remote_network_id, r.firewall_status
 			FROM access_rules ar
 			JOIN access_rule_groups arg ON arg.rule_id = ar.id
 			JOIN resources r ON r.id = ar.resource_id
