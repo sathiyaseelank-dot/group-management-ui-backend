@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
-import { User } from '@/lib/types';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { User } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -17,8 +17,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { MoreHorizontal } from 'lucide-react';
+} from "@/components/ui/table";
+import { MoreHorizontal } from "lucide-react";
 
 interface UsersListProps {
   users: User[];
@@ -27,7 +27,12 @@ interface UsersListProps {
   onDeleteUser: (user: User) => void;
 }
 
-export function UsersList({ users, onEditUser, onDeactivateUser, onDeleteUser }: UsersListProps) {
+export function UsersList({
+  users,
+  onEditUser,
+  onDeactivateUser,
+  onDeleteUser,
+}: UsersListProps) {
   if (users.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-12 text-center">
@@ -45,7 +50,7 @@ export function UsersList({ users, onEditUser, onDeactivateUser, onDeleteUser }:
             <TableHead className="font-semibold">Email</TableHead>
             <TableHead className="font-semibold">Role</TableHead>
             <TableHead className="font-semibold">Status</TableHead>
-            <TableHead className="font-semibold">Groups</TableHead>
+            <TableHead className="font-semibold">Number of Groups</TableHead>
             <TableHead className="text-right font-semibold">Created</TableHead>
             <TableHead className="text-right font-semibold">Activity</TableHead>
           </TableRow>
@@ -62,15 +67,13 @@ export function UsersList({ users, onEditUser, onDeactivateUser, onDeleteUser }:
               </TableCell>
               <TableCell>
                 <Badge
-                  variant={user.status === 'active' ? 'default' : 'secondary'}
+                  variant={user.status === "active" ? "default" : "secondary"}
                 >
                   {user.status}
                 </Badge>
               </TableCell>
               <TableCell className="text-sm">
-                {user.groups.length > 0
-                  ? `${user.groups.length} group(s)`
-                  : 'No groups'}
+                {user.groups.length > 0 ? `${user.groups.length}` : "No groups"}
               </TableCell>
               <TableCell className="text-right text-sm text-muted-foreground">
                 {user.createdAt}
@@ -78,15 +81,21 @@ export function UsersList({ users, onEditUser, onDeactivateUser, onDeleteUser }:
               <TableCell className="text-right">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" aria-label="Manage user">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Manage user"
+                    >
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => onEditUser(user)}>Edit</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onEditUser(user)}>
+                      Edit
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onDeactivateUser(user)}
-                      disabled={user.status === 'inactive'}
+                      disabled={user.status === "inactive"}
                     >
                       Deactivate
                     </DropdownMenuItem>
