@@ -105,6 +105,11 @@ func (s *SessionStore) UpdateRefreshToken(id, newHash string) error {
 	return err
 }
 
+func (s *SessionStore) UpdateDeviceID(id, deviceID string) error {
+	_, err := s.db.Exec(Rebind(`UPDATE sessions SET device_id = ? WHERE id = ?`), deviceID, id)
+	return err
+}
+
 func (s *SessionStore) CleanExpired() error {
 	_, err := s.db.Exec(Rebind(`DELETE FROM sessions WHERE expires_at < ?`), time.Now().Unix())
 	return err

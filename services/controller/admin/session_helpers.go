@@ -264,7 +264,7 @@ func (s *Server) signAdminJWT(email, userID, wsID, wsSlug, wsRole, sessionID str
 }
 
 // signDeviceJWT creates a device JWT with aud:"device", 15-minute expiry, and jti:sessionID.
-func (s *Server) signDeviceJWT(email, userID, wsID, wsSlug, deviceID, sessionID string) (string, error) {
+func (s *Server) signDeviceJWT(email, userID, wsID, wsSlug, wsRole, deviceID, sessionID string) (string, error) {
 	if len(s.JWTSecret) == 0 {
 		return "", fmt.Errorf("JWT_SECRET not configured")
 	}
@@ -273,6 +273,7 @@ func (s *Server) signDeviceJWT(email, userID, wsID, wsSlug, deviceID, sessionID 
 		"uid":   userID,
 		"wid":   wsID,
 		"wslug": wsSlug,
+		"wrole": wsRole,
 		"aud":   "device",
 		"did":   deviceID,
 		"jti":   sessionID,

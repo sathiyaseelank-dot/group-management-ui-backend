@@ -378,7 +378,12 @@ func (s *Server) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleOAuthCallback handles the redirect from Google after user consent (backward compat wrapper).
+// It also handles the device PKCE flow when the state starts with "device:".
 func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Query().Get("state"), "device:") {
+		s.handleDeviceCallback(w, r)
+		return
+	}
 	s.handleProviderCallback("Google", s.OAuthConfig, fetchGoogleEmail)(w, r)
 }
 

@@ -20,6 +20,25 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
+func lookupWorkspaceMemberRole(db *sql.DB, workspaceID, userID string) string {
+	if db == nil || workspaceID == "" || userID == "" {
+		return "member"
+	}
+	var role string
+	if err := db.QueryRow(
+		state.Rebind(`SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?`),
+		workspaceID,
+		userID,
+	).Scan(&role); err != nil {
+		return "member"
+	}
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		return "member"
+	}
+	return role
+}
+
 // deviceCodeEntry is a one-time code for the device PKCE flow.
 type deviceCodeEntry struct {
 	email         string
@@ -211,14 +230,17 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fallback to env-var config
+	// Fallback to env-var config.
+	// Reuse the registered RedirectURL from the existing OAuth config so the
+	// redirect_uri in the Google auth URL matches what is already registered in
+	// the OAuth provider's console (no extra URI registration required).
 	if authURL == "" {
 		var cfg *oauth2.Config
 		if idpType == "github" && s.GitHubOAuthConfig != nil {
 			cfg = &oauth2.Config{
 				ClientID:     s.GitHubOAuthConfig.ClientID,
 				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
-				RedirectURL:  callbackURI,
+				RedirectURL:  s.GitHubOAuthConfig.RedirectURL,
 				Scopes:       s.GitHubOAuthConfig.Scopes,
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
@@ -226,7 +248,7 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     s.OAuthConfig.ClientID,
 				ClientSecret: s.OAuthConfig.ClientSecret,
-				RedirectURL:  callbackURI,
+				RedirectURL:  s.OAuthConfig.RedirectURL,
 				Scopes:       s.OAuthConfig.Scopes,
 				Endpoint:     s.OAuthConfig.Endpoint,
 			}
@@ -325,7 +347,9 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fallback to env-var OAuth
+	// Fallback to env-var OAuth.
+	// Use the registered RedirectURL so the token exchange URI matches the one
+	// used in the authorization request (required by OAuth 2.0 spec).
 	if emailAddr == "" {
 		var cfg *oauth2.Config
 		var fetchFn func(*http.Client) (string, error)
@@ -333,7 +357,7 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     s.OAuthConfig.ClientID,
 				ClientSecret: s.OAuthConfig.ClientSecret,
-				RedirectURL:  callbackURI,
+				RedirectURL:  s.OAuthConfig.RedirectURL,
 				Scopes:       s.OAuthConfig.Scopes,
 				Endpoint:     s.OAuthConfig.Endpoint,
 			}
@@ -342,7 +366,7 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     s.GitHubOAuthConfig.ClientID,
 				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
-				RedirectURL:  callbackURI,
+				RedirectURL:  s.GitHubOAuthConfig.RedirectURL,
 				Scopes:       s.GitHubOAuthConfig.Scopes,
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
@@ -499,7 +523,8 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sign device JWT (15 min)
-	accessToken, err := s.signDeviceJWT(email, userID, entry.wsID, entry.wsSlug, "", sessionID)
+	wsRole := lookupWorkspaceMemberRole(db, entry.wsID, userID)
+	accessToken, err := s.signDeviceJWT(email, userID, entry.wsID, entry.wsSlug, wsRole, "", sessionID)
 	if err != nil {
 		http.Error(w, "failed to create access token", http.StatusInternalServerError)
 		return
@@ -613,7 +638,8 @@ func (s *Server) handleDeviceRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sign new device JWT
-	accessToken, err := s.signDeviceJWT(email, sess.UserID, sess.WorkspaceID, wsSlug, sess.DeviceID, sess.ID)
+	wsRole := lookupWorkspaceMemberRole(db, sess.WorkspaceID, sess.UserID)
+	accessToken, err := s.signDeviceJWT(email, sess.UserID, sess.WorkspaceID, wsSlug, wsRole, sess.DeviceID, sess.ID)
 	if err != nil {
 		http.Error(w, "failed to create access token", http.StatusInternalServerError)
 		return

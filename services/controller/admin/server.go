@@ -197,7 +197,11 @@ func (s *Server) deviceAuth(next http.Handler) http.Handler {
 			}
 		}
 		ctx := withSessionEmail(r.Context(), claims.email)
-		ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, "member")
+		role := claims.wsRole
+		if strings.TrimSpace(role) == "" {
+			role = "member"
+		}
+		ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, role)
 		ctx = context.WithValue(ctx, contextKey("device_id"), claims.deviceID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

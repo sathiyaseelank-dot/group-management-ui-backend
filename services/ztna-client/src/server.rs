@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use anyhow::{anyhow, Result};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -9,14 +10,24 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use p256::ecdsa::SigningKey;
+use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
+use uuid::Uuid;
 
 use crate::auth::{
-    compute_code_challenge, exchange_device_code, generate_code_verifier, revoke_device_token,
+    compute_code_challenge, enroll_device_cert, exchange_device_code, fetch_device_view,
+    generate_code_verifier, refresh_device_token, revoke_device_token, start_device_auth,
+    sync_device_view, DeviceResource, DeviceUserView,
 };
 use crate::config::Config;
-use crate::token_store::{clear_tokens, load_tokens, save_tokens, StoredTokens};
+use crate::token_store::{
+    clear_workspace_state, list_workspace_states, load_workspace_state, save_workspace_state,
+    StoredDevice, StoredResource, StoredSession, StoredUser, StoredWorkspace, StoredWorkspaceState,
+};
+
+const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone)]
 pub struct AppState {
@@ -32,73 +43,265 @@ pub struct PendingAuth {
 
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
-    pub authenticated: bool,
-    pub workspace: Option<String>,
-    pub expires_at: Option<i64>,
+    pub workspaces: Vec<StoredWorkspaceState>,
+}
+
+#[derive(Debug)]
+struct DeviceMaterial {
+    device_id: String,
+    private_key_pem: String,
+    public_key_pem: String,
+    hostname: String,
+    os: String,
 }
 
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .route("/connect", get(handle_connect))
         .route("/callback", get(handle_callback))
         .route("/status", get(handle_status))
+        .route("/resources", get(handle_resources))
+        .route("/sync", post(handle_sync))
         .route("/disconnect", post(handle_disconnect))
         .with_state(state)
 }
 
-#[derive(Deserialize)]
-struct ConnectQuery {
-    tenant: String,
+fn now_unix() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
-async fn handle_connect(
-    State(state): State<AppState>,
-    Query(q): Query<ConnectQuery>,
-) -> impl IntoResponse {
+fn local_os() -> String {
+    std::env::consts::OS.to_string()
+}
+
+fn local_hostname() -> String {
+    hostname::get()
+        .ok()
+        .and_then(|v| v.into_string().ok())
+        .unwrap_or_else(|| "unknown-host".to_string())
+}
+
+fn map_resources(resources: Vec<DeviceResource>) -> Vec<StoredResource> {
+    resources
+        .into_iter()
+        .map(|res| StoredResource {
+            id: res.id,
+            name: res.name,
+            r#type: res.r#type,
+            address: res.address,
+            protocol: res.protocol,
+            port_from: res.port_from,
+            port_to: res.port_to,
+            alias: res.alias,
+            description: res.description,
+            remote_network_id: res.remote_network_id,
+            remote_network_name: res.remote_network_name,
+            firewall_status: res.firewall_status,
+        })
+        .collect()
+}
+
+fn build_workspace_state(
+    view: DeviceUserView,
+    access_token: String,
+    refresh_token: String,
+    token_expires_at: i64,
+    device: StoredDevice,
+) -> StoredWorkspaceState {
+    StoredWorkspaceState {
+        workspace: StoredWorkspace {
+            id: view.workspace.id,
+            name: view.workspace.name,
+            slug: view.workspace.slug,
+            trust_domain: view.workspace.trust_domain,
+        },
+        user: StoredUser {
+            id: view.user.id,
+            email: view.user.email,
+            role: view.user.role,
+        },
+        device,
+        session: StoredSession {
+            id: view.session.id,
+            access_token,
+            refresh_token,
+            expires_at: token_expires_at,
+        },
+        resources: map_resources(view.resources),
+        last_sync_at: view.synced_at,
+    }
+}
+
+fn existing_device_material(existing: Option<&StoredWorkspaceState>) -> Result<DeviceMaterial> {
+    if let Some(existing) = existing {
+        if !existing.device.id.is_empty() && !existing.device.private_key_pem.is_empty() {
+            let signing_key = SigningKey::from_pkcs8_pem(&existing.device.private_key_pem)?;
+            let verifying_key = signing_key.verifying_key();
+            return Ok(DeviceMaterial {
+                device_id: existing.device.id.clone(),
+                private_key_pem: existing.device.private_key_pem.clone(),
+                public_key_pem: verifying_key.to_public_key_pem(LineEnding::LF)?,
+                hostname: existing.device.hostname.clone(),
+                os: existing.device.os.clone(),
+            });
+        }
+    }
+
+    let signing_key = SigningKey::from(&p256::SecretKey::random(&mut rand::rngs::OsRng));
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF)?.to_string();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)?;
+    Ok(DeviceMaterial {
+        device_id: Uuid::new_v4().to_string(),
+        private_key_pem,
+        public_key_pem,
+        hostname: local_hostname(),
+        os: local_os(),
+    })
+}
+
+async fn enroll_and_sync(
+    config: &Config,
+    _tenant_slug: &str,
+    access_token: String,
+    refresh_token: String,
+    token_expires_at: i64,
+    existing: Option<&StoredWorkspaceState>,
+) -> Result<StoredWorkspaceState> {
+    let material = existing_device_material(existing)?;
+    let enroll = enroll_device_cert(
+        &config.controller_url,
+        &access_token,
+        &material.device_id,
+        &material.public_key_pem,
+        &material.hostname,
+        &material.os,
+        CLIENT_VERSION,
+    )
+    .await?;
+    let view = fetch_device_view(&config.controller_url, &enroll.access_token).await?;
+    Ok(build_workspace_state(
+        view,
+        enroll.access_token,
+        refresh_token,
+        token_expires_at,
+        StoredDevice {
+            id: enroll.device_id,
+            spiffe_id: enroll.spiffe_id,
+            certificate_pem: enroll.certificate_pem,
+            private_key_pem: material.private_key_pem,
+            ca_cert_pem: enroll.ca_cert_pem,
+            cert_expires_at: enroll.expires_at,
+            hostname: material.hostname,
+            os: material.os,
+            client_version: CLIENT_VERSION.to_string(),
+        },
+    ))
+}
+
+pub async fn begin_login(state: &AppState, tenant_slug: &str) -> Result<String> {
     let code_verifier = generate_code_verifier();
     let code_challenge = compute_code_challenge(&code_verifier);
+    let redirect_uri = format!("http://localhost:{}/callback", state.config.port);
 
-    let port = state.config.port;
-    let redirect_uri = format!("http://localhost:{}/callback", port);
-
-    let auth_result = crate::auth::start_device_auth(
+    let auth = start_device_auth(
         &state.config.controller_url,
-        &q.tenant,
+        tenant_slug,
         &code_challenge,
         &redirect_uri,
     )
-    .await;
+    .await?;
 
-    match auth_result {
-        Ok(resp) => {
-            // Store the code_verifier keyed by state
-            {
-                let mut pending = state.pending.lock().unwrap();
-                pending.insert(
-                    resp.state.clone(),
-                    PendingAuth {
-                        code_verifier,
-                        tenant_slug: q.tenant.clone(),
-                    },
-                );
-            }
-
-            // Open browser
-            if let Err(e) = open::that(&resp.auth_url) {
-                error!("failed to open browser: {}", e);
-            }
-
-            Html("<html><body><p>Authenticating... Please check your browser.</p></body></html>".to_string()).into_response()
-        }
-        Err(e) => {
-            error!("device auth failed: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Html(format!("<html><body><p>Error: {}</p></body></html>", e)),
-            )
-                .into_response()
-        }
+    {
+        let mut pending = state.pending.lock().unwrap();
+        pending.insert(
+            auth.state.clone(),
+            PendingAuth {
+                code_verifier,
+                tenant_slug: tenant_slug.to_string(),
+            },
+        );
     }
+
+    if let Err(err) = open::that(&auth.auth_url) {
+        error!("failed to open browser: {}", err);
+    }
+    Ok(auth.auth_url)
+}
+
+pub async fn wait_for_login(tenant_slug: &str, timeout: Duration) -> Result<StoredWorkspaceState> {
+    let started = std::time::Instant::now();
+    while started.elapsed() < timeout {
+        if let Some(state) = load_workspace_state(tenant_slug) {
+            return Ok(state);
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    Err(anyhow!("login timed out after {:?}", timeout))
+}
+
+pub async fn ensure_workspace_state(
+    config: &Config,
+    tenant_slug: &str,
+    force_sync: bool,
+) -> Result<StoredWorkspaceState> {
+    let mut state = load_workspace_state(tenant_slug)
+        .ok_or_else(|| anyhow!("no saved workspace state for {}", tenant_slug))?;
+    let now = now_unix();
+
+    if state.session.expires_at <= now + 60 {
+        let refreshed =
+            refresh_device_token(&config.controller_url, &state.session.refresh_token).await?;
+        state.session.access_token = refreshed.access_token;
+        state.session.refresh_token = refreshed.refresh_token;
+        state.session.expires_at = now + refreshed.expires_in;
+    }
+
+    if state.device.certificate_pem.trim().is_empty() || state.device.cert_expires_at <= now + 300 {
+        state = enroll_and_sync(
+            config,
+            tenant_slug,
+            state.session.access_token.clone(),
+            state.session.refresh_token.clone(),
+            state.session.expires_at,
+            Some(&state),
+        )
+        .await?;
+        save_workspace_state(tenant_slug, &state)?;
+        return Ok(state);
+    }
+
+    if force_sync || state.last_sync_at <= now - 60 || state.resources.is_empty() {
+        let view = sync_device_view(&config.controller_url, &state.session.access_token).await?;
+        state.workspace = StoredWorkspace {
+            id: view.workspace.id,
+            name: view.workspace.name,
+            slug: view.workspace.slug,
+            trust_domain: view.workspace.trust_domain,
+        };
+        state.user = StoredUser {
+            id: view.user.id,
+            email: view.user.email,
+            role: view.user.role,
+        };
+        state.session.id = view.session.id;
+        state.resources = map_resources(view.resources);
+        state.last_sync_at = view.synced_at;
+    }
+
+    save_workspace_state(tenant_slug, &state)?;
+    Ok(state)
+}
+
+pub async fn disconnect_workspace(config: &Config, tenant_slug: &str) -> Result<()> {
+    if let Some(state) = load_workspace_state(tenant_slug) {
+        revoke_device_token(&config.controller_url, &state.session.refresh_token).await?;
+    }
+    clear_workspace_state(tenant_slug);
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -122,9 +325,7 @@ async fn handle_callback(
     let code = match q.code {
         Some(c) => c,
         None => {
-            return Html(
-                "<html><body><p>Missing authorization code.</p></body></html>".to_string(),
-            )
+            return Html("<html><body><p>Missing authorization code.</p></body></html>".to_string())
         }
     };
     let oauth_state = match q.state {
@@ -134,19 +335,15 @@ async fn handle_callback(
         }
     };
 
-    let pending_auth = {
+    let pending = {
         let mut pending = state.pending.lock().unwrap();
         pending.remove(&oauth_state)
     };
-
-    let pending = match pending_auth {
-        Some(p) => p,
-        None => {
-            return Html(
-                "<html><body><p>Unknown or expired state. Please try again.</p></body></html>"
-                    .to_string(),
-            )
-        }
+    let Some(pending) = pending else {
+        return Html(
+            "<html><body><p>Unknown or expired state. Please try again.</p></body></html>"
+                .to_string(),
+        );
     };
 
     match exchange_device_code(
@@ -158,73 +355,104 @@ async fn handle_callback(
     .await
     {
         Ok(tokens) => {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
-
-            let stored = StoredTokens {
-                access_token: tokens.access_token,
-                refresh_token: tokens.refresh_token,
-                workspace_name: pending.tenant_slug.clone(),
-                workspace_slug: pending.tenant_slug.clone(),
-                expires_at: now + tokens.expires_in,
-            };
-
-            if let Err(e) = save_tokens(&pending.tenant_slug, &stored) {
-                error!("failed to save tokens: {}", e);
+            let token_expires_at = now_unix() + tokens.expires_in;
+            let existing = load_workspace_state(&pending.tenant_slug);
+            match enroll_and_sync(
+                &state.config,
+                &pending.tenant_slug,
+                tokens.access_token,
+                tokens.refresh_token,
+                token_expires_at,
+                existing.as_ref(),
+            )
+            .await
+            {
+                Ok(stored) => {
+                    if let Err(err) = save_workspace_state(&pending.tenant_slug, &stored) {
+                        error!("failed to save workspace state: {}", err);
+                    }
+                    info!("authenticated to workspace: {}", pending.tenant_slug);
+                    Html(format!(
+                        "<html><body><h2>Connected to {}.</h2><p>You can close this tab and return to the terminal.</p></body></html>",
+                        pending.tenant_slug
+                    ))
+                }
+                Err(err) => {
+                    error!("post-login device setup failed: {}", err);
+                    Html(format!(
+                        "<html><body><p>Authentication succeeded, but device setup failed: {}</p></body></html>",
+                        err
+                    ))
+                }
             }
-
-            info!("authenticated to workspace: {}", pending.tenant_slug);
-            Html(format!(
-                "<html><body><h2>Connected to {}!</h2><p>You can close this tab.</p></body></html>",
-                pending.tenant_slug
-            ))
         }
-        Err(e) => {
-            error!("token exchange failed: {}", e);
+        Err(err) => {
+            error!("token exchange failed: {}", err);
             Html(format!(
                 "<html><body><p>Authentication failed: {}</p></body></html>",
-                e
+                err
             ))
         }
     }
 }
 
-async fn handle_status(State(_state): State<AppState>) -> Json<StatusResponse> {
-    // Look for any stored tokens - simplified: check for common slugs
-    // In practice, the client would need to know which tenant to check
-    Json(StatusResponse {
-        authenticated: false,
-        workspace: None,
-        expires_at: None,
-    })
+async fn handle_status() -> Json<StatusResponse> {
+    let workspaces = list_workspace_states().unwrap_or_default();
+    Json(StatusResponse { workspaces })
+}
+
+#[derive(Deserialize)]
+struct TenantQuery {
+    tenant: Option<String>,
+}
+
+async fn handle_resources(Query(q): Query<TenantQuery>) -> impl IntoResponse {
+    let Some(tenant) = q.tenant else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "tenant query parameter required" })),
+        )
+            .into_response();
+    };
+    match load_workspace_state(&tenant) {
+        Some(state) => Json(serde_json::json!({ "resources": state.resources })).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "workspace state not found" })),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(Deserialize)]
 struct DisconnectRequest {
-    tenant: Option<String>,
+    tenant: String,
+}
+
+async fn handle_sync(
+    State(state): State<AppState>,
+    Json(body): Json<DisconnectRequest>,
+) -> impl IntoResponse {
+    match ensure_workspace_state(&state.config, &body.tenant, true).await {
+        Ok(synced) => Json(serde_json::json!({ "workspace": synced.workspace.slug, "resources": synced.resources })).into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": err.to_string() })),
+        )
+            .into_response(),
+    }
 }
 
 async fn handle_disconnect(
     State(state): State<AppState>,
     Json(body): Json<DisconnectRequest>,
 ) -> impl IntoResponse {
-    let tenant = match body.tenant {
-        Some(t) => t,
-        None => {
-            return Json(serde_json::json!({ "status": "error", "message": "tenant required" }))
-        }
-    };
-
-    if let Some(tokens) = load_tokens(&tenant) {
-        if let Err(e) =
-            revoke_device_token(&state.config.controller_url, &tokens.refresh_token).await
-        {
-            error!("revoke failed: {}", e);
-        }
-        clear_tokens(&tenant);
+    match disconnect_workspace(&state.config, &body.tenant).await {
+        Ok(()) => Json(serde_json::json!({ "status": "disconnected" })).into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": err.to_string() })),
+        )
+            .into_response(),
     }
-
-    Json(serde_json::json!({ "status": "disconnected" }))
 }

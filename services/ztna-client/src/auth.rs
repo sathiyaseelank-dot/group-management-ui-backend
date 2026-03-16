@@ -29,15 +29,84 @@ pub struct TokenResponse {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_in: i64,
-    #[serde(default)]
-    pub acl: serde_json::Value,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct RefreshResponse {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_in: i64,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub struct DeviceUserView {
+    pub user: DeviceUser,
+    pub workspace: DeviceWorkspace,
+    pub device: DeviceSummary,
+    pub session: DeviceSession,
+    #[serde(default)]
+    pub resources: Vec<DeviceResource>,
+    pub synced_at: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeviceUser {
+    pub id: String,
+    pub email: String,
+    pub role: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeviceWorkspace {
+    pub id: String,
+    pub name: String,
+    pub slug: String,
+    pub trust_domain: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub struct DeviceSummary {
+    pub id: String,
+    pub certificate_issued: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub struct DeviceSession {
+    pub id: String,
+    pub expires_at: i64,
+    #[serde(default)]
+    pub access_token_expires_at_hint: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeviceResource {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub address: String,
+    pub protocol: String,
+    pub port_from: Option<i32>,
+    pub port_to: Option<i32>,
+    pub alias: Option<String>,
+    pub description: String,
+    pub remote_network_id: String,
+    pub remote_network_name: String,
+    pub firewall_status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnrollCertResponse {
+    pub device_id: String,
+    pub spiffe_id: String,
+    pub certificate_pem: String,
+    pub ca_cert_pem: String,
+    pub expires_at: i64,
+    pub access_token: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,6 +122,15 @@ struct TokenRequest<'a> {
     code: &'a str,
     code_verifier: &'a str,
     state: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct EnrollCertRequest<'a> {
+    device_id: &'a str,
+    public_key_pem: &'a str,
+    hostname: &'a str,
+    os: &'a str,
+    client_version: &'a str,
 }
 
 pub async fn start_device_auth(
@@ -122,15 +200,73 @@ pub async fn refresh_device_token(
     Ok(resp.json::<RefreshResponse>().await?)
 }
 
-pub async fn revoke_device_token(
-    controller_url: &str,
-    refresh_token: &str,
-) -> Result<()> {
+pub async fn revoke_device_token(controller_url: &str, refresh_token: &str) -> Result<()> {
     let client = Client::new();
-    let _ = client
+    let resp = client
         .post(format!("{}/api/device/revoke", controller_url))
         .json(&serde_json::json!({ "refresh_token": refresh_token }))
         .send()
         .await?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("revoke failed: {}", text));
+    }
     Ok(())
+}
+
+pub async fn fetch_device_view(controller_url: &str, access_token: &str) -> Result<DeviceUserView> {
+    let client = Client::new();
+    let resp = client
+        .get(format!("{}/api/device/me", controller_url))
+        .bearer_auth(access_token)
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("fetch device view failed: {}", text));
+    }
+    Ok(resp.json::<DeviceUserView>().await?)
+}
+
+pub async fn sync_device_view(controller_url: &str, access_token: &str) -> Result<DeviceUserView> {
+    let client = Client::new();
+    let resp = client
+        .post(format!("{}/api/device/sync", controller_url))
+        .bearer_auth(access_token)
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("sync device view failed: {}", text));
+    }
+    Ok(resp.json::<DeviceUserView>().await?)
+}
+
+pub async fn enroll_device_cert(
+    controller_url: &str,
+    access_token: &str,
+    device_id: &str,
+    public_key_pem: &str,
+    hostname: &str,
+    os: &str,
+    client_version: &str,
+) -> Result<EnrollCertResponse> {
+    let client = Client::new();
+    let resp = client
+        .post(format!("{}/api/device/enroll-cert", controller_url))
+        .bearer_auth(access_token)
+        .json(&EnrollCertRequest {
+            device_id,
+            public_key_pem,
+            hostname,
+            os,
+            client_version,
+        })
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("device cert enrollment failed: {}", text));
+    }
+    Ok(resp.json::<EnrollCertResponse>().await?)
 }
