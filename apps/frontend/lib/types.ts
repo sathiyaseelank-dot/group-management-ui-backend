@@ -98,6 +98,7 @@ export interface Agent {
   hostname: string;
   remoteNetworkId: string; // The remote network this agent is part of
   connectorId?: string;
+  connectorName?: string;
   revoked?: boolean;
   installed?: boolean;
   lastSeen?: string;

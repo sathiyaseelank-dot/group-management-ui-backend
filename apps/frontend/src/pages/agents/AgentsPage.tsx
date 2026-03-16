@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { getAgents } from '@/lib/mock-api';
 import { Agent } from '@/lib/types';
 import { AgentsList } from '@/components/dashboard/agents/agents-list';
+import { AddTunnelerModal } from '@/components/dashboard/agents/add-tunneler-modal';
 import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function AgentsPage() {
-  const navigate = useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
     const loadAgents = async () => {
@@ -44,7 +44,7 @@ export default function AgentsPage() {
             Manage resource agents for secure access to network resources
           </p>
         </div>
-        <Button className="gap-2" onClick={() => navigate('/dashboard/agents/new')}>
+        <Button className="gap-2" onClick={() => setShowAddModal(true)}>
           <Plus className="h-4 w-4" />
           Add Agent
         </Button>
@@ -54,6 +54,15 @@ export default function AgentsPage() {
       <AgentsList
         agents={agents}
         onRevoked={(id) => setAgents((prev) => prev.filter((t) => t.id !== id))}
+      />
+
+      <AddTunnelerModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onTunnelerAdded={async () => {
+          const data = await getAgents();
+          setAgents(data);
+        }}
       />
     </div>
   );

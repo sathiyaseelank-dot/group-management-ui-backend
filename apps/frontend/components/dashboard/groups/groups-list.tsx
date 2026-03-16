@@ -26,6 +26,13 @@ interface GroupsListProps {
   onDeleteGroup: (group: Group) => void;
 }
 
+function formatDate(value?: string): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
 export function GroupsList({ groups, onEditGroup, onDeleteGroup }: GroupsListProps) {
   if (groups.length === 0) {
     return (
@@ -63,10 +70,10 @@ export function GroupsList({ groups, onEditGroup, onDeleteGroup }: GroupsListPro
                 {group.resourceCount}
               </TableCell>
               <TableCell className="text-right text-sm text-muted-foreground">
-                {group.createdAt}
+                {formatDate(group.createdAt)}
               </TableCell>
               <TableCell className="text-right text-sm text-muted-foreground">
-                {group.updatedAt ?? '—'}
+                {formatDate(group.updatedAt)}
               </TableCell>
               <TableCell className="text-right">
                 <DropdownMenu>

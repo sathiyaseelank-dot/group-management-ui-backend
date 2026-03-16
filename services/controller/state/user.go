@@ -167,12 +167,32 @@ func (s *UserStore) UpdateGroup(g *UserGroup) error {
 }
 
 func (s *UserStore) DeleteGroup(id string) error {
-	_, err := s.db.Exec(Rebind(`DELETE FROM user_groups WHERE id = ?`), id)
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	_, _ = s.db.Exec(Rebind(`DELETE FROM user_group_members WHERE group_id = ?`), id)
-	return nil
+	if _, err := tx.Exec(Rebind(`DELETE FROM user_group_members WHERE group_id = ?`), id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(Rebind(`DELETE FROM access_rule_groups WHERE group_id = ?`), id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(Rebind(`DELETE FROM access_rules WHERE id IN (
+		SELECT ar.id
+		FROM access_rules ar
+		LEFT JOIN access_rule_groups arg ON arg.rule_id = ar.id
+		WHERE arg.rule_id IS NULL
+	)`)); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(Rebind(`DELETE FROM user_groups WHERE id = ?`), id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *UserStore) ListGroupMembers(groupID string) ([]User, error) {

@@ -38,6 +38,13 @@ interface RemoteNetworksListProps {
   onNetworkDeleted?: () => void;
 }
 
+function formatDate(value: string | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
 export function RemoteNetworksList({ networks, onNetworkDeleted }: RemoteNetworksListProps) {
   const [deleteTarget, setDeleteTarget] = useState<RemoteNetwork | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -125,7 +132,7 @@ export function RemoteNetworksList({ networks, onNetworkDeleted }: RemoteNetwork
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right text-sm text-muted-foreground">
-                    {network.updatedAt}
+                    {formatDate(network.updatedAt)}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>

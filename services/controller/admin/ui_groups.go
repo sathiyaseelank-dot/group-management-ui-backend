@@ -21,7 +21,8 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 		wsID := workspaceIDFromContext(r.Context())
 		wsClause, wsArgs := wsWhereOnly(wsID, "")
 		rows, err := db.Query(state.Rebind(`SELECT id, name, description,
-			CAST(created_at AS TEXT) as created_at
+			CAST(created_at AS TEXT) as created_at,
+			CAST(updated_at AS TEXT) as updated_at
 			FROM user_groups`+wsClause+` ORDER BY name ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list groups", http.StatusInternalServerError)
@@ -41,8 +42,8 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 		out := []uiGroup{}
 		for rows.Next() {
 			var id, name, desc string
-			var created sql.NullString
-			if err := rows.Scan(&id, &name, &desc, &created); err != nil {
+			var created, updated sql.NullString
+			if err := rows.Scan(&id, &name, &desc, &created, &updated); err != nil {
 				http.Error(w, "failed to read groups", http.StatusInternalServerError)
 				return
 			}
@@ -58,6 +59,10 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 			if created.Valid {
 				createdAt = created.String
 			}
+			updatedAt := ""
+			if updated.Valid {
+				updatedAt = updated.String
+			}
 			out = append(out, uiGroup{
 				ID:            id,
 				Name:          name,
@@ -67,6 +72,7 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 				MemberCount:   memberCount,
 				ResourceCount: resourceCount,
 				CreatedAt:     createdAt,
+				UpdatedAt:     updatedAt,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -141,6 +147,12 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			}
 			_, _ = tx.Exec(state.Rebind(`DELETE FROM user_group_members WHERE group_id = ?`), groupID)
 			_, _ = tx.Exec(state.Rebind(`DELETE FROM access_rule_groups WHERE group_id = ?`), groupID)
+			_, _ = tx.Exec(state.Rebind(`DELETE FROM access_rules WHERE id IN (
+				SELECT ar.id
+				FROM access_rules ar
+				LEFT JOIN access_rule_groups arg ON arg.rule_id = ar.id
+				WHERE arg.rule_id IS NULL
+			)`))
 			if _, err := tx.Exec(state.Rebind(`DELETE FROM user_groups WHERE id = ?`), groupID); err != nil {
 				_ = tx.Rollback()
 				http.Error(w, "failed to delete group", http.StatusInternalServerError)
@@ -159,11 +171,12 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		row := db.QueryRow(state.Rebind(`SELECT id, name, description,
-			CAST(created_at AS TEXT) as created_at
+			CAST(created_at AS TEXT) as created_at,
+			CAST(updated_at AS TEXT) as updated_at
 			FROM user_groups WHERE id = ?`), groupID)
 		var id, name, desc string
-		var created sql.NullString
-		if err := row.Scan(&id, &name, &desc, &created); err != nil {
+		var created, updated sql.NullString
+		if err := row.Scan(&id, &name, &desc, &created, &updated); err != nil {
 			writeJSON(w, http.StatusOK, map[string]interface{}{"group": nil, "members": []uiGroupMember{}, "resources": []uiResource{}})
 			return
 		}
@@ -198,6 +211,10 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 		if created.Valid {
 			createdAt = created.String
 		}
+		updatedAt := ""
+		if updated.Valid {
+			updatedAt = updated.String
+		}
 		group := uiGroup{
 			ID:            id,
 			Name:          name,
@@ -207,6 +224,7 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			MemberCount:   len(members),
 			ResourceCount: len(resources),
 			CreatedAt:     createdAt,
+			UpdatedAt:     updatedAt,
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"group":     group,

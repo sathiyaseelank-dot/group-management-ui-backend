@@ -19,8 +19,8 @@ func (s *Server) handleUIAgents(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		wsID := workspaceIDFromContext(r.Context())
-		wsClause, wsArgs := wsWhereOnly(wsID, "")
-		rows, err := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, connector_id, revoked, installed, CAST(last_seen AS TEXT) as last_seen, last_seen_at FROM tunnelers`+wsClause+` ORDER BY name ASC`), wsArgs...)
+		wsClauseWithAlias, wsArgsWithAlias := wsWhereOnly(wsID, "t")
+		rows, err := db.Query(state.Rebind(`SELECT t.id, t.name, t.status, t.version, t.hostname, t.remote_network_id, t.connector_id, COALESCE(c.name, '') as connector_name, t.revoked, t.installed, CAST(t.last_seen AS TEXT) as last_seen, t.last_seen_at FROM tunnelers t LEFT JOIN connectors c ON t.connector_id = c.id`+wsClauseWithAlias+` ORDER BY t.name ASC`), wsArgsWithAlias...)
 		if err != nil {
 			http.Error(w, "failed to list agents", http.StatusInternalServerError)
 			return
@@ -86,7 +86,7 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		row := db.QueryRow(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, connector_id, revoked, installed, CAST(last_seen AS TEXT) as last_seen, last_seen_at FROM tunnelers WHERE id = ?`), agentID)
+		row := db.QueryRow(state.Rebind(`SELECT t.id, t.name, t.status, t.version, t.hostname, t.remote_network_id, t.connector_id, COALESCE(c.name, '') as connector_name, t.revoked, t.installed, CAST(t.last_seen AS TEXT) as last_seen, t.last_seen_at FROM tunnelers t LEFT JOIN connectors c ON t.connector_id = c.id WHERE t.id = ?`), agentID)
 		agent, ok := scanUIAgent(row)
 		if !ok {
 			writeJSON(w, http.StatusOK, map[string]interface{}{

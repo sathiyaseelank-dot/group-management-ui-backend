@@ -14,6 +14,13 @@ interface ConnectorLogsProps {
   logs: LogEntry[];
 }
 
+function formatDate(value: string): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
 export function ConnectorLogs({ logs }: ConnectorLogsProps) {
   return (
     <Card>
@@ -35,7 +42,7 @@ export function ConnectorLogs({ logs }: ConnectorLogsProps) {
               <div className="space-y-2">
                 {logs.map((log) => (
                   <div key={log.id} className="flex gap-4 font-mono text-xs">
-                    <span className="text-muted-foreground">{log.timestamp}</span>
+                    <span className="text-muted-foreground">{formatDate(log.timestamp)}</span>
                     <span>{log.message}</span>
                   </div>
                 )).reverse()}

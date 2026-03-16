@@ -56,7 +56,7 @@ export function AgentsList({ agents, onRevoked }: AgentsListProps) {
             <TableHead className="font-semibold">Status</TableHead>
             <TableHead className="font-semibold">Version</TableHead>
             <TableHead className="font-semibold">Hostname</TableHead>
-            <TableHead className="font-semibold">Remote Network</TableHead>
+            <TableHead className="font-semibold">Connector</TableHead>
             <TableHead className="text-right font-semibold">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -90,10 +90,10 @@ export function AgentsList({ agents, onRevoked }: AgentsListProps) {
                 {agent.hostname || '—'}
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
-                {agent.remoteNetworkId ? (
-                  <Link to={`/dashboard/remote-networks/${agent.remoteNetworkId}`}>
+                {agent.connectorId ? (
+                  <Link to={`/dashboard/connectors/${agent.connectorId}`}>
                     <Button variant="link" size="sm" className="px-0">
-                      {agent.remoteNetworkId}
+                      {agent.connectorName || agent.connectorId}
                     </Button>
                   </Link>
                 ) : (

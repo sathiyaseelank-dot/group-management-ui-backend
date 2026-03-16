@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { pingConnector } from '@/lib/mock-api';
-import { ConnectorDiagnostic, PingResult } from '@/lib/types';
+import { ConnectorDiagnostic, PingResult, TunnelerDiagnostic } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +9,7 @@ import { Loader2, Wifi, WifiOff } from 'lucide-react';
 
 interface Props {
   connectors: ConnectorDiagnostic[];
+  tunnelers: TunnelerDiagnostic[];
 }
 
 function formatStaleness(seconds: number): string {
@@ -19,12 +20,13 @@ function formatStaleness(seconds: number): string {
   return `${Math.round(seconds / 86400)}d ago`;
 }
 
-export function ConnectivityPanel({ connectors }: Props) {
+export function ConnectivityPanel({ connectors, tunnelers }: Props) {
   const [pingResults, setPingResults] = useState<Record<string, PingResult>>({});
   const [pinging, setPinging] = useState<Record<string, boolean>>({});
 
   const onlineCount = connectors.filter((c) => c.status === 'online').length;
   const streamActiveCount = Object.values(pingResults).filter((r) => r.streamActive).length;
+  const onlineTunnelerCount = tunnelers.filter((t) => t.status === 'online').length;
 
   const handlePing = async (id: string) => {
     setPinging((prev) => ({ ...prev, [id]: true }));
@@ -40,7 +42,7 @@ export function ConnectivityPanel({ connectors }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Connectors</CardTitle>
@@ -65,9 +67,20 @@ export function ConnectivityPanel({ connectors }: Props) {
             <p className="text-2xl font-bold text-blue-600">{streamActiveCount}</p>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Agents Online</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-violet-600">{onlineTunnelerCount}</p>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Connectors</CardTitle>
+        </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -145,6 +158,45 @@ export function ConnectivityPanel({ connectors }: Props) {
                   </TableRow>
                 );
               })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Agents</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Last Seen</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tunnelers.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                    No agents found
+                  </TableCell>
+                </TableRow>
+              )}
+              {tunnelers.map((tunneler) => (
+                <TableRow key={tunneler.id}>
+                  <TableCell className="font-medium">{tunneler.name || tunneler.id}</TableCell>
+                  <TableCell>
+                    <Badge variant={tunneler.status === 'online' ? 'default' : 'secondary'}>
+                      {tunneler.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {tunneler.lastSeenAt ? new Date(tunneler.lastSeenAt).toLocaleString() : 'Never'}
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </CardContent>

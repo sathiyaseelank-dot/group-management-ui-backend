@@ -18,6 +18,7 @@ import policyRouter from './routes/policy'
 import auditLogsRouter from './routes/audit-logs'
 import discoveryRouter from './routes/discovery'
 import workspacesRouter from './routes/workspaces'
+import diagnosticsRouter from './routes/diagnostics'
 
 const app = express()
 
@@ -39,6 +40,7 @@ app.use('/api/policy', policyRouter)
 app.use('/api/audit-logs', auditLogsRouter)
 app.use('/api/discovery', discoveryRouter)
 app.use('/api/workspaces', workspacesRouter)
+app.use('/api/diagnostics', diagnosticsRouter)
 
 // POST /api/auth/logout — forwards to controller OAuth logout, then signals client to clear token
 app.post('/api/auth/logout', async (_req: Request, res: Response) => {

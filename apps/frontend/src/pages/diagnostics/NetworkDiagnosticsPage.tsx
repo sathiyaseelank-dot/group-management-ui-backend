@@ -41,7 +41,10 @@ export default function NetworkDiagnosticsPage() {
         </TabsList>
 
         <TabsContent value="connectivity" className="mt-4">
-          <ConnectivityPanel connectors={data?.connectors ?? []} />
+          <ConnectivityPanel
+            connectors={data?.connectors ?? []}
+            tunnelers={data?.tunnelers ?? []}
+          />
         </TabsContent>
 
         <TabsContent value="trace" className="mt-4">

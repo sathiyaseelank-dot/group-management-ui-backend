@@ -24,6 +24,7 @@ type uiGroup struct {
 	MemberCount   int    `json:"memberCount"`
 	ResourceCount int    `json:"resourceCount"`
 	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
 }
 
 type uiGroupMember struct {
@@ -96,6 +97,7 @@ type uiAgent struct {
 	Hostname        string  `json:"hostname"`
 	RemoteNetworkID string  `json:"remoteNetworkId"`
 	ConnectorID     string  `json:"connectorId"`
+	ConnectorName   string  `json:"connectorName"`
 	Revoked         bool    `json:"revoked"`
 	Installed       bool    `json:"installed"`
 	LastSeen        string  `json:"lastSeen"`
