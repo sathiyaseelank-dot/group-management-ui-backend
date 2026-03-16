@@ -117,27 +117,11 @@ router.get('/:groupId/members', async (req: Request, res: Response) => {
 router.post('/:groupId/members', async (req: Request, res: Response) => {
   try {
     const { groupId } = req.params
-    const body = req.body
-    if (Array.isArray(body?.memberIds)) {
-      const results: unknown[] = []
-      for (const memberId of body.memberIds) {
-        if (!memberId) continue
-        const result = await proxyToBackend(`/api/admin/user-groups/${groupId}/members`, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: memberId }),
-        })
-        results.push(result)
-      }
-      return res.json({ status: 'ok', added: results.length })
-    }
-    if (body?.user_id) {
-      const result = await proxyToBackend(`/api/admin/user-groups/${groupId}/members`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      })
-      return res.json(result)
-    }
-    res.status(400).json({ error: 'user_id required' })
+    const result = await proxyToBackend(`/api/groups/${groupId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(req.body),
+    })
+    res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
   }
@@ -147,9 +131,8 @@ router.post('/:groupId/members', async (req: Request, res: Response) => {
 router.delete('/:groupId/members/:userId', async (req: Request, res: Response) => {
   try {
     const { groupId, userId } = req.params
-    const result = await proxyToBackend(`/api/admin/user-groups/${groupId}/members`, {
+    const result = await proxyToBackend(`/api/groups/${groupId}/members/${userId}`, {
       method: 'DELETE',
-      body: JSON.stringify({ user_id: userId }),
     })
     res.json(result)
   } catch (error) {

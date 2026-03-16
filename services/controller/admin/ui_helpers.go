@@ -152,14 +152,16 @@ func scanUIAgent(scanner interface{ Scan(dest ...any) error }) (uiAgent, bool) {
 	var hostname sql.NullString
 	var remoteNetworkID sql.NullString
 	var connectorID sql.NullString
+	var connectorName sql.NullString
 	var revoked sql.NullInt64
 	var installed sql.NullInt64
 	var lastSeen sql.NullString
 	var lastSeenAt sql.NullString
-	if err := scanner.Scan(&t.ID, &name, &status, &version, &hostname, &remoteNetworkID, &connectorID, &revoked, &installed, &lastSeen, &lastSeenAt); err != nil {
+	if err := scanner.Scan(&t.ID, &name, &status, &version, &hostname, &remoteNetworkID, &connectorID, &connectorName, &revoked, &installed, &lastSeen, &lastSeenAt); err != nil {
 		return uiAgent{}, false
 	}
 	t.ConnectorID = connectorID.String
+	t.ConnectorName = strings.TrimSpace(connectorName.String)
 	t.Name = strings.TrimSpace(name.String)
 	if t.Name == "" {
 		t.Name = t.ID

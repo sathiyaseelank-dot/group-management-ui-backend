@@ -97,6 +97,7 @@ type uiAgent struct {
 	Hostname        string  `json:"hostname"`
 	RemoteNetworkID string  `json:"remoteNetworkId"`
 	ConnectorID     string  `json:"connectorId"`
+	ConnectorName   string  `json:"connectorName"`
 	Revoked         bool    `json:"revoked"`
 	Installed       bool    `json:"installed"`
 	LastSeen        string  `json:"lastSeen"`
