@@ -129,8 +129,16 @@ func main() {
 	grpcServer := grpc.NewServer(
 		grpc.Creds(creds),
 		grpc.UnaryInterceptor(api.UnaryAuthInterceptor(trustDomain, map[string]struct{}{
-			controllerpb.EnrollmentService_EnrollConnector_FullMethodName: {},
-			controllerpb.EnrollmentService_EnrollTunneler_FullMethodName:  {},
+			controllerpb.EnrollmentService_EnrollConnector_FullMethodName:     {},
+			controllerpb.EnrollmentService_EnrollTunneler_FullMethodName:      {},
+			controllerpb.DeviceService_DeviceAuthorize_FullMethodName:         {},
+			controllerpb.DeviceService_DeviceToken_FullMethodName:             {},
+			controllerpb.DeviceService_DeviceRefresh_FullMethodName:           {},
+			controllerpb.DeviceService_DeviceRevoke_FullMethodName:            {},
+			controllerpb.DeviceService_DeviceEnrollCert_FullMethodName:        {},
+			controllerpb.DeviceService_DeviceMe_FullMethodName:                {},
+			controllerpb.DeviceService_DeviceSync_FullMethodName:              {},
+			controllerpb.DeviceService_DeviceReportPosture_FullMethodName:     {},
 		}, "connector", "tunneler")),
 		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "tunneler")),
 	)
@@ -244,6 +252,10 @@ func main() {
 	}
 	adminServer.RegisterRoutes(adminMux)
 	adminServer.RegisterOAuthRoutes(adminMux)
+
+	// ---- device gRPC service ----
+	deviceSvcServer := &admin.DeviceServiceServer{S: adminServer}
+	controllerpb.RegisterDeviceServiceServer(grpcServer, deviceSvcServer)
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()

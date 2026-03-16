@@ -60,6 +60,12 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 
 	// Device auth routes (Phase 3)
 	s.RegisterDeviceAuthRoutes(mux)
+
+	// Device posture & trusted profiles
+	mux.Handle("/api/device-trusted-profiles", withCORS(ws(http.HandlerFunc(s.handleUIDeviceTrustedProfiles))))
+	mux.Handle("/api/device-trusted-profiles/", withCORS(ws(http.HandlerFunc(s.handleUIDeviceTrustedProfilesSubroutes))))
+	mux.Handle("/api/device-posture", withCORS(ws(http.HandlerFunc(s.handleUIDevicePosture))))
+	mux.Handle("/api/devices", withCORS(ws(http.HandlerFunc(s.handleUIDevices))))
 }
 
 // withWorkspaceContext is a middleware that extracts workspace claims from JWT

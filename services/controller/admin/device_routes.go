@@ -12,4 +12,5 @@ func (s *Server) RegisterDeviceAuthRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/device/me", withCORS(s.deviceAuth(http.HandlerFunc(s.handleDeviceMe))))
 	mux.Handle("/api/device/sync", withCORS(s.deviceAuth(http.HandlerFunc(s.handleDeviceSync))))
 	mux.Handle("/api/device/enroll-cert", withCORS(s.deviceAuth(http.HandlerFunc(s.handleDeviceEnrollCert))))
+	mux.Handle("/api/device/posture", withCORS(s.deviceAuth(http.HandlerFunc(s.handleDevicePostureReport))))
 }

@@ -176,6 +176,40 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 				}
 			}
 		}
+		if msg.GetType() == "agent_posture" && s.db != nil {
+			var payload struct {
+				AgentID           string `json:"agent_id"`
+				SPIFFEID          string `json:"spiffe_id"`
+				OSType            string `json:"os_type"`
+				OSVersion         string `json:"os_version"`
+				Hostname          string `json:"hostname"`
+				FirewallEnabled   bool   `json:"firewall_enabled"`
+				DiskEncrypted     bool   `json:"disk_encrypted"`
+				ScreenLockEnabled bool   `json:"screen_lock_enabled"`
+				ClientVersion     string `json:"client_version"`
+				CollectedAt       string `json:"collected_at"`
+			}
+			if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil && payload.AgentID != "" {
+				wsID := ""
+				if s.registry != nil {
+					if rec, ok := s.registry.Get(connectorID); ok {
+						wsID = rec.WorkspaceID
+					}
+				}
+				posture := state.DevicePosture{
+					DeviceID: payload.AgentID, WorkspaceID: wsID, SPIFFEID: payload.SPIFFEID,
+					OSType: payload.OSType, OSVersion: payload.OSVersion, Hostname: payload.Hostname,
+					FirewallEnabled: payload.FirewallEnabled, DiskEncrypted: payload.DiskEncrypted,
+					ScreenLockEnabled: payload.ScreenLockEnabled, ClientVersion: payload.ClientVersion,
+					CollectedAt: payload.CollectedAt,
+				}
+				if err := state.UpsertDevicePosture(s.db, posture); err != nil {
+					log.Printf("device posture upsert failed: %v", err)
+				}
+				log.Printf("device_posture: agent_id=%s os=%s/%s firewall=%v encrypted=%v",
+					payload.AgentID, payload.OSType, payload.OSVersion, payload.FirewallEnabled, payload.DiskEncrypted)
+			}
+		}
 		if msg.GetType() == "acl_decision" {
 			log.Printf("acl decision: %s", string(msg.GetPayload()))
 			if s.acls != nil && s.acls.DB() != nil {
