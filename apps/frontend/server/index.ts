@@ -19,6 +19,9 @@ import auditLogsRouter from './routes/audit-logs'
 import discoveryRouter from './routes/discovery'
 import workspacesRouter from './routes/workspaces'
 import diagnosticsRouter from './routes/diagnostics'
+import deviceTrustedProfilesRouter from './routes/device-trusted-profiles'
+import devicePostureRouter from './routes/device-posture'
+import devicesRouter from './routes/devices'
 
 const app = express()
 
@@ -41,6 +44,9 @@ app.use('/api/audit-logs', auditLogsRouter)
 app.use('/api/discovery', discoveryRouter)
 app.use('/api/workspaces', workspacesRouter)
 app.use('/api/diagnostics', diagnosticsRouter)
+app.use('/api/device-trusted-profiles', deviceTrustedProfilesRouter)
+app.use('/api/device-posture', devicePostureRouter)
+app.use('/api/devices', devicesRouter)
 
 // POST /api/auth/logout — forwards to controller OAuth logout, then signals client to clear token
 app.post('/api/auth/logout', async (_req: Request, res: Response) => {

@@ -15,6 +15,20 @@ service ControlPlane {
       returns (stream ControlMessage);
 }
 
+service DeviceService {
+  // Unauthenticated — PKCE OAuth flow
+  rpc DeviceAuthorize(DeviceAuthorizeRequest) returns (DeviceAuthorizeResponse);
+  rpc DeviceToken(DeviceTokenRequest) returns (DeviceTokenResponse);
+  rpc DeviceRefresh(DeviceRefreshRequest) returns (DeviceRefreshResponse);
+  rpc DeviceRevoke(DeviceRevokeRequest) returns (DeviceRevokeResponse);
+
+  // JWT authenticated
+  rpc DeviceEnrollCert(DeviceEnrollCertRequest) returns (DeviceEnrollCertResponse);
+  rpc DeviceMe(DeviceViewRequest) returns (DeviceViewResponse);
+  rpc DeviceSync(DeviceViewRequest) returns (DeviceViewResponse);
+  rpc DeviceReportPosture(DevicePostureRequest) returns (DevicePostureResponse);
+}
+
 message EnrollRequest {
   string id = 1;
   bytes public_key = 2;
@@ -34,4 +48,139 @@ message ControlMessage {
   string connector_id = 3;
   string private_ip = 4;
   string status = 5;
+}
+
+// DeviceService messages
+
+message DeviceAuthorizeRequest {
+  string tenant_slug = 1;
+  string code_challenge = 2;
+  string code_challenge_method = 3;
+  string redirect_uri = 4;
+}
+
+message DeviceAuthorizeResponse {
+  string auth_url = 1;
+  string state = 2;
+}
+
+message DeviceTokenRequest {
+  string code = 1;
+  string code_verifier = 2;
+  string state = 3;
+}
+
+message DeviceTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in = 3;
+}
+
+message DeviceRefreshRequest {
+  string refresh_token = 1;
+}
+
+message DeviceRefreshResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in = 3;
+}
+
+message DeviceRevokeRequest {
+  string refresh_token = 1;
+}
+
+message DeviceRevokeResponse {
+  string status = 1;
+}
+
+message DeviceEnrollCertRequest {
+  string device_id = 1;
+  string public_key_pem = 2;
+  string hostname = 3;
+  string os = 4;
+  string client_version = 5;
+  string device_name = 6;
+  string device_model = 7;
+  string device_make = 8;
+  string serial_number = 9;
+}
+
+message DeviceEnrollCertResponse {
+  string device_id = 1;
+  string spiffe_id = 2;
+  string certificate_pem = 3;
+  string ca_cert_pem = 4;
+  int64 expires_at = 5;
+  string access_token = 6;
+}
+
+message DeviceViewRequest {}
+
+message DeviceResourceProto {
+  string id = 1;
+  string name = 2;
+  string type = 3;
+  string address = 4;
+  string protocol = 5;
+  int32 port_from = 6;
+  int32 port_to = 7;
+  string alias = 8;
+  string description = 9;
+  string remote_network_id = 10;
+  string remote_network_name = 11;
+  string firewall_status = 12;
+  bool has_port_from = 13;
+  bool has_port_to = 14;
+  bool has_alias = 15;
+}
+
+message DeviceUserProto {
+  string id = 1;
+  string email = 2;
+  string role = 3;
+}
+
+message DeviceWorkspaceProto {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string trust_domain = 4;
+}
+
+message DeviceSummaryProto {
+  string id = 1;
+  bool certificate_issued = 2;
+}
+
+message DeviceSessionProto {
+  string id = 1;
+  int64 expires_at = 2;
+  int64 access_token_expires_at_hint = 3;
+}
+
+message DeviceViewResponse {
+  DeviceUserProto user = 1;
+  DeviceWorkspaceProto workspace = 2;
+  DeviceSummaryProto device = 3;
+  DeviceSessionProto session = 4;
+  repeated DeviceResourceProto resources = 5;
+  int64 synced_at = 6;
+}
+
+message DevicePostureRequest {
+  string device_id = 1;
+  string spiffe_id = 2;
+  string os_type = 3;
+  string os_version = 4;
+  string hostname = 5;
+  bool firewall_enabled = 6;
+  bool disk_encrypted = 7;
+  bool screen_lock_enabled = 8;
+  string client_version = 9;
+  string collected_at = 10;
+}
+
+message DevicePostureResponse {
+  string status = 1;
 }

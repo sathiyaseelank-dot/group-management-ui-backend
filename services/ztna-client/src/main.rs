@@ -1,5 +1,6 @@
 mod auth;
 mod config;
+mod posture;
 mod server;
 mod token_store;
 
@@ -19,6 +20,10 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     tracing_subscriber::fmt::init();
 
     let config = Config::parse();
@@ -103,6 +108,7 @@ async fn run_callback_server(state: AppState) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("failed to bind");
+    tokio::spawn(server::run_posture_reporter(state.config.clone()));
     axum::serve(listener, app).await.expect("server failed");
     Ok(())
 }

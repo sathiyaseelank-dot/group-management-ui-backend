@@ -38,6 +38,7 @@ import { STORAGE_KEY as SIGNUP_STORAGE_KEY } from './contexts/SignupContext'
 import { getWorkspaceClaims, isDeviceToken, getAudience } from '@/lib/jwt'
 import IdentityProvidersPage from './pages/settings/IdentityProvidersPage'
 import SessionsPage from './pages/settings/SessionsPage'
+import DevicesPage from './pages/devices/DevicesPage'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 const SIGNUP_PROCESS_PREFIX = 'ztna_signup_processed:'
@@ -286,6 +287,7 @@ export default function App() {
           <Route path="sign-in" element={<SignInPolicyPage />} />
           <Route path="device-profiles" element={<DeviceProfilesPage />} />
         </Route>
+        <Route path="devices" element={<DevicesPage />} />
         <Route path="discovery" element={<NetworkDiscoveryPage />} />
         <Route path="audit-logs" element={<AuditLogsPage />} />
         <Route path="diagnostics" element={<NetworkDiagnosticsPage />} />

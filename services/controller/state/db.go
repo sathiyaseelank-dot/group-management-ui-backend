@@ -276,6 +276,37 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			created_at INTEGER NOT NULL DEFAULT 0,
 			expires_at INTEGER NOT NULL DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS device_posture (
+			device_id           TEXT NOT NULL,
+			workspace_id        TEXT NOT NULL DEFAULT '',
+			spiffe_id           TEXT NOT NULL DEFAULT '',
+			os_type             TEXT NOT NULL DEFAULT '',
+			os_version          TEXT NOT NULL DEFAULT '',
+			hostname            TEXT NOT NULL DEFAULT '',
+			firewall_enabled    INTEGER NOT NULL DEFAULT 0,
+			disk_encrypted      INTEGER NOT NULL DEFAULT 0,
+			screen_lock_enabled INTEGER NOT NULL DEFAULT 0,
+			client_version      TEXT NOT NULL DEFAULT '',
+			collected_at        TEXT NOT NULL DEFAULT '',
+			reported_at         TEXT NOT NULL DEFAULT '',
+			user_id             TEXT NOT NULL DEFAULT '',
+			device_name         TEXT NOT NULL DEFAULT '',
+			device_model        TEXT NOT NULL DEFAULT '',
+			device_make         TEXT NOT NULL DEFAULT '',
+			serial_number       TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (device_id, workspace_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS device_trusted_profiles (
+			id                      TEXT PRIMARY KEY,
+			workspace_id            TEXT NOT NULL DEFAULT '',
+			name                    TEXT NOT NULL DEFAULT '',
+			require_firewall        INTEGER NOT NULL DEFAULT 0,
+			require_disk_encryption INTEGER NOT NULL DEFAULT 0,
+			require_screen_lock     INTEGER NOT NULL DEFAULT 0,
+			min_os_version          TEXT NOT NULL DEFAULT '',
+			created_at              TEXT NOT NULL DEFAULT '',
+			updated_at              TEXT NOT NULL DEFAULT ''
+		)`,
 	}
 
 	for _, s := range stmts {
@@ -290,6 +321,12 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
 		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS installed INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE user_groups ADD COLUMN IF NOT EXISTS trusted_profile_id TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS device_name TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS device_model TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS device_make TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS serial_number TEXT NOT NULL DEFAULT ''`)
 	}
 
 	// Phase 2 migration: add workspace_id columns to existing tables.

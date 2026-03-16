@@ -2,6 +2,7 @@ mod config;
 mod enroll;
 mod firewall;
 mod persistence;
+mod posture;
 mod renewal;
 mod run;
 mod tls;

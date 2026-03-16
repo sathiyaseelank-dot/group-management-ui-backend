@@ -171,6 +171,68 @@ func (s *Server) writeDeviceView(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleDevicePostureReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	claims, err := deviceClaimsFromRequest(s, r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	db := s.db()
+	if db == nil {
+		http.Error(w, "database not available", http.StatusInternalServerError)
+		return
+	}
+
+	var req struct {
+		DeviceID          string `json:"device_id"`
+		SPIFFEID          string `json:"spiffe_id"`
+		OSType            string `json:"os_type"`
+		OSVersion         string `json:"os_version"`
+		Hostname          string `json:"hostname"`
+		FirewallEnabled   bool   `json:"firewall_enabled"`
+		DiskEncrypted     bool   `json:"disk_encrypted"`
+		ScreenLockEnabled bool   `json:"screen_lock_enabled"`
+		ClientVersion     string `json:"client_version"`
+		CollectedAt       string `json:"collected_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.DeviceID) == "" {
+		http.Error(w, "device_id is required", http.StatusBadRequest)
+		return
+	}
+
+	collectedAt := req.CollectedAt
+	if collectedAt == "" {
+		collectedAt = isoStringNow()
+	}
+
+	if err := state.UpsertDevicePosture(db, state.DevicePosture{
+		DeviceID:          req.DeviceID,
+		WorkspaceID:       claims.wsID,
+		SPIFFEID:          req.SPIFFEID,
+		OSType:            req.OSType,
+		OSVersion:         req.OSVersion,
+		Hostname:          req.Hostname,
+		FirewallEnabled:   req.FirewallEnabled,
+		DiskEncrypted:     req.DiskEncrypted,
+		ScreenLockEnabled: req.ScreenLockEnabled,
+		ClientVersion:     req.ClientVersion,
+		CollectedAt:       collectedAt,
+		UserID:            claims.userID,
+	}); err != nil {
+		http.Error(w, "failed to save posture", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (s *Server) handleDeviceMe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -209,6 +271,10 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 		Hostname      string `json:"hostname"`
 		OS            string `json:"os"`
 		ClientVersion string `json:"client_version"`
+		DeviceName    string `json:"device_name"`
+		DeviceModel   string `json:"device_model"`
+		DeviceMake    string `json:"device_make"`
+		SerialNumber  string `json:"serial_number"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -254,6 +320,25 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 	if err := s.Sessions.UpdateDeviceID(claims.jti, deviceID); err != nil {
 		http.Error(w, "failed to update session device id", http.StatusInternalServerError)
 		return
+	}
+
+	if db := s.db(); db != nil {
+		now := isoStringNow()
+		_ = state.UpsertDevicePosture(db, state.DevicePosture{
+			DeviceID:    deviceID,
+			WorkspaceID: claims.wsID,
+			SPIFFEID:    spiffeID,
+			OSType:      req.OS,
+			OSVersion:   "",
+			Hostname:    req.Hostname,
+			ClientVersion: req.ClientVersion,
+			CollectedAt: now,
+			UserID:      claims.userID,
+			DeviceName:  req.DeviceName,
+			DeviceModel: req.DeviceModel,
+			DeviceMake:  req.DeviceMake,
+			SerialNumber: req.SerialNumber,
+		})
 	}
 
 	role := lookupWorkspaceMemberRole(s.db(), claims.wsID, claims.userID)

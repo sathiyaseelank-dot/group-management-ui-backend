@@ -25,3 +25,17 @@ directories = "5"
 p256 = { version = "0.13", features = ["pem", "pkcs8", "ecdsa"] }
 uuid = { version = "1", features = ["v4"] }
 hostname = "0.4"
+chrono = "0.4"
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio-rustls = "0.26"
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = { version = "0.5" }
+http = "1"
+pem = "3"
+keyring = "3"
+aes-gcm = "0.10"
+
+[build-dependencies]
+tonic-build = "0.12"

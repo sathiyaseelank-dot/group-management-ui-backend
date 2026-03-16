@@ -28,16 +28,24 @@ type SnapshotMeta struct {
 	Signature     string `json:"signature"`
 }
 
+type PostureRequirements struct {
+	RequireFirewall       bool   `json:"require_firewall"`
+	RequireDiskEncryption bool   `json:"require_disk_encryption"`
+	RequireScreenLock     bool   `json:"require_screen_lock"`
+	MinOSVersion          string `json:"min_os_version,omitempty"`
+}
+
 type PolicyResource struct {
-	ResourceID        string   `json:"resource_id"`
-	Type              string   `json:"type"`
-	Address           string   `json:"address"`
-	Port              int      `json:"port"`
-	Protocol          string   `json:"protocol"`
-	PortFrom          *int     `json:"port_from,omitempty"`
-	PortTo            *int     `json:"port_to,omitempty"`
-	AllowedIdentities []string `json:"allowed_identities"`
-	FirewallStatus    string   `json:"firewall_status"`
+	ResourceID           string               `json:"resource_id"`
+	Type                 string               `json:"type"`
+	Address              string               `json:"address"`
+	Port                 int                  `json:"port"`
+	Protocol             string               `json:"protocol"`
+	PortFrom             *int                 `json:"port_from,omitempty"`
+	PortTo               *int                 `json:"port_to,omitempty"`
+	AllowedIdentities    []string             `json:"allowed_identities"`
+	FirewallStatus       string               `json:"firewall_status"`
+	PostureRequirements  *PostureRequirements `json:"posture_requirements,omitempty"`
 }
 
 // UI helpers (shared with admin UI compile endpoints).
@@ -143,14 +151,41 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 		return nil, err
 	}
 	defer rows.Close()
-	identityStmt, _ := db.Prepare(state.Rebind(`SELECT DISTINCT u.certificate_identity as identity
-    FROM access_rules ar
-    JOIN access_rule_groups arg ON arg.rule_id = ar.id
-    JOIN user_group_members gm ON gm.group_id = arg.group_id
-    JOIN users u ON u.id = gm.user_id
-    WHERE ar.resource_id = ? AND ar.enabled = 1 AND u.certificate_identity IS NOT NULL
-      AND LOWER(TRIM(u.status)) = 'active'
-    ORDER BY u.certificate_identity ASC`))
+	identityStmt, _ := db.Prepare(state.Rebind(`
+		SELECT DISTINCT u.certificate_identity
+		FROM access_rules ar
+		JOIN access_rule_groups arg ON arg.rule_id = ar.id
+		JOIN user_group_members gm ON gm.group_id = arg.group_id
+		JOIN users u ON u.id = gm.user_id
+		WHERE ar.resource_id = ? AND ar.enabled = 1
+		  AND u.certificate_identity IS NOT NULL
+		  AND LOWER(TRIM(u.status)) = 'active'
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM user_groups ug
+		      JOIN user_group_members ugm2 ON ugm2.group_id = ug.id AND ugm2.user_id = u.id
+		      JOIN device_trusted_profiles dtp ON dtp.id = ug.trusted_profile_id
+		      WHERE ug.trusted_profile_id != ''
+		        AND EXISTS (
+		            SELECT 1 FROM sessions s
+		            LEFT JOIN device_posture dp ON dp.device_id = s.device_id
+		            WHERE s.user_id = u.id AND s.revoked = 0
+		              AND (
+		                (dtp.require_firewall = 1 AND (dp.device_id IS NULL OR dp.firewall_enabled = 0))
+		                OR (dtp.require_disk_encryption = 1 AND (dp.device_id IS NULL OR dp.disk_encrypted = 0))
+		                OR (dtp.require_screen_lock = 1 AND (dp.device_id IS NULL OR dp.screen_lock_enabled = 0))
+		              )
+		        )
+		  )
+		ORDER BY u.certificate_identity ASC`))
+	postureStmt, _ := db.Prepare(state.Rebind(`
+		SELECT dtp.require_firewall, dtp.require_disk_encryption, dtp.require_screen_lock, dtp.min_os_version
+		FROM access_rules ar
+		JOIN access_rule_groups arg ON arg.rule_id = ar.id
+		JOIN user_groups ug ON ug.id = arg.group_id
+		JOIN device_trusted_profiles dtp ON dtp.id = ug.trusted_profile_id
+		WHERE ar.resource_id = ? AND ar.enabled = 1 AND ug.trusted_profile_id != ''
+		LIMIT 1`))
 	resources := []PolicyResource{}
 	for rows.Next() {
 		var id, resType, address string
@@ -187,6 +222,18 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 			AllowedIdentities: identities,
 			FirewallStatus:    fwStatus,
 		}
+		if postureStmt != nil {
+			var fw, de, sl int
+			var minOS string
+			if err := postureStmt.QueryRow(id).Scan(&fw, &de, &sl, &minOS); err == nil {
+				res.PostureRequirements = &PostureRequirements{
+					RequireFirewall:       fw != 0,
+					RequireDiskEncryption: de != 0,
+					RequireScreenLock:     sl != 0,
+					MinOSVersion:          minOS,
+				}
+			}
+		}
 		if protocol.Valid && protocol.String != "" {
 			res.Protocol = protocol.String
 		}
@@ -206,6 +253,9 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 	}
 	if identityStmt != nil {
 		identityStmt.Close()
+	}
+	if postureStmt != nil {
+		postureStmt.Close()
 	}
 	return resources, nil
 }

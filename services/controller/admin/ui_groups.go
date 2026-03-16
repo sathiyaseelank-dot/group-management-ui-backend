@@ -22,7 +22,8 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 		wsClause, wsArgs := wsWhereOnly(wsID, "")
 		rows, err := db.Query(state.Rebind(`SELECT id, name, description,
 			CAST(created_at AS TEXT) as created_at,
-			CAST(updated_at AS TEXT) as updated_at
+			CAST(updated_at AS TEXT) as updated_at,
+			trusted_profile_id
 			FROM user_groups`+wsClause+` ORDER BY name ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list groups", http.StatusInternalServerError)
@@ -43,7 +44,8 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var id, name, desc string
 			var created, updated sql.NullString
-			if err := rows.Scan(&id, &name, &desc, &created, &updated); err != nil {
+			var trustedProfileID sql.NullString
+			if err := rows.Scan(&id, &name, &desc, &created, &updated, &trustedProfileID); err != nil {
 				http.Error(w, "failed to read groups", http.StatusInternalServerError)
 				return
 			}
@@ -64,22 +66,24 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 				updatedAt = updated.String
 			}
 			out = append(out, uiGroup{
-				ID:            id,
-				Name:          name,
-				Type:          "GROUP",
-				DisplayLabel:  fmt.Sprintf("Group: %s", name),
-				Description:   desc,
-				MemberCount:   memberCount,
-				ResourceCount: resourceCount,
-				CreatedAt:     createdAt,
-				UpdatedAt:     updatedAt,
+				ID:               id,
+				Name:             name,
+				Type:             "GROUP",
+				DisplayLabel:     fmt.Sprintf("Group: %s", name),
+				Description:      desc,
+				MemberCount:      memberCount,
+				ResourceCount:    resourceCount,
+				TrustedProfileID: trustedProfileID.String,
+				CreatedAt:        createdAt,
+				UpdatedAt:        updatedAt,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPost:
 		var req struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
+			Name             string `json:"name"`
+			Description      string `json:"description"`
+			TrustedProfileID string `json:"trustedProfileId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -92,7 +96,7 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 		id := fmt.Sprintf("grp_%d", time.Now().UTC().UnixMilli())
 		now := isoStringNow()
 		wsID := workspaceIDFromContext(r.Context())
-		if _, err := db.Exec(state.Rebind(`INSERT INTO user_groups (id, name, description, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?)`), id, req.Name, req.Description, now, now, wsID); err != nil {
+		if _, err := db.Exec(state.Rebind(`INSERT INTO user_groups (id, name, description, created_at, updated_at, workspace_id, trusted_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?)`), id, req.Name, req.Description, now, now, wsID, req.TrustedProfileID); err != nil {
 			http.Error(w, "failed to create group", http.StatusBadRequest)
 			return
 		}
@@ -122,15 +126,16 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 		switch r.Method {
 		case http.MethodPut, http.MethodPatch:
 			var req struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
+				Name             string `json:"name"`
+				Description      string `json:"description"`
+				TrustedProfileID string `json:"trustedProfileId"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				http.Error(w, "invalid json", http.StatusBadRequest)
 				return
 			}
 			now := isoStringNow()
-			if _, err := db.Exec(state.Rebind(`UPDATE user_groups SET name = ?, description = ?, updated_at = ? WHERE id = ?`), req.Name, req.Description, now, groupID); err != nil {
+			if _, err := db.Exec(state.Rebind(`UPDATE user_groups SET name = ?, description = ?, trusted_profile_id = ?, updated_at = ? WHERE id = ?`), req.Name, req.Description, req.TrustedProfileID, now, groupID); err != nil {
 				http.Error(w, "failed to update group", http.StatusInternalServerError)
 				return
 			}
@@ -172,11 +177,13 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 		}
 		row := db.QueryRow(state.Rebind(`SELECT id, name, description,
 			CAST(created_at AS TEXT) as created_at,
-			CAST(updated_at AS TEXT) as updated_at
+			CAST(updated_at AS TEXT) as updated_at,
+			trusted_profile_id
 			FROM user_groups WHERE id = ?`), groupID)
 		var id, name, desc string
 		var created, updated sql.NullString
-		if err := row.Scan(&id, &name, &desc, &created, &updated); err != nil {
+		var trustedProfileID sql.NullString
+		if err := row.Scan(&id, &name, &desc, &created, &updated, &trustedProfileID); err != nil {
 			writeJSON(w, http.StatusOK, map[string]interface{}{"group": nil, "members": []uiGroupMember{}, "resources": []uiResource{}})
 			return
 		}
@@ -216,15 +223,16 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			updatedAt = updated.String
 		}
 		group := uiGroup{
-			ID:            id,
-			Name:          name,
-			Type:          "GROUP",
-			DisplayLabel:  fmt.Sprintf("Group: %s", name),
-			Description:   desc,
-			MemberCount:   len(members),
-			ResourceCount: len(resources),
-			CreatedAt:     createdAt,
-			UpdatedAt:     updatedAt,
+			ID:               id,
+			Name:             name,
+			Type:             "GROUP",
+			DisplayLabel:     fmt.Sprintf("Group: %s", name),
+			Description:      desc,
+			MemberCount:      len(members),
+			ResourceCount:    len(resources),
+			TrustedProfileID: trustedProfileID.String,
+			CreatedAt:        createdAt,
+			UpdatedAt:        updatedAt,
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"group":     group,

@@ -16,15 +16,16 @@ type uiUser struct {
 }
 
 type uiGroup struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	DisplayLabel  string `json:"displayLabel"`
-	Description   string `json:"description"`
-	MemberCount   int    `json:"memberCount"`
-	ResourceCount int    `json:"resourceCount"`
-	CreatedAt     string `json:"createdAt"`
-	UpdatedAt     string `json:"updatedAt"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Type             string `json:"type"`
+	DisplayLabel     string `json:"displayLabel"`
+	Description      string `json:"description"`
+	MemberCount      int    `json:"memberCount"`
+	ResourceCount    int    `json:"resourceCount"`
+	TrustedProfileID string `json:"trustedProfileId,omitempty"`
+	CreatedAt        string `json:"createdAt"`
+	UpdatedAt        string `json:"updatedAt"`
 }
 
 type uiGroupMember struct {
@@ -119,6 +120,55 @@ type uiSubject struct {
 	Name         string `json:"name"`
 	Type         string `json:"type"`
 	DisplayLabel string `json:"displayLabel"`
+}
+
+type uiTrustedProfile struct {
+	ID                    string `json:"id"`
+	WorkspaceID           string `json:"workspaceId"`
+	Name                  string `json:"name"`
+	RequireFirewall       bool   `json:"requireFirewall"`
+	RequireDiskEncryption bool   `json:"requireDiskEncryption"`
+	RequireScreenLock     bool   `json:"requireScreenLock"`
+	MinOSVersion          string `json:"minOsVersion,omitempty"`
+	CreatedAt             string `json:"createdAt"`
+	UpdatedAt             string `json:"updatedAt"`
+}
+
+type uiDevicePosture struct {
+	DeviceID          string `json:"deviceId"`
+	WorkspaceID       string `json:"workspaceId"`
+	SPIFFEID          string `json:"spiffeId"`
+	OSType            string `json:"osType"`
+	OSVersion         string `json:"osVersion"`
+	Hostname          string `json:"hostname"`
+	FirewallEnabled   bool   `json:"firewallEnabled"`
+	DiskEncrypted     bool   `json:"diskEncrypted"`
+	ScreenLockEnabled bool   `json:"screenLockEnabled"`
+	ClientVersion     string `json:"clientVersion"`
+	CollectedAt       string `json:"collectedAt"`
+	ReportedAt        string `json:"reportedAt"`
+}
+
+type uiDevice struct {
+	DeviceID          string `json:"deviceId"`
+	WorkspaceID       string `json:"workspaceId"`
+	UserID            string `json:"userId"`
+	OwnerName         string `json:"ownerName"`
+	OwnerEmail        string `json:"ownerEmail"`
+	DeviceName        string `json:"deviceName"`
+	DeviceModel       string `json:"deviceModel"`
+	DeviceMake        string `json:"deviceMake"`
+	SerialNumber      string `json:"serialNumber"`
+	SPIFFEID          string `json:"spiffeId"`
+	OSType            string `json:"osType"`
+	OSVersion         string `json:"osVersion"`
+	Hostname          string `json:"hostname"`
+	ClientVersion     string `json:"clientVersion"`
+	FirewallEnabled   bool   `json:"firewallEnabled"`
+	DiskEncrypted     bool   `json:"diskEncrypted"`
+	ScreenLockEnabled bool   `json:"screenLockEnabled"`
+	CollectedAt       string `json:"collectedAt"`
+	ReportedAt        string `json:"reportedAt"`
 }
 
 type policyResource = api.PolicyResource

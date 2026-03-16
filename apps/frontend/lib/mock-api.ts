@@ -21,6 +21,9 @@ import {
   DiagnosticsData,
   PingResult,
   AccessTrace,
+  TrustedProfile,
+  DevicePostureSnapshot,
+  Device,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -462,4 +465,54 @@ export async function traceAccess(userId: string, resourceId: string): Promise<A
     method: 'POST',
     body: JSON.stringify({ userId, resourceId }),
   });
+}
+
+// API: Trusted device profiles
+export async function getTrustedProfiles(): Promise<TrustedProfile[]> {
+  return request<TrustedProfile[]>('/api/device-trusted-profiles');
+}
+
+export async function createTrustedProfile(data: {
+  name: string;
+  requireFirewall?: boolean;
+  requireDiskEncryption?: boolean;
+  requireScreenLock?: boolean;
+  minOsVersion?: string;
+}): Promise<TrustedProfile> {
+  return request<TrustedProfile>('/api/device-trusted-profiles', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTrustedProfile(
+  id: string,
+  data: {
+    name?: string;
+    requireFirewall?: boolean;
+    requireDiskEncryption?: boolean;
+    requireScreenLock?: boolean;
+    minOsVersion?: string;
+  }
+): Promise<TrustedProfile> {
+  return request<TrustedProfile>(`/api/device-trusted-profiles/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTrustedProfile(id: string): Promise<void> {
+  await request(`/api/device-trusted-profiles/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+// API: Live device posture
+export async function getDevicePosture(): Promise<DevicePostureSnapshot[]> {
+  return request<DevicePostureSnapshot[]>('/api/device-posture');
+}
+
+// API: Enrolled devices (with owner info)
+export async function getDevices(): Promise<Device[]> {
+  return request<Device[]>('/api/devices');
 }

@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ensureDefaultResourcePolicy, getResourcePolicy, saveResourcePolicy, ResourcePolicy } from '@/lib/resource-policies';
+import { getTrustedProfiles } from '@/lib/mock-api';
+import { TrustedProfile } from '@/lib/types';
 
 type DeviceSecurityMode = 'any' | 'trusted' | 'custom';
 
@@ -13,11 +15,13 @@ export default function ResourcePolicyDetailPage() {
   const { policyId } = useParams();
 
   const [policy, setPolicy] = useState<ResourcePolicy | null>(null);
+  const [trustedProfiles, setTrustedProfiles] = useState<TrustedProfile[]>([]);
 
   useEffect(() => {
     ensureDefaultResourcePolicy();
     if (!policyId) return;
     setPolicy(getResourcePolicy(policyId));
+    getTrustedProfiles().then(setTrustedProfiles).catch(() => {});
   }, [policyId]);
 
   const deviceMode: DeviceSecurityMode = useMemo(() => {
@@ -138,6 +142,35 @@ export default function ResourcePolicyDetailPage() {
                   </p>
                 </div>
               </div>
+              {deviceMode === 'trusted' && (
+                <div className="ml-6 rounded-md border bg-muted/30 p-3 space-y-2">
+                  <p className="text-xs font-medium">Select Trusted Profile</p>
+                  {trustedProfiles.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No profiles yet. Create one in Device Profiles.
+                    </p>
+                  ) : (
+                    <select
+                      className="w-full rounded border bg-background px-2 py-1 text-sm"
+                      value={(policy?.deviceSecurity as any)?.trustedProfileId ?? ''}
+                      onChange={(e) => {
+                        if (!policy) return;
+                        const next: ResourcePolicy = {
+                          ...policy,
+                          deviceSecurity: { mode: 'trusted', trustedProfileId: e.target.value } as any,
+                        };
+                        setPolicy(next);
+                        saveResourcePolicy(next);
+                      }}
+                    >
+                      <option value="">— None —</option>
+                      {trustedProfiles.map((tp) => (
+                        <option key={tp.id} value={tp.id}>{tp.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
               <div className="flex items-start gap-3">
                 <RadioGroupItem value="custom" id="device-custom" />
                 <div className="grid gap-1">
