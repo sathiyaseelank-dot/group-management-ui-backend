@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ZTNA</string>
+    <string name="login_subtitle">Sign in to your zero-trust workspace</string>
+    <string name="label_controller_url">Controller URL</string>
+    <string name="label_tenant_slug">Workspace name (tenant slug)</string>
+    <string name="btn_sign_in">Sign In</string>
+    <string name="awaiting_callback">Browser opened — complete sign-in, then return here.</string>
+    <string name="no_resources">No resources assigned to your account.</string>
+    <string name="settings">Settings</string>
+    <string name="back">Back</string>
+
+    <!-- Settings screen sections -->
+    <string name="section_workspace">Workspace</string>
+    <string name="section_account">Account</string>
+    <string name="section_session">Session</string>
+    <string name="section_device_cert">Device Certificate</string>
+
+    <!-- Settings row labels -->
+    <string name="label_workspace_name">Name</string>
+    <string name="label_trust_domain">Trust Domain</string>
+    <string name="label_email">Email</string>
+    <string name="label_role">Role</string>
+    <string name="label_session_expires">Expires</string>
+    <string name="label_spiffe_id">SPIFFE ID</string>
+    <string name="label_cert_expires">Cert expires</string>
+
+    <!-- Action buttons -->
+    <string name="btn_force_sync">Force Sync</string>
+    <string name="btn_disconnect">Disconnect</string>
+</resources>

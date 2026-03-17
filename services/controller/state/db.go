@@ -137,6 +137,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			status TEXT NOT NULL DEFAULT 'Active',
 			role TEXT NOT NULL DEFAULT 'Member',
 			certificate_identity TEXT,
+			google_sub TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT ''
 		)`,
@@ -273,8 +274,17 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			code_challenge TEXT NOT NULL,
 			redirect_uri TEXT NOT NULL,
 			idp_id TEXT NOT NULL DEFAULT '',
+			platform TEXT NOT NULL DEFAULT 'mobile',
 			created_at INTEGER NOT NULL DEFAULT 0,
 			expires_at INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS invite_auth_requests (
+			state          TEXT PRIMARY KEY,
+			invite_token   TEXT NOT NULL,
+			code_challenge TEXT NOT NULL,
+			redirect_uri   TEXT NOT NULL,
+			created_at     INTEGER NOT NULL DEFAULT 0,
+			expires_at     INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS device_posture (
 			device_id           TEXT NOT NULL,
@@ -317,6 +327,8 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 	}
 	// Add new columns for existing databases.
 	if dialect == "postgres" {
+		_, _ = db.Exec(`ALTER TABLE device_auth_requests ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'mobile'`)
+		_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
 		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
 		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''`)

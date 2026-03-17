@@ -1,0 +1,62 @@
+namespace ztna {
+  /// Returns the auth URL to open in browser; generates PKCE verifier internally.
+  /// The verifier is persisted to data_dir/pkce_pending.json for use in complete_login.
+  /// redirect_uri is handled server-side (no longer required from the client).
+  [Throws=ZtnaError]
+  string begin_login(string controller_url, string tenant_slug, string data_dir);
+
+  /// Called after browser redirects to ztna://callback?session_code=...
+  /// session_code uniquely identifies the session; state is no longer needed.
+  [Throws=ZtnaError]
+  WorkspaceState complete_login(string controller_url, string session_code, string data_dir);
+
+  /// Load saved workspace state for a tenant slug.
+  [Throws=ZtnaError]
+  WorkspaceState? load_state(string tenant_slug, string data_dir);
+
+  /// List all saved workspaces in the data directory.
+  [Throws=ZtnaError]
+  sequence<WorkspaceState> list_workspaces(string data_dir);
+
+  /// Force sync resources from controller (refreshes token if needed).
+  [Throws=ZtnaError]
+  WorkspaceState sync(string tenant_slug, string controller_url, string data_dir);
+
+  /// Revoke session and clear local state.
+  [Throws=ZtnaError]
+  void disconnect(string tenant_slug, string controller_url, string data_dir);
+};
+
+dictionary WorkspaceState {
+  string workspace_id;
+  string workspace_name;
+  string tenant_slug;
+  string trust_domain;
+  string user_email;
+  string user_role;
+  string access_token;
+  string refresh_token;
+  i64 session_expires_at;
+  string spiffe_id;
+  i64 cert_expires_at;
+  sequence<ResourceItem> resources;
+};
+
+dictionary ResourceItem {
+  string id;
+  string name;
+  string address;
+  string protocol;
+  i32? port_from;
+  i32? port_to;
+  string firewall_status;
+};
+
+[Error]
+enum ZtnaError {
+  "Network",
+  "Auth",
+  "NotFound",
+  "InvalidState",
+  "Io",
+};

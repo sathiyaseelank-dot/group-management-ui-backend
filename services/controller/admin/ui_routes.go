@@ -20,6 +20,11 @@ func (s *Server) RegisterOAuthRoutes(mux *http.ServeMux) {
 	// Invite send + admin audit logs — require admin auth.
 	mux.Handle("/api/admin/users/invite", withCORS(s.adminAuth(http.HandlerFunc(s.handleInviteUser))))
 	mux.Handle("/api/admin/audit-logs", withCORS(s.adminAuth(http.HandlerFunc(s.handleAdminAuditLogs))))
+
+	// Invite PKCE flow (browser-based registration with PKCE + ID token validation)
+	mux.Handle("/api/invite/authorize", withCORS(http.HandlerFunc(s.handleInviteAuthorize)))
+	mux.Handle("/api/invite/callback", http.HandlerFunc(s.handleInviteCallback)) // no CORS: browser navigates here
+	mux.Handle("/api/invite/token", withCORS(http.HandlerFunc(s.handleInviteToken)))
 }
 
 func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {

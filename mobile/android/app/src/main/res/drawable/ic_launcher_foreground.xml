@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple shield / lock shape representing zero-trust -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,18 L78,28 L78,52 C78,66 66,76 54,82 C42,76 30,66 30,52 L30,28 Z" />
+    <path
+        android:fillColor="#1B6FBF"
+        android:pathData="M54,38 C49.58,38 46,41.58 46,46 C46,49.12 47.84,51.8 50.5,53.06 L50.5,60 L57.5,60 L57.5,53.06 C60.16,51.8 62,49.12 62,46 C62,41.58 58.42,38 54,38 Z" />
+</vector>

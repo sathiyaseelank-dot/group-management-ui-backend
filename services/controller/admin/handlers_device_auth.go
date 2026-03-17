@@ -46,6 +46,8 @@ type deviceCodeEntry struct {
 	wsSlug        string
 	state         string
 	codeChallenge string
+	googleSub     string
+	platform      string
 	expiresAt     time.Time
 }
 
@@ -78,11 +80,19 @@ func consumeDeviceCode(code string) (deviceCodeEntry, bool) {
 	return entry, true
 }
 
-// isLoopbackURI returns true if the URI points to localhost or 127.0.0.1.
-func isLoopbackURI(uri string) bool {
+// isAllowedRedirectURI returns true if the URI is safe for a native/mobile client.
+// Allowed:
+//   - Loopback HTTP (localhost / 127.0.0.1 / ::1) — desktop CLI clients
+//   - Custom URI schemes (non-http/https) — mobile deep-links like ztna://callback
+func isAllowedRedirectURI(uri string) bool {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		// Custom scheme (e.g. ztna://) — safe because it is registered to the app.
+		return scheme != ""
 	}
 	host := u.Hostname()
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
@@ -136,8 +146,8 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tenant_slug, code_challenge, and redirect_uri are required", http.StatusBadRequest)
 		return
 	}
-	if !isLoopbackURI(req.RedirectURI) {
-		http.Error(w, "redirect_uri must be a loopback address (localhost or 127.0.0.1)", http.StatusBadRequest)
+	if !isAllowedRedirectURI(req.RedirectURI) {
+		http.Error(w, "redirect_uri must be a loopback address or a custom URI scheme", http.StatusBadRequest)
 		return
 	}
 	if req.CodeChallengeMethod != "" && req.CodeChallengeMethod != "S256" {
@@ -231,9 +241,8 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fallback to env-var config.
-	// Reuse the registered RedirectURL from the existing OAuth config so the
-	// redirect_uri in the Google auth URL matches what is already registered in
-	// the OAuth provider's console (no extra URI registration required).
+	// Use the registered RedirectURL from the OAuth config so the redirect_uri
+	// in the Google auth URL matches what is registered in the OAuth provider's console.
 	if authURL == "" {
 		var cfg *oauth2.Config
 		if idpType == "github" && s.GitHubOAuthConfig != nil {
@@ -244,13 +253,16 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 				Scopes:       s.GitHubOAuthConfig.Scopes,
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
-		} else if s.OAuthConfig != nil {
-			cfg = &oauth2.Config{
-				ClientID:     s.OAuthConfig.ClientID,
-				ClientSecret: s.OAuthConfig.ClientSecret,
-				RedirectURL:  s.OAuthConfig.RedirectURL,
-				Scopes:       s.OAuthConfig.Scopes,
-				Endpoint:     s.OAuthConfig.Endpoint,
+		} else {
+			clientCfg := s.effectiveClientOAuthConfig()
+			if clientCfg != nil {
+				cfg = &oauth2.Config{
+					ClientID:     clientCfg.ClientID,
+					ClientSecret: clientCfg.ClientSecret,
+					RedirectURL:  clientCfg.RedirectURL,
+					Scopes:       clientCfg.Scopes,
+					Endpoint:     clientCfg.Endpoint,
+				}
 			}
 		}
 		if cfg != nil {
@@ -266,6 +278,302 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"auth_url": authURL,
 		"state":    deviceState,
+	})
+}
+
+// handleDeviceAuthStart handles POST /api/device/auth/start (v2 endpoint)
+// Input: { workspace_name, code_challenge, platform }
+// Returns: { auth_url }
+// Differences from handleDeviceAuthorize:
+//   - workspace_name looked up by slug first, then by name
+//   - redirect_uri is hardcoded server-side based on platform (not sent by client)
+//   - state is not returned (client doesn't need it; session_code identifies session)
+func (s *Server) handleDeviceAuthStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		WorkspaceName string `json:"workspace_name"`
+		CodeChallenge string `json:"code_challenge"`
+		Platform      string `json:"platform"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.WorkspaceName == "" || req.CodeChallenge == "" {
+		http.Error(w, "workspace_name and code_challenge are required", http.StatusBadRequest)
+		return
+	}
+	if req.Platform == "" {
+		req.Platform = "mobile"
+	}
+
+	db := s.db()
+	if db == nil {
+		http.Error(w, "database not available", http.StatusInternalServerError)
+		return
+	}
+
+	// Lookup workspace: first by slug, then by name
+	var ws state.Workspace
+	err := db.QueryRow(
+		state.Rebind(`SELECT id, name, slug FROM workspaces WHERE slug = ? LIMIT 1`),
+		req.WorkspaceName,
+	).Scan(&ws.ID, &ws.Name, &ws.Slug)
+	if err == sql.ErrNoRows {
+		err = db.QueryRow(
+			state.Rebind(`SELECT id, name, slug FROM workspaces WHERE name = ? LIMIT 1`),
+			req.WorkspaceName,
+		).Scan(&ws.ID, &ws.Name, &ws.Slug)
+	}
+	if err == sql.ErrNoRows {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	// Server-side redirect_uri based on platform
+	var redirectURI string
+	switch req.Platform {
+	case "mobile":
+		redirectURI = "ztna://callback"
+	default:
+		redirectURI = "ztna://callback"
+	}
+
+	// Find IdP
+	var idpID, idpType string
+	if s.IdPs != nil {
+		for _, pt := range []string{"google", "github", "oidc"} {
+			idp, err := s.IdPs.GetEnabledByType(ws.ID, pt)
+			if err == nil && idp != nil {
+				idpID = idp.ID
+				idpType = idp.ProviderType
+				break
+			}
+		}
+	}
+	if idpID == "" {
+		if s.effectiveClientOAuthConfig() != nil {
+			idpType = "google"
+		} else if s.GitHubOAuthConfig != nil {
+			idpType = "github"
+		} else {
+			http.Error(w, "no identity provider configured for this workspace", http.StatusServiceUnavailable)
+			return
+		}
+	}
+
+	// Generate CSRF state (stored server-side; not returned to client)
+	csrfState, err := randomHex(16)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	deviceState := "device:" + csrfState
+
+	_, err = db.Exec(
+		state.Rebind(`INSERT INTO device_auth_requests (state, workspace_id, code_challenge, redirect_uri, idp_id, platform, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+		deviceState, ws.ID, req.CodeChallenge, redirectURI, idpID, req.Platform,
+		time.Now().Unix(), time.Now().Add(10*time.Minute).Unix(),
+	)
+	if err != nil {
+		http.Error(w, "failed to store auth request", http.StatusInternalServerError)
+		return
+	}
+	storeOAuthState(deviceState)
+
+	baseURL := s.InviteBaseURL
+	if baseURL == "" {
+		baseURL = "http://localhost:8081"
+	}
+	callbackURI := baseURL + "/api/device/callback"
+
+	var authURL string
+	if s.IdPs != nil && idpID != "" {
+		idp, err := s.IdPs.GetEnabledByType(ws.ID, idpType)
+		if err == nil {
+			secret, _ := s.IdPs.DecryptSecret(idp)
+			cfg := buildIdPOAuthConfig(idp, secret, callbackURI)
+			authURL = cfg.AuthCodeURL(deviceState, oauth2.AccessTypeOnline)
+		}
+	}
+
+	if authURL == "" {
+		var cfg *oauth2.Config
+		if idpType == "github" && s.GitHubOAuthConfig != nil {
+			cfg = &oauth2.Config{
+				ClientID:     s.GitHubOAuthConfig.ClientID,
+				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
+				RedirectURL:  s.GitHubOAuthConfig.RedirectURL,
+				Scopes:       s.GitHubOAuthConfig.Scopes,
+				Endpoint:     s.GitHubOAuthConfig.Endpoint,
+			}
+		} else {
+			clientCfg := s.effectiveClientOAuthConfig()
+			if clientCfg != nil {
+				cfg = &oauth2.Config{
+					ClientID:     clientCfg.ClientID,
+					ClientSecret: clientCfg.ClientSecret,
+					RedirectURL:  clientCfg.RedirectURL,
+					Scopes:       clientCfg.Scopes,
+					Endpoint:     clientCfg.Endpoint,
+				}
+			}
+		}
+		if cfg != nil {
+			authURL = cfg.AuthCodeURL(deviceState, oauth2.AccessTypeOnline)
+		}
+	}
+
+	if authURL == "" {
+		http.Error(w, "failed to build auth URL", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"auth_url": authURL,
+	})
+}
+
+// handleDeviceAuthComplete handles POST /api/device/auth/complete (v2 endpoint)
+// Input: { session_code, code_verifier }
+// Returns: { access_token, refresh_token, acl, expires_in }
+// Identical to handleDeviceToken but uses session_code instead of code.
+func (s *Server) handleDeviceAuthComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		SessionCode  string `json:"session_code"`
+		CodeVerifier string `json:"code_verifier"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.SessionCode == "" || req.CodeVerifier == "" {
+		http.Error(w, "session_code and code_verifier are required", http.StatusBadRequest)
+		return
+	}
+
+	entry, ok := consumeDeviceCode(req.SessionCode)
+	if !ok {
+		http.Error(w, "invalid or expired session_code", http.StatusBadRequest)
+		return
+	}
+
+	// Verify PKCE S256
+	if entry.codeChallenge != "" {
+		h := sha256.Sum256([]byte(req.CodeVerifier))
+		computed := encodeBase64URL(h[:])
+		if computed != entry.codeChallenge {
+			http.Error(w, "pkce verification failed", http.StatusBadRequest)
+			return
+		}
+	}
+
+	db := s.db()
+	if db == nil {
+		http.Error(w, "database not available", http.StatusInternalServerError)
+		return
+	}
+
+	email := entry.email
+	var userID string
+	if s.Users != nil {
+		u, lookupErr := s.Workspaces.GetUserByEmail(email)
+		if lookupErr == nil {
+			userID = u.ID
+			// Store google_sub if we have it and user doesn't have one yet
+			if entry.googleSub != "" {
+				_, _ = db.Exec(
+					state.Rebind(`UPDATE users SET google_sub = ? WHERE id = ? AND google_sub = ''`),
+					entry.googleSub, userID,
+				)
+			}
+		} else {
+			newUser := state.User{
+				Name:      email,
+				Email:     email,
+				Status:    "Active",
+				Role:      "Member",
+				CreatedAt: time.Now().UTC(),
+				UpdatedAt: time.Now().UTC(),
+			}
+			if createErr := s.Users.CreateUser(&newUser); createErr != nil {
+				log.Printf("device auth complete: failed to create user %s: %v", email, createErr)
+			}
+			if u2, lookupErr2 := s.Workspaces.GetUserByEmail(email); lookupErr2 == nil {
+				userID = u2.ID
+				if entry.googleSub != "" {
+					_, _ = db.Exec(
+						state.Rebind(`UPDATE users SET google_sub = ? WHERE id = ? AND google_sub = ''`),
+						entry.googleSub, userID,
+					)
+				}
+			}
+		}
+	}
+
+	sessionID, err := randomHex(16)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	refreshTokenRaw, err := randomHex(32)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	hashBytes := sha256.Sum256([]byte(refreshTokenRaw))
+	refreshTokenHash := hex.EncodeToString(hashBytes[:])
+
+	if s.Sessions != nil {
+		sess := &state.Session{
+			ID:               sessionID,
+			UserID:           userID,
+			WorkspaceID:      entry.wsID,
+			SessionType:      "device",
+			IPAddress:        r.RemoteAddr,
+			UserAgent:        r.Header.Get("User-Agent"),
+			RefreshTokenHash: refreshTokenHash,
+			CreatedAt:        time.Now().Unix(),
+			ExpiresAt:        time.Now().Add(30 * 24 * time.Hour).Unix(),
+		}
+		if createErr := s.Sessions.Create(sess); createErr != nil {
+			log.Printf("device auth complete: failed to create session: %v", createErr)
+		}
+	}
+
+	wsRole := lookupWorkspaceMemberRole(db, entry.wsID, userID)
+	accessToken, err := s.signDeviceJWT(email, userID, entry.wsID, entry.wsSlug, wsRole, "", sessionID)
+	if err != nil {
+		http.Error(w, "failed to create access token", http.StatusInternalServerError)
+		return
+	}
+
+	var aclSnapshot interface{}
+	if s.ACLs != nil {
+		aclSnapshot = s.ACLs.Snapshot()
+	} else {
+		aclSnapshot = map[string]interface{}{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"access_token":  accessToken,
+		"refresh_token": refreshTokenRaw,
+		"acl":           aclSnapshot,
+		"expires_in":    900,
 	})
 }
 
@@ -291,12 +599,12 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Retrieve PKCE state from DB before deleting the row
-	var wsID, codeChallenge, redirectURI, idpID string
+	var wsID, codeChallenge, redirectURI, idpID, platform string
 	var expiresAt int64
 	err := db.QueryRow(
-		state.Rebind(`SELECT workspace_id, code_challenge, redirect_uri, idp_id, expires_at FROM device_auth_requests WHERE state = ?`),
+		state.Rebind(`SELECT workspace_id, code_challenge, redirect_uri, idp_id, platform, expires_at FROM device_auth_requests WHERE state = ?`),
 		stateParam,
-	).Scan(&wsID, &codeChallenge, &redirectURI, &idpID, &expiresAt)
+	).Scan(&wsID, &codeChallenge, &redirectURI, &idpID, &platform, &expiresAt)
 	if err == sql.ErrNoRows {
 		http.Error(w, "auth request not found", http.StatusBadRequest)
 		return
@@ -350,19 +658,13 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 	// Fallback to env-var OAuth.
 	// Use the registered RedirectURL so the token exchange URI matches the one
 	// used in the authorization request (required by OAuth 2.0 spec).
+	var googleSubFromIDToken string
 	if emailAddr == "" {
 		var cfg *oauth2.Config
 		var fetchFn func(*http.Client) (string, error)
-		if s.OAuthConfig != nil {
-			cfg = &oauth2.Config{
-				ClientID:     s.OAuthConfig.ClientID,
-				ClientSecret: s.OAuthConfig.ClientSecret,
-				RedirectURL:  s.OAuthConfig.RedirectURL,
-				Scopes:       s.OAuthConfig.Scopes,
-				Endpoint:     s.OAuthConfig.Endpoint,
-			}
-			fetchFn = fetchGoogleEmail
-		} else if s.GitHubOAuthConfig != nil {
+		clientCfg := s.effectiveClientOAuthConfig()
+		if s.GitHubOAuthConfig != nil && idpID == "" {
+			// Only use GitHub if there's no DB IdP and GitHub is configured
 			cfg = &oauth2.Config{
 				ClientID:     s.GitHubOAuthConfig.ClientID,
 				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
@@ -371,6 +673,15 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
 			fetchFn = fetchGitHubEmail
+		} else if clientCfg != nil {
+			cfg = &oauth2.Config{
+				ClientID:     clientCfg.ClientID,
+				ClientSecret: clientCfg.ClientSecret,
+				RedirectURL:  clientCfg.RedirectURL,
+				Scopes:       clientCfg.Scopes,
+				Endpoint:     clientCfg.Endpoint,
+			}
+			fetchFn = fetchGoogleEmail
 		}
 		if cfg != nil && fetchFn != nil {
 			tok, exchangeErr := cfg.Exchange(r.Context(), code)
@@ -378,11 +689,26 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "token exchange failed", http.StatusBadRequest)
 				return
 			}
-			client := cfg.Client(r.Context(), tok)
-			emailAddr, fetchErr = fetchFn(client)
-			if fetchErr != nil {
-				http.Error(w, "failed to get user info", http.StatusInternalServerError)
-				return
+			// Validate Google ID token if available (client OAuth config only).
+			if fetchFn != nil && clientCfg != nil && s.GitHubOAuthConfig == nil {
+				if rawIDToken, ok := tok.Extra("id_token").(string); ok && rawIDToken != "" {
+					if claims, idErr := validateGoogleIDToken(r.Context(), rawIDToken, cfg.ClientID); idErr != nil {
+						log.Printf("device callback: id_token validation failed: %v", idErr)
+						http.Error(w, "identity verification failed", http.StatusUnauthorized)
+						return
+					} else {
+						emailAddr = strings.ToLower(claims.Email)
+						googleSubFromIDToken = claims.Sub
+					}
+				}
+			}
+			if emailAddr == "" {
+				client := cfg.Client(r.Context(), tok)
+				emailAddr, fetchErr = fetchFn(client)
+				if fetchErr != nil {
+					http.Error(w, "failed to get user info", http.StatusInternalServerError)
+					return
+				}
 			}
 		}
 	}
@@ -410,12 +736,21 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 		wsSlug:        wsSlug,
 		state:         stateParam,
 		codeChallenge: codeChallenge,
+		googleSub:     googleSubFromIDToken,
+		platform:      platform,
 		expiresAt:     time.Now().Add(60 * time.Second),
 	})
 
-	// Redirect browser to native client's redirect_uri
-	redirect := fmt.Sprintf("%s?code=%s&state=%s",
-		redirectURI, url.QueryEscape(ctrlCode), url.QueryEscape(stateParam))
+	// Redirect browser to native client.
+	// New v2 flow (platform=mobile): simplified deep link with session_code only.
+	// Legacy flow: redirect_uri?code=X&state=Y for backward compat.
+	var redirect string
+	if platform == "mobile" {
+		redirect = fmt.Sprintf("ztna://callback?session_code=%s", url.QueryEscape(ctrlCode))
+	} else {
+		redirect = fmt.Sprintf("%s?code=%s&state=%s",
+			redirectURI, url.QueryEscape(ctrlCode), url.QueryEscape(stateParam))
+	}
 	http.Redirect(w, r, redirect, http.StatusFound)
 }
 

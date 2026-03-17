@@ -43,7 +43,8 @@ type Server struct {
 	CACertPEM         []byte
 
 	// OAuth + JWT session
-	OAuthConfig       *oauth2.Config // Google (backward compat)
+	OAuthConfig       *oauth2.Config // Google admin app (backward compat)
+	ClientOAuthConfig *oauth2.Config // Google client app for PKCE flows (device + invite)
 	GitHubOAuthConfig *oauth2.Config
 	JWTSecret         []byte
 	AdminLoginEmails  map[string]struct{}
@@ -65,6 +66,14 @@ type Server struct {
 	Sessions       *state.SessionStore
 	SecureCookies  bool
 	AllowedOrigins []string
+}
+
+// effectiveClientOAuthConfig returns ClientOAuthConfig if set, else falls back to OAuthConfig.
+func (s *Server) effectiveClientOAuthConfig() *oauth2.Config {
+	if s.ClientOAuthConfig != nil {
+		return s.ClientOAuthConfig
+	}
+	return s.OAuthConfig
 }
 
 // db returns the underlying *sql.DB via the ACLStore, or nil.

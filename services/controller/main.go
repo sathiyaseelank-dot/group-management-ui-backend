@@ -193,6 +193,13 @@ func main() {
 		os.Getenv("GOOGLE_CLIENT_SECRET"),
 		os.Getenv("OAUTH_REDIRECT_URL"),
 	)
+	// Client app: used for PKCE flows (device auth v2 + invite registration).
+	// Falls back to oauthCfg if unset.
+	var clientOAuthCfg = admin.BuildClientGoogleOAuthConfig(
+		os.Getenv("CLIENT_GOOGLE_CLIENT_ID"),
+		os.Getenv("CLIENT_GOOGLE_CLIENT_SECRET"),
+		os.Getenv("CLIENT_OAUTH_REDIRECT_URL"),
+	)
 	var githubOAuthCfg = admin.BuildGitHubOAuthConfig(
 		os.Getenv("GITHUB_CLIENT_ID"),
 		os.Getenv("GITHUB_CLIENT_SECRET"),
@@ -236,6 +243,7 @@ func main() {
 		InternalAuthToken: internalAuthToken,
 		CACertPEM:         caCertPEM,
 		OAuthConfig:       oauthCfg,
+		ClientOAuthConfig: clientOAuthCfg,
 		GitHubOAuthConfig: githubOAuthCfg,
 		JWTSecret:         []byte(os.Getenv("JWT_SECRET")),
 		AdminLoginEmails:  adminLoginEmails,
