@@ -103,6 +103,7 @@ export interface Agent {
   installed?: boolean;
   lastSeen?: string;
   lastSeenAt?: string | null;
+  ip?: string;
 }
 
 // Access Rules bind subjects to resources
@@ -181,7 +182,7 @@ export interface ConnectorDiagnostic {
   remoteNetworkId: string;
 }
 
-export interface TunnelerDiagnostic {
+export interface AgentDiagnostic {
   id: string;
   name: string;
   status: string;
@@ -190,7 +191,7 @@ export interface TunnelerDiagnostic {
 
 export interface DiagnosticsData {
   connectors: ConnectorDiagnostic[];
-  tunnelers: TunnelerDiagnostic[];
+  agents: AgentDiagnostic[];
 }
 
 export interface PingResult {

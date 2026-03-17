@@ -79,7 +79,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 		if r.Method == http.MethodDelete {
 			// Cascade-delete agents (tunnelers) bound to this connector.
 			var agentIDs []string
-			aRows, _ := db.Query(state.Rebind(`SELECT id FROM tunnelers WHERE connector_id = ?`), connectorID)
+			aRows, _ := db.Query(state.Rebind(`SELECT id FROM agents WHERE connector_id = ?`), connectorID)
 			if aRows != nil {
 				for aRows.Next() {
 					var aid string
@@ -94,7 +94,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 					s.Agents.Delete(aid)
 				}
 			}
-			_, _ = db.Exec(state.Rebind(`DELETE FROM tunnelers WHERE connector_id = ?`), connectorID)
+			_, _ = db.Exec(state.Rebind(`DELETE FROM agents WHERE connector_id = ?`), connectorID)
 
 			// Delete connector tokens, logs, and policy versions.
 			if s.Tokens != nil {

@@ -132,7 +132,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 
 		// Collect agent (tunneler) IDs belonging to this network.
 		var agentIDs []string
-		aRows, _ := db.Query(state.Rebind(`SELECT id FROM tunnelers WHERE remote_network_id = ?`), networkID)
+		aRows, _ := db.Query(state.Rebind(`SELECT id FROM agents WHERE remote_network_id = ?`), networkID)
 		if aRows != nil {
 			for aRows.Next() {
 				var aid string
@@ -189,7 +189,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 				s.Agents.Delete(aid)
 			}
 		}
-		_, _ = db.Exec(state.Rebind(`DELETE FROM tunnelers WHERE remote_network_id = ?`), networkID)
+		_, _ = db.Exec(state.Rebind(`DELETE FROM agents WHERE remote_network_id = ?`), networkID)
 
 		// Clean up join table and the network itself.
 		_, _ = db.Exec(state.Rebind(`DELETE FROM remote_network_connectors WHERE network_id = ?`), networkID)

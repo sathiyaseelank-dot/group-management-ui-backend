@@ -5,7 +5,7 @@ import { getAgent, deleteAgent, revokeAgent, grantAgent } from '@/lib/mock-api';
 import { Agent, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Loader2, ArrowLeft, AlertTriangle, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
-import { AgentInfoSection } from '@/components/dashboard/agents/tunneler-info-section';
+import { AgentInfoSection } from '@/components/dashboard/agents/agent-info-section';
 import { ConnectorLogs } from '@/components/dashboard/connectors/connector-logs';
 import { AgentInstall } from '@/components/dashboard/agents/agent-install';
 import { toast } from 'sonner';

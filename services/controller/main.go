@@ -139,8 +139,8 @@ func main() {
 			controllerpb.DeviceService_DeviceMe_FullMethodName:                {},
 			controllerpb.DeviceService_DeviceSync_FullMethodName:              {},
 			controllerpb.DeviceService_DeviceReportPosture_FullMethodName:     {},
-		}, "connector", "tunneler")),
-		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "tunneler")),
+		}, "connector", "agent")),
+		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "agent")),
 	)
 
 	scanStore := state.NewScanStore()
@@ -164,7 +164,7 @@ func main() {
 		for range ticker.C {
 			cutoff := time.Now().Add(-45 * time.Second).Unix()
 			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
-			_, _ = db.Exec(state.Rebind(`UPDATE tunnelers  SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
+			_, _ = db.Exec(state.Rebind(`UPDATE agents     SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
 		}
 	}()
 

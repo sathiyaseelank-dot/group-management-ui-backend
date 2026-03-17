@@ -103,6 +103,7 @@ type uiAgent struct {
 	Installed       bool    `json:"installed"`
 	LastSeen        string  `json:"lastSeen"`
 	LastSeenAt      *string `json:"lastSeenAt"`
+	IP              string  `json:"ip"`
 }
 
 type uiServiceAccount struct {

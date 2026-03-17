@@ -38,8 +38,8 @@ impl ControlPlane for ConnectorControlPlane {
         // In tonic, the peer cert is available via request extensions
         let spiffe_id = extract_spiffe_id_from_request(&request, &self.trust_domain)?;
 
-        // Verify it's an agent (SPIFFE role kept as "tunneler" for wire compat) and is allowed
-        crate::tls::spiffe::verify_spiffe_uri(&spiffe_id, &self.trust_domain, "tunneler")
+        // Verify it's an agent and is allowed
+        crate::tls::spiffe::verify_spiffe_uri(&spiffe_id, &self.trust_domain, "agent")
             .map_err(|e| Status::permission_denied(format!("SPIFFE verify: {}", e)))?;
 
         if !self.allowlist.allowed(&spiffe_id) {
@@ -48,7 +48,16 @@ impl ControlPlane for ConnectorControlPlane {
 
         let agent_id = agent_id_from_spiffe(&spiffe_id)
             .unwrap_or_else(|| "unknown".to_string());
-        info!("agent connected: {}", spiffe_id);
+
+        // Capture the TCP peer IP at connection time — most reliable source.
+        let peer_ip = {
+            use crate::server::PeerCertInfo;
+            request.extensions()
+                .get::<PeerCertInfo>()
+                .map(|p| p.peer_ip.clone())
+                .unwrap_or_default()
+        };
+        info!("agent connected: {} ip={}", spiffe_id, peer_ip);
 
         let mut in_stream = request.into_inner();
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(16);
@@ -59,6 +68,9 @@ impl ControlPlane for ConnectorControlPlane {
         let agent_registry = self.agent_registry.clone();
         let mut firewall_rx = self.firewall_tx.subscribe();
         let latest_fw_policy = self.latest_fw_policy.clone();
+
+        // Register with the peer IP immediately so it's available before any heartbeat.
+        agent_registry.update(&agent_id, "ONLINE", &peer_ip);
 
         tokio::spawn(async move {
             // Send the current firewall policy immediately to this agent
@@ -85,6 +97,7 @@ impl ControlPlane for ConnectorControlPlane {
                                     &send_ch,
                                     &acl,
                                     &agent_registry,
+                                    &peer_ip,
                                 )
                                 .await;
                             }
@@ -120,6 +133,7 @@ async fn handle_agent_message(
     send_ch: &mpsc::Sender<ControlMessage>,
     acl: &Arc<PolicyCache>,
     agent_registry: &Arc<crate::AgentRegistry>,
+    peer_ip: &str,
 ) {
     match msg.r#type.as_str() {
         "ping" => {
@@ -131,12 +145,28 @@ async fn handle_agent_message(
                 .await;
         }
         "agent_heartbeat" => {
-            // Record the agent's status; it will be included in the next
-            // connector heartbeat to the controller rather than forwarded as
-            // a separate message.
+            // Prefer TCP peer IP unless it is loopback (agent on same host as connector),
+            // in which case use the self-reported IP from the heartbeat payload.
             let status = if msg.status.is_empty() { "ONLINE" } else { &msg.status };
-            agent_registry.update(agent_id, status);
-            info!("agent heartbeat: agent_id={} spiffe_id={} status={}", agent_id, spiffe_id, status);
+            let payload_ip = if !msg.payload.is_empty() {
+                #[derive(Deserialize)]
+                struct HbPayload { #[serde(default)] ip: String }
+                serde_json::from_slice::<HbPayload>(&msg.payload)
+                    .map(|p| p.ip)
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let is_loopback = peer_ip == "127.0.0.1" || peer_ip == "::1";
+            let ip = if !peer_ip.is_empty() && !is_loopback {
+                peer_ip.to_string()
+            } else if !payload_ip.is_empty() {
+                payload_ip
+            } else {
+                peer_ip.to_string()
+            };
+            agent_registry.update(agent_id, status, &ip);
+            info!("agent heartbeat: agent_id={} spiffe_id={} status={} ip={}", agent_id, spiffe_id, status, ip);
         }
         "agent_request" => {
             #[derive(Deserialize)]

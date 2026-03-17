@@ -62,6 +62,14 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		serial = "BIGSERIAL PRIMARY KEY"
 	}
 
+	// Rename legacy tables/columns if they still exist under old names.
+	if dialect == "postgres" {
+		_, _ = db.Exec(`ALTER TABLE IF EXISTS tunnelers RENAME TO agents`)
+		_, _ = db.Exec(`ALTER TABLE IF EXISTS tunneler_logs RENAME TO agent_logs`)
+		_, _ = db.Exec(`ALTER TABLE IF EXISTS agent_logs RENAME COLUMN tunneler_id TO agent_id`)
+		_, _ = db.Exec(`ALTER TABLE IF EXISTS audit_logs RENAME COLUMN tunneler_id TO agent_id`)
+	}
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS connectors (
 			id TEXT PRIMARY KEY,
@@ -76,7 +84,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			installed INTEGER NOT NULL DEFAULT 0,
 			last_policy_version INTEGER NOT NULL DEFAULT 0
 		)`,
-		`CREATE TABLE IF NOT EXISTS tunnelers (
+		`CREATE TABLE IF NOT EXISTS agents (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL DEFAULT '',
 			spiffe_id TEXT NOT NULL DEFAULT '',
@@ -88,7 +96,8 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			last_seen INTEGER NOT NULL DEFAULT 0,
 			revoked INTEGER NOT NULL DEFAULT 0,
 			last_seen_at TEXT NOT NULL DEFAULT '',
-			installed INTEGER NOT NULL DEFAULT 0
+			installed INTEGER NOT NULL DEFAULT 0,
+			ip TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE TABLE IF NOT EXISTS resources (
 			id TEXT PRIMARY KEY,
@@ -120,7 +129,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id ` + serial + `,
 			principal_spiffe TEXT NOT NULL DEFAULT '',
-			tunneler_id TEXT NOT NULL DEFAULT '',
+			agent_id TEXT NOT NULL DEFAULT '',
 			resource_id TEXT NOT NULL DEFAULT '',
 			destination TEXT NOT NULL DEFAULT '',
 			protocol TEXT NOT NULL DEFAULT '',
@@ -197,9 +206,9 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			timestamp TEXT NOT NULL DEFAULT '',
 			message TEXT NOT NULL DEFAULT ''
 		)`,
-		`CREATE TABLE IF NOT EXISTS tunneler_logs (
+		`CREATE TABLE IF NOT EXISTS agent_logs (
 			id ` + serial + `,
-			tunneler_id TEXT NOT NULL DEFAULT '',
+			agent_id TEXT NOT NULL DEFAULT '',
 			timestamp TEXT NOT NULL DEFAULT '',
 			message TEXT NOT NULL DEFAULT ''
 		)`,
@@ -330,9 +339,10 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		_, _ = db.Exec(`ALTER TABLE device_auth_requests ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'mobile'`)
 		_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
-		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
-		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''`)
-		_, _ = db.Exec(`ALTER TABLE tunnelers ADD COLUMN IF NOT EXISTS installed INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS installed INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS ip TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE user_groups ADD COLUMN IF NOT EXISTS trusted_profile_id TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS device_name TEXT NOT NULL DEFAULT ''`)
@@ -362,7 +372,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 // Uses dialect-appropriate syntax to handle the "column already exists" case.
 func migrateWorkspaceColumns(db *sql.DB, dialect string) error {
 	tables := []string{
-		"connectors", "tunnelers", "resources", "tokens",
+		"connectors", "agents", "resources", "tokens",
 		"remote_networks", "access_rules", "user_groups",
 		"service_accounts", "audit_logs",
 	}

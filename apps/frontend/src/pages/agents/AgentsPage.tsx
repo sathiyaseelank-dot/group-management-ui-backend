@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { getAgents } from '@/lib/mock-api';
 import { Agent } from '@/lib/types';
 import { AgentsList } from '@/components/dashboard/agents/agents-list';
-import { AddTunnelerModal } from '@/components/dashboard/agents/add-tunneler-modal';
+import { AddAgentModal } from '@/components/dashboard/agents/add-tunneler-modal';
 import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -56,10 +56,10 @@ export default function AgentsPage() {
         onRevoked={(id) => setAgents((prev) => prev.filter((t) => t.id !== id))}
       />
 
-      <AddTunnelerModal
+      <AddAgentModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onTunnelerAdded={async () => {
+        onAgentAdded={async () => {
           const data = await getAgents();
           setAgents(data);
         }}

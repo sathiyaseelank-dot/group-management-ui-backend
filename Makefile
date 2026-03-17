@@ -70,7 +70,7 @@ dev-controller:
 
 dev-connector:
 	@echo "Running connector in dev mode..."
-	cd services/connector && cargo run
+	cd services/connector && set -a && [ -f .env ] && . ./.env; set +a && cargo run
 
 dev-agent:
 	@echo "Running agent in dev mode..."

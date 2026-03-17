@@ -19,6 +19,23 @@ pub struct EnrollResult {
     pub spiffe_id: String,
 }
 
+pub fn get_local_ip() -> String {
+    use std::net::UdpSocket;
+    // UDP routing trick: OS selects the source IP used to reach the default route.
+    // This returns the real LAN IP without sending any actual packets.
+    UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| {
+            s.connect("8.8.8.8:80")?;
+            s.local_addr()
+        })
+        .ok()
+        .and_then(|addr| {
+            let ip = addr.ip();
+            if ip.is_loopback() || ip.is_unspecified() { None } else { Some(ip.to_string()) }
+        })
+        .unwrap_or_default()
+}
+
 /// Perform enrollment: generate key pair, call EnrollTunneler RPC (proto name), return certs.
 pub async fn enroll(cfg: &EnrollConfig) -> Result<EnrollResult> {
     let (key_der, pub_pem) = generate_key_pair()?;
@@ -26,15 +43,12 @@ pub async fn enroll(cfg: &EnrollConfig) -> Result<EnrollResult> {
     let channel = build_enroll_channel(cfg).await?;
     let mut client = pb::enrollment_service_client::EnrollmentServiceClient::new(channel);
 
-    let hostname = hostname::get()
-        .map(|h| h.to_string_lossy().into_owned())
-        .unwrap_or_default();
     let resp = client
         .enroll_tunneler(pb::EnrollRequest {
             id: cfg.agent_id.clone(),
             public_key: pub_pem,
             token: cfg.token.clone(),
-            private_ip: hostname,
+            private_ip: get_local_ip(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         })
         .await

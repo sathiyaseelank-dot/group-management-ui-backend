@@ -45,6 +45,7 @@ type AgentStatusRecord struct {
 	SPIFFEID    string
 	ConnectorID string
 	LastSeen    time.Time
+	IP          string
 }
 
 type AgentStatusRegistry struct {
@@ -56,7 +57,7 @@ func NewAgentStatusRegistry() *AgentStatusRegistry {
 	return &AgentStatusRegistry{records: make(map[string]AgentStatusRecord)}
 }
 
-func (r *AgentStatusRegistry) Record(agentID, spiffeID, connectorID string) {
+func (r *AgentStatusRegistry) Record(agentID, spiffeID, connectorID, ip string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.records[agentID] = AgentStatusRecord{
@@ -64,6 +65,7 @@ func (r *AgentStatusRegistry) Record(agentID, spiffeID, connectorID string) {
 		SPIFFEID:    spiffeID,
 		ConnectorID: connectorID,
 		LastSeen:    time.Now().UTC(),
+		IP:          ip,
 	}
 }
 

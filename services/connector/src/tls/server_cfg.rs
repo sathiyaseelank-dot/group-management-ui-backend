@@ -10,7 +10,7 @@ use rustls::{
 
 use crate::tls::cert_store::CertStore;
 
-/// Extracts the SPIFFE ID from a verified client cert and checks it is an agent (SPIFFE role: tunneler for wire compat).
+/// Extracts the SPIFFE ID from a verified client cert and checks it is an agent (SPIFFE role: agent).
 #[derive(Debug)]
 pub struct SpiffeAgentVerifier {
     pub trust_domain: String,
@@ -33,7 +33,7 @@ impl ClientCertVerifier for SpiffeAgentVerifier {
         // SPIFFE check
         crate::tls::spiffe::extract_spiffe_id(end_entity.as_ref())
             .and_then(|uri| {
-                crate::tls::spiffe::verify_spiffe_uri(&uri, &self.trust_domain, "tunneler")
+                crate::tls::spiffe::verify_spiffe_uri(&uri, &self.trust_domain, "agent")
             })
             .map_err(|e| rustls::Error::General(format!("SPIFFE verify: {}", e)))?;
 
