@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getResources, getRemoteNetworks, deleteResource } from '@/lib/mock-api';
-import { Resource, RemoteNetwork } from '@/lib/types';
+import { getResources, getRemoteNetworks, getAgents, deleteResource } from '@/lib/mock-api';
+import { Resource, RemoteNetwork, Agent } from '@/lib/types';
 import { ResourcesList } from '@/components/dashboard/resources/resources-list';
 import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { EditResourceModal } from '@/components/dashboard/resources/edit-resourc
 export default function ResourcesPage() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [remoteNetworks, setRemoteNetworks] = useState<RemoteNetwork[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -18,12 +19,14 @@ export default function ResourcesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [resourcesData, networksData] = await Promise.all([
+      const [resourcesData, networksData, agentsData] = await Promise.all([
         getResources(),
         getRemoteNetworks(),
+        getAgents(),
       ]);
       setResources(resourcesData);
       setRemoteNetworks(networksData);
+      setAgents(agentsData);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -77,6 +80,7 @@ export default function ResourcesPage() {
       <ResourcesList
         resources={resources}
         remoteNetworks={remoteNetworks}
+        agents={agents}
         onEdit={handleEditClick}
         onDelete={handleDeleteResource}
         onFirewallStatusChange={loadData}

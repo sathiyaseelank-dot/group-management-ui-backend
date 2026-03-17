@@ -146,11 +146,12 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 				var agents []struct {
 					AgentID string `json:"agent_id"`
 					Status  string `json:"status"`
+					IP      string `json:"ip"`
 				}
 				if err := json.Unmarshal(msg.GetPayload(), &agents); err == nil {
 					for _, t := range agents {
-						s.agentStatus.Record(t.AgentID, "", msg.GetConnectorId())
-						log.Printf("agent heartbeat: agent_id=%s connector_id=%s status=%s", t.AgentID, msg.GetConnectorId(), t.Status)
+						s.agentStatus.Record(t.AgentID, "", msg.GetConnectorId(), t.IP)
+						log.Printf("agent heartbeat: agent_id=%s connector_id=%s status=%s ip=%s", t.AgentID, msg.GetConnectorId(), t.Status, t.IP)
 						if s.acls != nil && s.acls.DB() != nil {
 							if rec, ok := s.agentStatus.Get(t.AgentID); ok {
 								_ = state.SaveAgentToDB(s.acls.DB(), rec)
@@ -166,9 +167,10 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 				SPIFFEID    string `json:"spiffe_id"`
 				Status      string `json:"status"`
 				ConnectorID string `json:"connector_id"`
+				IP          string `json:"ip"`
 			}
 			if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
-				s.agentStatus.Record(payload.AgentID, payload.SPIFFEID, payload.ConnectorID)
+				s.agentStatus.Record(payload.AgentID, payload.SPIFFEID, payload.ConnectorID, payload.IP)
 				if s.acls != nil && s.acls.DB() != nil {
 					if rec, ok := s.agentStatus.Get(payload.AgentID); ok {
 						_ = state.SaveAgentToDB(s.acls.DB(), rec)
@@ -232,7 +234,7 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 						}
 					}
 					_, _ = s.acls.DB().Exec(
-						state.Rebind(`INSERT INTO audit_logs (principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at, workspace_id)
+						state.Rebind(`INSERT INTO audit_logs (principal_spiffe, agent_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at, workspace_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 						payload.PrincipalSPIFFE,
 						payload.AgentID,
@@ -259,7 +261,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 				strings.TrimSpace(payload.Message) != "" {
 				nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 				_, _ = s.db.Exec(
-					state.Rebind(`INSERT INTO tunneler_logs (tunneler_id, timestamp, message) VALUES (?, ?, ?)`),
+					state.Rebind(`INSERT INTO agent_logs (agent_id, timestamp, message) VALUES (?, ?, ?)`),
 					payload.AgentID,
 					nowISO,
 					payload.Message,
@@ -308,17 +310,17 @@ func (s *ControlPlaneServer) SendToConnector(connectorID string, msgType string,
 
 // NotifyAgentAllowed broadcasts a newly enrolled agent to all connectors
 // and persists to DB so the allowlist survives controller restarts.
-func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, hostname string) {
+func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, hostname, ip string) {
 	if s.agents != nil {
 		s.agents.Add(agentID, spiffeID)
 	}
 	// Persist to DB so LoadAgentRegistryFromDB restores the allowlist on restart.
 	if s.db != nil {
 		_, _ = s.db.Exec(
-			state.Rebind(`INSERT INTO tunnelers (id, spiffe_id, connector_id, version, hostname, last_seen)
-			VALUES (?, ?, '', ?, ?, ?)
-			ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, version=excluded.version, hostname=excluded.hostname, last_seen=excluded.last_seen`),
-			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(),
+			state.Rebind(`INSERT INTO agents (id, spiffe_id, connector_id, version, hostname, last_seen, ip)
+			VALUES (?, ?, '', ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, version=excluded.version, hostname=excluded.hostname, last_seen=excluded.last_seen, ip=excluded.ip`),
+			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(), ip,
 		)
 	}
 	info := state.AgentInfo{ID: agentID, SPIFFEID: spiffeID}

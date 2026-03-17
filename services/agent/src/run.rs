@@ -199,6 +199,7 @@ async fn connect_to_connector(
                 let payload = serde_json::to_vec(&serde_json::json!({
                     "agent_id": agent_id,
                     "spiffe_id": spiffe_id,
+                    "ip": crate::enroll::get_local_ip(),
                 })).unwrap_or_default();
 
                 stream_tx.send(ControlMessage {

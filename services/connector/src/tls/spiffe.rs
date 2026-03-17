@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use x509_parser::prelude::*;
 
 /// Extract SPIFFE URI from a DER-encoded X.509 certificate.
-/// Returns the full URI string, e.g. "spiffe://mycorp.internal/tunneler/abc123" (SPIFFE path kept as "tunneler" for wire compatibility).
+/// Returns the full URI string, e.g. "spiffe://mycorp.internal/agent/abc123".
 pub fn extract_spiffe_id(cert_der: &[u8]) -> Result<String> {
     let (_, cert) = X509Certificate::from_der(cert_der)
         .map_err(|e| anyhow::anyhow!("failed to parse X.509 cert: {}", e))?;
@@ -38,7 +38,7 @@ pub fn extract_spiffe_id(cert_der: &[u8]) -> Result<String> {
 }
 
 /// Verify a SPIFFE URI matches trust domain and expected role.
-/// Expected role: "controller", "tunneler", "connector".
+/// Expected role: "controller", "agent", "connector".
 pub fn verify_spiffe_uri(uri: &str, trust_domain: &str, expected_role: &str) -> Result<String> {
     // uri format: spiffe://<trust_domain>/<role>/<id>
     let rest = uri.strip_prefix("spiffe://")
@@ -62,13 +62,13 @@ pub fn verify_spiffe_uri(uri: &str, trust_domain: &str, expected_role: &str) -> 
     Ok(uri.to_string())
 }
 
-/// Parse agent ID from a SPIFFE URI: spiffe://<domain>/tunneler/<id>
+/// Parse agent ID from a SPIFFE URI: spiffe://<domain>/agent/<id>
 pub fn agent_id_from_spiffe(spiffe_id: &str) -> Option<String> {
     let rest = spiffe_id.strip_prefix("spiffe://")?;
     let slash = rest.find('/')?;
     let path = &rest[slash + 1..];
     let parts: Vec<&str> = path.splitn(3, '/').collect();
-    if parts.len() < 2 || parts[0] != "tunneler" {
+    if parts.len() < 2 || parts[0] != "agent" {
         return None;
     }
     Some(parts[1].to_string())

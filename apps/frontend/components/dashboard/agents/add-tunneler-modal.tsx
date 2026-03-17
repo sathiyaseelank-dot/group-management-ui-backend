@@ -22,17 +22,17 @@ import {
 import { addAgent, getConnectors, getRemoteNetworks } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 
-interface AddTunnelerModalProps {
+interface AddAgentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onTunnelerAdded: () => void;
+  onAgentAdded: () => void;
 }
 
-export function AddTunnelerModal({
+export function AddAgentModal({
   isOpen,
   onClose,
-  onTunnelerAdded,
-}: AddTunnelerModalProps) {
+  onAgentAdded,
+}: AddAgentModalProps) {
   const [name, setName] = useState('');
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [connectorId, setConnectorId] = useState<string>('');
@@ -69,7 +69,7 @@ export function AddTunnelerModal({
   const handleAdd = async () => {
     setError(null);
     if (!trimmedName) {
-      setError('Tunneler name is required.');
+      setError('Agent name is required.');
       return;
     }
     setIsAdding(true);
@@ -79,15 +79,15 @@ export function AddTunnelerModal({
         connectorId: connectorId || undefined,
         remoteNetworkId: remoteNetworkId || undefined,
       });
-      onTunnelerAdded();
+      onAgentAdded();
       onClose();
       setName('');
       setConnectorId('');
       setRemoteNetworkId('');
       setError(null);
     } catch (e) {
-      console.error('Failed to add tunneler:', e);
-      setError((e as Error).message || 'Failed to add tunneler.');
+      console.error('Failed to add agent:', e);
+      setError((e as Error).message || 'Failed to add agent.');
     } finally {
       setIsAdding(false);
     }
@@ -102,20 +102,20 @@ export function AddTunnelerModal({
     >
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>Add Tunneler</DialogTitle>
+          <DialogTitle>Add Agent</DialogTitle>
           <DialogDescription>
-            Register a tunneler and optionally assign it to a connector and remote network.
+            Register an agent and optionally assign it to a connector and remote network.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <Label htmlFor="tunnelerName">Name</Label>
+            <Label htmlFor="agentName">Name</Label>
             <Input
-              id="tunnelerName"
+              id="agentName"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., AWS Prod Tunneler"
+              placeholder="e.g., AWS Prod Agent"
             />
           </div>
 
@@ -201,7 +201,7 @@ export function AddTunnelerModal({
             Cancel
           </Button>
           <Button onClick={handleAdd} disabled={isAdding || !trimmedName}>
-            {isAdding ? 'Adding...' : 'Add Tunneler'}
+            {isAdding ? 'Adding...' : 'Add Agent'}
           </Button>
         </DialogFooter>
       </DialogContent>

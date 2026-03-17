@@ -385,7 +385,7 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	rows, err := s.ACLs.DB().Query(`SELECT principal_spiffe, tunneler_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 200`)
+	rows, err := s.ACLs.DB().Query(`SELECT principal_spiffe, agent_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 200`)
 	if err != nil {
 		http.Error(w, "failed to query audit logs", http.StatusInternalServerError)
 		return
@@ -393,7 +393,7 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	type audit struct {
 		PrincipalSPIFFE string `json:"principal_spiffe"`
-		TunnelerID      string `json:"tunneler_id"`
+		AgentID         string `json:"agent_id"`
 		ResourceID      string `json:"resource_id"`
 		Destination     string `json:"destination"`
 		Protocol        string `json:"protocol"`
@@ -406,7 +406,7 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 	out := []audit{}
 	for rows.Next() {
 		var row audit
-		if err := rows.Scan(&row.PrincipalSPIFFE, &row.TunnelerID, &row.ResourceID, &row.Destination, &row.Protocol, &row.Port, &row.Decision, &row.Reason, &row.ConnectionID, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.PrincipalSPIFFE, &row.AgentID, &row.ResourceID, &row.Destination, &row.Protocol, &row.Port, &row.Decision, &row.Reason, &row.ConnectionID, &row.CreatedAt); err != nil {
 			http.Error(w, "failed to read audit logs", http.StatusInternalServerError)
 			return
 		}
@@ -425,7 +425,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	db := s.ACLs.DB()
-	rows, err := db.Query(`SELECT id, version, hostname, connector_id, remote_network_id, last_seen FROM tunnelers`)
+	rows, err := db.Query(`SELECT id, version, hostname, connector_id, remote_network_id, last_seen FROM agents`)
 	if err != nil {
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
@@ -480,7 +480,7 @@ func (s *Server) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.ACLs != nil && s.ACLs.DB() != nil {
 		db := s.ACLs.DB()
-		_, _ = db.Exec(`DELETE FROM tunnelers WHERE id = ?`, id)
+		_, _ = db.Exec(`DELETE FROM agents WHERE id = ?`, id)
 		// Revoke the enrollment token so the agent cannot re-enroll after deletion.
 		_, _ = db.Exec(`DELETE FROM tokens WHERE connector_id = ?`, id)
 	}

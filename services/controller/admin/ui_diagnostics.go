@@ -85,11 +85,11 @@ func (s *Server) handleUIDiagnostics(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	tRows, err := db.Query(state.Rebind(`SELECT id, name, status, last_seen_at FROM tunnelers ORDER BY name ASC`))
+	tRows, err := db.Query(state.Rebind(`SELECT id, name, status, last_seen_at FROM agents ORDER BY name ASC`))
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"connectors": connectors,
-			"tunnelers":  []uiTunnelerDiagnostic{},
+			"agents":  []uiTunnelerDiagnostic{},
 		})
 		return
 	}
@@ -116,7 +116,7 @@ func (s *Server) handleUIDiagnostics(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"connectors": connectors,
-		"tunnelers":  tunnelers,
+		"agents":  tunnelers,
 	})
 }
 

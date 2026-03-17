@@ -41,7 +41,7 @@ type EnrollmentServer struct {
 }
 
 type AgentNotifier interface {
-	NotifyAgentAllowed(agentID, spiffeID, version, hostname string)
+	NotifyAgentAllowed(agentID, spiffeID, version, hostname, ip string)
 }
 
 // NewEnrollmentServer creates a new EnrollmentServer.
@@ -134,14 +134,14 @@ func (s *EnrollmentServer) EnrollConnector(
 	}, nil
 }
 
-// EnrollTunneler enrolls a tunneler and issues a short-lived certificate.
+// EnrollTunneler enrolls an agent and issues a short-lived certificate.
 func (s *EnrollmentServer) EnrollTunneler(
 	ctx context.Context,
 	req *controllerpb.EnrollRequest,
 ) (*controllerpb.EnrollResponse, error) {
 
 	if !validID(req.GetId()) {
-		return nil, status.Error(codes.InvalidArgument, "missing tunneler id")
+		return nil, status.Error(codes.InvalidArgument, "missing agent id")
 	}
 	if req.GetToken() == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing enrollment token")
@@ -151,7 +151,7 @@ func (s *EnrollmentServer) EnrollTunneler(
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid public key: %v", err)
 	}
-	logPublicKey("enroll-tunneler", pubKey, req.GetPublicKey())
+	logPublicKey("enroll-agent", pubKey, req.GetPublicKey())
 
 	workspaceID, err := s.authorizeConnectorTokenWithWorkspace(req.GetToken(), req.GetId())
 	if err != nil {
@@ -176,7 +176,7 @@ func (s *EnrollmentServer) EnrollTunneler(
 		trustDomain = ws.TrustDomain
 	}
 
-	spiffeID := fmt.Sprintf("spiffe://%s/tunneler/%s", trustDomain, req.GetId())
+	spiffeID := fmt.Sprintf("spiffe://%s/agent/%s", trustDomain, req.GetId())
 
 	certPEM, err := ca.IssueWorkloadCert(
 		issuerCA,
@@ -189,9 +189,9 @@ func (s *EnrollmentServer) EnrollTunneler(
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "certificate issuance failed: %v", err)
 	}
-	logIssuedCert("enroll-tunneler", spiffeID, certPEM)
+	logIssuedCert("enroll-agent", spiffeID, certPEM)
 	if s.Notifier != nil {
-		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), req.GetPrivateIp())
+		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), req.GetPrivateIp(), req.GetPrivateIp())
 	}
 
 	return &controllerpb.EnrollResponse{

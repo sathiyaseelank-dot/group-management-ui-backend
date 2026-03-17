@@ -80,9 +80,6 @@ prompt_if_empty CONNECTOR_TOKEN "Connector enrollment token (hex)" true
 
 echo ""
 echo "── Agent ────────────────────────────────────────────"
-if [[ -z "${AGENT_ID:-}" && -n "${TUNNELER_ID:-}" ]]; then
-  AGENT_ID="${TUNNELER_ID}"
-fi
 prompt_if_empty AGENT_ID "Agent ID (e.g. agent-local-01)"
 prompt_if_empty AGENT_TOKEN "Agent enrollment token (hex)" true
 echo ""

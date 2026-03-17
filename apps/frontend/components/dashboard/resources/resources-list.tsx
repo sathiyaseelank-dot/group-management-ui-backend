@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Resource, RemoteNetwork, FirewallStatus } from '@/lib/types';
+import { Agent, Resource, RemoteNetwork, FirewallStatus } from '@/lib/types';
 import { setResourceFirewallStatus } from '@/lib/mock-api';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,22 +19,27 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ArrowRight, Database, Globe, MoreVertical, Shield, ShieldOff, Loader2 } from 'lucide-react';
+import { BotOff, Database, Globe, MoreVertical, Shield, ShieldOff, Loader2 } from 'lucide-react';
 
 interface ResourcesListProps {
   resources: Resource[];
   remoteNetworks: RemoteNetwork[];
+  agents: Agent[];
   onEdit: (resource: Resource) => void;
   onDelete?: (resourceId: string) => void;
   onFirewallStatusChange?: () => void;
 }
 
-export function ResourcesList({ resources, remoteNetworks, onEdit, onDelete, onFirewallStatusChange }: ResourcesListProps) {
+export function ResourcesList({ resources, remoteNetworks, agents, onEdit, onDelete, onFirewallStatusChange }: ResourcesListProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const getNetworkName = (networkId: string) => {
     const network = remoteNetworks.find((net) => net.id === networkId);
     return network ? network.name : networkId;
+  };
+
+  const getAgentForResource = (resource: Resource): Agent | undefined => {
+    return agents.find((a) => a.ip && a.ip === resource.address);
   };
 
   const handleFirewallToggle = async (resource: Resource) => {
@@ -67,6 +72,7 @@ export function ResourcesList({ resources, remoteNetworks, onEdit, onDelete, onF
             <TableHead className="font-semibold">Resource</TableHead>
             <TableHead className="font-semibold">Address</TableHead>
             <TableHead className="font-semibold">Remote Network</TableHead>
+            <TableHead className="font-semibold">Agent</TableHead>
             <TableHead className="font-semibold">Firewall</TableHead>
             <TableHead className="text-right font-semibold">Actions</TableHead>
           </TableRow>
@@ -75,6 +81,7 @@ export function ResourcesList({ resources, remoteNetworks, onEdit, onDelete, onF
           {resources.map((resource) => {
             const isProtected = resource.firewallStatus === 'protected';
             const isToggling = togglingId === resource.id;
+            const matchedAgent = getAgentForResource(resource);
 
             return (
               <TableRow key={resource.id}>
@@ -98,34 +105,53 @@ export function ResourcesList({ resources, remoteNetworks, onEdit, onDelete, onF
                   )}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-2">
-                    {isProtected ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
-                        <Shield className="h-3 w-3" />
-                        Protected
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-500/10 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                        <ShieldOff className="h-3 w-3" />
-                        Unprotected
-                      </span>
-                    )}
-                    <Button
-                      variant={isProtected ? 'outline' : 'default'}
-                      size="sm"
-                      className="h-7 text-xs"
-                      disabled={isToggling}
-                      onClick={() => handleFirewallToggle(resource)}
-                    >
-                      {isToggling ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : isProtected ? (
-                        'Unprotect'
+                  {matchedAgent ? (
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`h-2 w-2 rounded-full flex-shrink-0 ${matchedAgent.status === 'online' ? 'bg-green-500' : 'bg-zinc-400'}`}
+                      />
+                      <span className="text-sm">{matchedAgent.name}</span>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">-</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {!matchedAgent ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-500/10 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                      <BotOff className="h-3 w-3" />
+                      No agent
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      {isProtected ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
+                          <Shield className="h-3 w-3" />
+                          Protected
+                        </span>
                       ) : (
-                        'Protect'
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-500/10 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                          <ShieldOff className="h-3 w-3" />
+                          Unprotected
+                        </span>
                       )}
-                    </Button>
-                  </div>
+                      <Button
+                        variant={isProtected ? 'outline' : 'default'}
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={isToggling}
+                        onClick={() => handleFirewallToggle(resource)}
+                      >
+                        {isToggling ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : isProtected ? (
+                          'Unprotect'
+                        ) : (
+                          'Protect'
+                        )}
+                      </Button>
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
                   <DropdownMenu>

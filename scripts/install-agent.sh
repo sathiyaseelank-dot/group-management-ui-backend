@@ -13,8 +13,6 @@ set -euo pipefail
 #   sudo AGENT_ID=agent_abc AGENT_TOKEN=<hex> CONNECTOR_ADDR=127.0.0.1:9443 \
 #        ./install-agent.sh
 #
-# Legacy compatibility:
-#   TUNNELER_ID / TUNNELER_TOKEN are accepted as fallbacks.
 # ─────────────────────────────────────────────────────────────────────────────
 
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -47,14 +45,6 @@ prompt_if_empty() {
     fi
   fi
 }
-
-if [[ -z "${AGENT_ID:-}" && -n "${TUNNELER_ID:-}" ]]; then
-  AGENT_ID="${TUNNELER_ID}"
-fi
-
-if [[ -z "${AGENT_TOKEN:-}" && -n "${TUNNELER_TOKEN:-}" ]]; then
-  AGENT_TOKEN="${TUNNELER_TOKEN}"
-fi
 
 if [[ "${EUID}" -ne 0 ]]; then
   err "This script must be run as root (sudo)."
@@ -140,7 +130,7 @@ systemctl enable agent.service
 systemctl restart agent.service
 ok "agent.service enabled and started"
 
-unset AGENT_TOKEN TUNNELER_TOKEN
+unset AGENT_TOKEN
 
 echo ""
 echo "════════════════════════════════════════════════════"

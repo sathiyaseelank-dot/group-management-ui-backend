@@ -49,11 +49,11 @@ impl LatestFirewallPolicy {
     }
 }
 
-/// Tracks the last-known status of each connected agent.
+/// Tracks the last-known status and IP of each connected agent.
 /// Updated by the agent-facing server; read by the controller heartbeat.
 #[derive(Clone)]
 pub struct AgentRegistry {
-    inner: Arc<RwLock<HashMap<String, String>>>,
+    inner: Arc<RwLock<HashMap<String, (String, String)>>>,
 }
 
 impl AgentRegistry {
@@ -63,9 +63,9 @@ impl AgentRegistry {
         }
     }
 
-    pub fn update(&self, agent_id: &str, status: &str) {
+    pub fn update(&self, agent_id: &str, status: &str, ip: &str) {
         if let Ok(mut map) = self.inner.write() {
-            map.insert(agent_id.to_string(), status.to_string());
+            map.insert(agent_id.to_string(), (status.to_string(), ip.to_string()));
         }
     }
 
@@ -80,9 +80,10 @@ impl AgentRegistry {
             .read()
             .map(|map| {
                 map.iter()
-                    .map(|(id, st)| AgentStatusEntry {
+                    .map(|(id, (st, ip))| AgentStatusEntry {
                         agent_id: id.clone(),
                         status: st.clone(),
+                        ip: ip.clone(),
                     })
                     .collect()
             })
@@ -94,6 +95,7 @@ impl AgentRegistry {
 pub struct AgentStatusEntry {
     pub agent_id: String,
     pub status: String,
+    pub ip: String,
 }
 
 #[derive(Parser)]
