@@ -1,0 +1,4 @@
+# Copy to local.properties (gitignored) and fill in your paths.
+sdk.dir=/path/to/Android/Sdk
+# Optional: point to NDK if not auto-detected
+# ndk.dir=/path/to/Android/Sdk/ndk/26.3.11579264
