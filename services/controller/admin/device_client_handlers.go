@@ -53,12 +53,25 @@ func loadAuthorizedResources(db *sql.DB, workspaceID, userID string) ([]deviceUs
 		FROM resources r
 		JOIN access_rules ar ON ar.resource_id = r.id AND ar.enabled = 1
 		JOIN access_rule_groups arg ON arg.rule_id = ar.id
+		JOIN user_groups ug ON ug.id = arg.group_id
 		JOIN user_group_members ugm ON ugm.group_id = arg.group_id
 		LEFT JOIN remote_networks rn ON rn.id = r.remote_network_id
-		WHERE r.workspace_id = ? AND ugm.user_id = ?
+		WHERE ugm.user_id = ?
+		  AND (
+			r.workspace_id = ?
+			OR ar.workspace_id = ?
+			OR ug.workspace_id = ?
+			OR (
+				COALESCE(TRIM(r.workspace_id), '') = ''
+				AND COALESCE(TRIM(ar.workspace_id), '') = ''
+				AND COALESCE(TRIM(ug.workspace_id), '') = ''
+			)
+		  )
 		ORDER BY r.name ASC, r.id ASC`),
-		workspaceID,
 		userID,
+		workspaceID,
+		workspaceID,
+		workspaceID,
 	)
 	if err != nil {
 		return nil, err

@@ -11,6 +11,42 @@ pub struct Config {
     #[arg(long, env = "ZTNA_CLIENT_PORT", default_value_t = 19515)]
     pub port: u16,
 
+    /// Local SOCKS5 proxy address used for split-tunneled access
+    #[arg(long, env = "SOCKS5_ADDR", default_value = "127.0.0.1:1080")]
+    pub socks5_addr: String,
+
+    /// Default workspace slug used by the local split-tunnel proxy
+    #[arg(long, env = "ZTNA_TENANT", default_value = "")]
+    pub tenant: String,
+
+    /// Connector device tunnel address (host:port). Empty disables split-tunneled transport.
+    #[arg(long, env = "CONNECTOR_TUNNEL_ADDR", default_value = "")]
+    pub connector_tunnel_addr: String,
+
+    /// Inline PEM for the connector CA. Used when workspace CA is not yet cached locally.
+    #[arg(long, env = "INTERNAL_CA_CERT", default_value = "")]
+    pub internal_ca_cert: String,
+
+    /// Path to a PEM file for the connector CA.
+    #[arg(long, env = "CA_CERT_PATH", default_value = "")]
+    pub ca_cert_path: String,
+
+    /// Transport mode: "tun" (transparent, requires root) or "socks5" (proxy)
+    #[arg(long, env = "ZTNA_MODE", default_value = "tun")]
+    pub mode: String,
+
+    /// TUN device name
+    #[arg(long, env = "TUN_NAME", default_value = "ztna0")]
+    pub tun_name: String,
+
+    /// TUN device address in CIDR notation
+    #[arg(long, env = "TUN_ADDR", default_value = "10.200.0.1/24")]
+    pub tun_addr: String,
+
+    /// TUN device MTU
+    #[arg(long, env = "TUN_MTU", default_value_t = 1500)]
+    pub tun_mtu: u16,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }

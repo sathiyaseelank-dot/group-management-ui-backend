@@ -80,6 +80,7 @@ pub async fn server_loop(
     send_ch: mpsc::Sender<ControlMessage>,
     connector_id: String,
     agent_registry: Arc<crate::AgentRegistry>,
+    agent_tunnel_hub: crate::agent_tunnel::AgentTunnelHub,
     firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
     latest_fw_policy: crate::LatestFirewallPolicy,
 ) {
@@ -95,6 +96,7 @@ pub async fn server_loop(
             send_ch.clone(),
             connector_id.clone(),
             agent_registry.clone(),
+            agent_tunnel_hub.clone(),
             firewall_tx.clone(),
             latest_fw_policy.clone(),
         )
@@ -122,6 +124,7 @@ async fn run_server(
     send_ch: mpsc::Sender<ControlMessage>,
     connector_id: String,
     agent_registry: Arc<crate::AgentRegistry>,
+    agent_tunnel_hub: crate::agent_tunnel::AgentTunnelHub,
     firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
     latest_fw_policy: crate::LatestFirewallPolicy,
 ) -> Result<()> {
@@ -138,6 +141,7 @@ async fn run_server(
         acl,
         trust_domain: trust_domain.to_string(),
         agent_registry,
+        agent_tunnel_hub,
         firewall_tx,
         latest_fw_policy,
     };

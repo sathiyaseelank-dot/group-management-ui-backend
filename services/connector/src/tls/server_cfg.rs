@@ -102,6 +102,16 @@ impl rustls::server::ResolvesServerCert for DynamicCertResolver {
     }
 }
 
+pub fn build_device_tunnel_tls(store: &CertStore) -> Result<rustls::ServerConfig> {
+    let resolver = std::sync::Arc::new(DynamicCertResolver {
+        store: store.clone(),
+    });
+    let config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_cert_resolver(resolver);
+    Ok(config)
+}
+
 /// Build the server-side TLS config for the connector's gRPC listener.
 pub fn build_server_tls(
     store: &CertStore,

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -231,16 +232,15 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fallback to env-var config.
-	// Reuse the registered RedirectURL from the existing OAuth config so the
-	// redirect_uri in the Google auth URL matches what is already registered in
-	// the OAuth provider's console (no extra URI registration required).
+	// Device auth must use the device callback endpoint rather than the
+	// admin-web redirect URL.
 	if authURL == "" {
 		var cfg *oauth2.Config
 		if idpType == "github" && s.GitHubOAuthConfig != nil {
 			cfg = &oauth2.Config{
 				ClientID:     s.GitHubOAuthConfig.ClientID,
 				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
-				RedirectURL:  s.GitHubOAuthConfig.RedirectURL,
+				RedirectURL:  callbackURI,
 				Scopes:       s.GitHubOAuthConfig.Scopes,
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
@@ -248,7 +248,7 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     s.OAuthConfig.ClientID,
 				ClientSecret: s.OAuthConfig.ClientSecret,
-				RedirectURL:  s.OAuthConfig.RedirectURL,
+				RedirectURL:  callbackURI,
 				Scopes:       s.OAuthConfig.Scopes,
 				Endpoint:     s.OAuthConfig.Endpoint,
 			}
@@ -348,8 +348,7 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fallback to env-var OAuth.
-	// Use the registered RedirectURL so the token exchange URI matches the one
-	// used in the authorization request (required by OAuth 2.0 spec).
+	// Use the device callback URI so the token exchange matches the device auth flow.
 	if emailAddr == "" {
 		var cfg *oauth2.Config
 		var fetchFn func(*http.Client) (string, error)
@@ -357,7 +356,7 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     s.OAuthConfig.ClientID,
 				ClientSecret: s.OAuthConfig.ClientSecret,
-				RedirectURL:  s.OAuthConfig.RedirectURL,
+				RedirectURL:  callbackURI,
 				Scopes:       s.OAuthConfig.Scopes,
 				Endpoint:     s.OAuthConfig.Endpoint,
 			}
@@ -366,7 +365,7 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     s.GitHubOAuthConfig.ClientID,
 				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
-				RedirectURL:  s.GitHubOAuthConfig.RedirectURL,
+				RedirectURL:  callbackURI,
 				Scopes:       s.GitHubOAuthConfig.Scopes,
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
@@ -543,6 +542,146 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		"refresh_token": refreshTokenRaw,
 		"acl":           aclSnapshot,
 		"expires_in":    900,
+	})
+}
+
+// handleDeviceCheckAccess validates a device token and checks whether the
+// authenticated user may reach destination:port within their workspace.
+func (s *Server) handleDeviceCheckAccess(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tokenStr := s.getTokenFromRequest(r)
+	claims, err := parseAllClaims(tokenStr, s.JWTSecret)
+	if err != nil || claims.aud != "device" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if claims.userID == "" || claims.wsID == "" {
+		http.Error(w, "token missing uid or wid", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Destination string `json:"destination"`
+		Protocol    string `json:"protocol"`
+		Port        int    `json:"port"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Destination) == "" || req.Port == 0 {
+		http.Error(w, "destination and port are required", http.StatusBadRequest)
+		return
+	}
+	if req.Protocol == "" {
+		req.Protocol = "tcp"
+	}
+
+	db := s.db()
+	if db == nil {
+		http.Error(w, "database not available", http.StatusInternalServerError)
+		return
+	}
+
+	rows, err := db.Query(state.Rebind(`
+		SELECT DISTINCT r.id, r.type, r.address, r.protocol, r.port_from, r.port_to
+		FROM resources r
+		JOIN access_rules ar ON ar.resource_id = r.id AND ar.enabled = 1
+		JOIN access_rule_groups arg ON arg.rule_id = ar.id
+		JOIN user_groups ug ON ug.id = arg.group_id
+		JOIN user_group_members gm ON gm.group_id = arg.group_id
+		WHERE gm.user_id = ?
+		  AND (
+			r.workspace_id = ?
+			OR ar.workspace_id = ?
+			OR ug.workspace_id = ?
+		  )
+	`), claims.userID, claims.wsID, claims.wsID, claims.wsID)
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	dest := strings.ToLower(strings.TrimSpace(req.Destination))
+	protocol := strings.ToLower(strings.TrimSpace(req.Protocol))
+
+	for rows.Next() {
+		var id, resType, address string
+		var resourceProtocol sql.NullString
+		var portFrom, portTo sql.NullInt64
+		if err := rows.Scan(&id, &resType, &address, &resourceProtocol, &portFrom, &portTo); err != nil {
+			continue
+		}
+
+		resProto := "tcp"
+		if resourceProtocol.Valid && strings.TrimSpace(resourceProtocol.String) != "" {
+			resProto = strings.ToLower(strings.TrimSpace(resourceProtocol.String))
+		}
+		if resProto != protocol {
+			continue
+		}
+
+		if portFrom.Valid || portTo.Valid {
+			from := int(portFrom.Int64)
+			to := int(portTo.Int64)
+			if to == 0 {
+				to = from
+			}
+			if from > 0 && (req.Port < from || req.Port > to) {
+				continue
+			}
+		}
+
+		addr := strings.ToLower(strings.TrimSpace(address))
+		kind := strings.ToLower(strings.TrimSpace(resType))
+		if kind != "cidr" && kind != "internet" && kind != "dns" {
+			if addr == "*" || addr == "internet" {
+				kind = "internet"
+			} else if strings.Contains(addr, "/") {
+				if _, _, err := net.ParseCIDR(addr); err == nil {
+					kind = "cidr"
+				} else {
+					kind = "dns"
+				}
+			} else {
+				kind = "dns"
+			}
+		}
+
+		switch kind {
+		case "internet":
+		case "cidr":
+			_, ipNet, parseErr := net.ParseCIDR(addr)
+			if parseErr != nil {
+				continue
+			}
+			ip := net.ParseIP(dest)
+			if ip == nil || !ipNet.Contains(ip) {
+				continue
+			}
+		default:
+			if addr != dest {
+				continue
+			}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"allowed":     true,
+			"resource_id": id,
+			"reason":      "allowed",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"allowed":     false,
+		"resource_id": "",
+		"reason":      "not_allowed",
 	})
 }
 
