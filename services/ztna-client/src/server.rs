@@ -205,7 +205,8 @@ async fn enroll_and_sync(
 pub async fn begin_login(state: &AppState, tenant_slug: &str) -> Result<String> {
     let code_verifier = generate_code_verifier();
     let code_challenge = compute_code_challenge(&code_verifier);
-    let redirect_uri = format!("http://localhost:{}/callback", state.config.port);
+    let callback_host = state.config.effective_callback_host();
+    let redirect_uri = format!("http://{}:{}/callback", callback_host, state.config.port);
 
     let auth = start_device_auth(
         &state.config.controller_url,

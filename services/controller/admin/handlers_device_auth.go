@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -79,14 +80,33 @@ func consumeDeviceCode(code string) (deviceCodeEntry, bool) {
 	return entry, true
 }
 
-// isLoopbackURI returns true if the URI points to localhost or 127.0.0.1.
+func allowLANDeviceCallback() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("ALLOW_LAN_DEVICE_CALLBACKS")), "true")
+}
+
+func isPrivateHost(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsPrivate() || ip.IsLoopback()
+}
+
+// isLoopbackURI returns true if the URI points to localhost or a loopback address.
+// When ALLOW_LAN_DEVICE_CALLBACKS=true, RFC1918/private IPs are accepted as well.
 func isLoopbackURI(uri string) bool {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return false
 	}
 	host := u.Hostname()
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if host == "localhost" {
+		return true
+	}
+	if isPrivateHost(host) {
+		return allowLANDeviceCallback() || host == "127.0.0.1" || host == "::1"
+	}
+	return false
 }
 
 // buildIdPOAuthConfig builds an oauth2.Config from a DB-stored IdentityProvider.
@@ -138,7 +158,7 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isLoopbackURI(req.RedirectURI) {
-		http.Error(w, "redirect_uri must be a loopback address (localhost or 127.0.0.1)", http.StatusBadRequest)
+		http.Error(w, "redirect_uri must be localhost/loopback, or a private LAN IP when ALLOW_LAN_DEVICE_CALLBACKS=true", http.StatusBadRequest)
 		return
 	}
 	if req.CodeChallengeMethod != "" && req.CodeChallengeMethod != "S256" {

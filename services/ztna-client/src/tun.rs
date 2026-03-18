@@ -17,8 +17,8 @@ use crate::acl;
 use crate::config::Config;
 use crate::server::ensure_workspace_state;
 use crate::token_store::StoredWorkspaceState;
-use crate::tunnel;
 use crate::tun_routing::{RouteManager, BYPASS_FWMARK};
+use crate::tunnel;
 
 const SOCKET_BUF_SIZE: usize = 65536;
 
@@ -46,8 +46,14 @@ struct VirtRxToken(Vec<u8>);
 struct VirtTxToken<'a>(&'a mut VecDeque<Vec<u8>>);
 
 impl Device for VirtualDevice {
-    type RxToken<'a> = VirtRxToken where Self: 'a;
-    type TxToken<'a> = VirtTxToken<'a> where Self: 'a;
+    type RxToken<'a>
+        = VirtRxToken
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = VirtTxToken<'a>
+    where
+        Self: 'a;
 
     fn receive(
         &mut self,
@@ -149,15 +155,28 @@ fn describe_packet(data: &[u8]) -> String {
             let transport = match &headers.transport {
                 Some(etherparse::TransportHeader::Tcp(h)) => {
                     let mut flags = String::new();
-                    if h.syn { flags.push('S'); }
-                    if h.ack { flags.push('A'); }
-                    if h.fin { flags.push('F'); }
-                    if h.rst { flags.push('R'); }
-                    if h.psh { flags.push('P'); }
+                    if h.syn {
+                        flags.push('S');
+                    }
+                    if h.ack {
+                        flags.push('A');
+                    }
+                    if h.fin {
+                        flags.push('F');
+                    }
+                    if h.rst {
+                        flags.push('R');
+                    }
+                    if h.psh {
+                        flags.push('P');
+                    }
                     format!(
                         "TCP {}→{} [{}] seq={} ack={}",
-                        h.source_port, h.destination_port, flags,
-                        h.sequence_number, h.acknowledgment_number,
+                        h.source_port,
+                        h.destination_port,
+                        flags,
+                        h.sequence_number,
+                        h.acknowledgment_number,
                     )
                 }
                 Some(etherparse::TransportHeader::Udp(h)) => {
@@ -165,7 +184,13 @@ fn describe_packet(data: &[u8]) -> String {
                 }
                 _ => "other-transport".into(),
             };
-            format!("{} → {} {} ({} bytes)", src_ip, dst_ip, transport, data.len())
+            format!(
+                "{} → {} {} ({} bytes)",
+                src_ip,
+                dst_ip,
+                transport,
+                data.len()
+            )
         }
         Err(_) => {
             format!(
@@ -363,17 +388,20 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
     // has_ip_addr() returns false and every packet to a non-local IP is
     // silently discarded.  Setting the gateway to the interface's own IP
     // (10.200.0.2) makes the check pass.
-    iface
-        .routes_mut()
-        .add_default_ipv4_route(smol_ip)
-        .ok();
+    iface.routes_mut().add_default_ipv4_route(smol_ip).ok();
 
     // ---- 5. Socket set + connection tracking ----
     let mut sockets = SocketSet::new(vec![]);
     let mut connections: HashMap<ConnKey, ConnEntry> = HashMap::new();
     let (event_tx, mut event_rx) = mpsc::channel::<TunEvent>(4096);
 
-    let ca_pem: Arc<Vec<u8>> = Arc::new(crate::load_ca_pem(config));
+    let ca_pem: Arc<Vec<u8>> = Arc::new(if !config.internal_ca_cert.is_empty() {
+        config.internal_ca_cert.as_bytes().to_vec()
+    } else if !config.ca_cert_path.is_empty() {
+        std::fs::read(&config.ca_cert_path).unwrap_or_default()
+    } else {
+        Vec::new()
+    });
 
     let mut route_timer = tokio::time::interval(Duration::from_secs(60));
     let mut poll_timer = tokio::time::interval(Duration::from_millis(5));
@@ -637,24 +665,18 @@ async fn tunnel_relay_task(
     );
 
     // ACL check
-    let acl_resp = match acl::check_access(
-        &controller_url,
-        &access_token,
-        &destination,
-        dst_port,
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!(
-                "[tun-relay] ACL check failed for {}:{}: {}",
-                destination, dst_port, e
-            );
-            let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
-            return;
-        }
-    };
+    let acl_resp =
+        match acl::check_access(&controller_url, &access_token, &destination, dst_port).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "[tun-relay] ACL check failed for {}:{}: {}",
+                    destination, dst_port, e
+                );
+                let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
+                return;
+            }
+        };
 
     if !acl_resp.allowed {
         info!(
@@ -722,10 +744,20 @@ async fn tunnel_relay_task(
     }
 
     if ca_pem.is_empty() {
-        warn!("[tun-relay] connector CA not available for tunnel");
+        warn!(
+            "[tun-relay] connector CA not available for tunnel; CA_CERT_PATH='{}' INTERNAL_CA_CERT={} cached_workspace_ca={}",
+            std::env::var("CA_CERT_PATH").unwrap_or_default(),
+            !std::env::var("INTERNAL_CA_CERT").unwrap_or_default().trim().is_empty(),
+            false
+        );
         let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
         return;
     }
+
+    info!(
+        "[tun-relay] using connector CA: {}",
+        crate::describe_ca_pem(&ca_pem)
+    );
 
     // Open tunnel to connector
     let mut tunnel_stream = match tunnel::open(

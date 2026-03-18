@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::net::{IpAddr, UdpSocket};
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "ztna-client", about = "ZTNA native client")]
@@ -10,6 +11,19 @@ pub struct Config {
     /// Local port to listen on for browser callbacks
     #[arg(long, env = "ZTNA_CLIENT_PORT", default_value_t = 19515)]
     pub port: u16,
+
+    /// Address to bind for browser callbacks (e.g. 127.0.0.1, 0.0.0.0)
+    #[arg(
+        long,
+        env = "ZTNA_CLIENT_CALLBACK_BIND_ADDR",
+        default_value = "0.0.0.0"
+    )]
+    pub callback_bind_addr: String,
+
+    /// Host advertised in the OAuth redirect URI (e.g. 192.168.1.10).
+    /// Empty means auto-detect a LAN address and fall back to localhost.
+    #[arg(long, env = "ZTNA_CLIENT_CALLBACK_HOST", default_value = "")]
+    pub callback_host: String,
 
     /// Local SOCKS5 proxy address used for split-tunneled access
     #[arg(long, env = "SOCKS5_ADDR", default_value = "127.0.0.1:1080")]
@@ -88,4 +102,32 @@ pub enum Command {
     },
     /// Run only the callback server
     Serve,
+}
+
+impl Config {
+    pub fn effective_callback_host(&self) -> String {
+        let host = self.callback_host.trim();
+        if !host.is_empty() {
+            return host.to_string();
+        }
+        detect_lan_ip().unwrap_or_else(|| "localhost".to_string())
+    }
+}
+
+fn detect_lan_ip() -> Option<String> {
+    for target in ["1.1.1.1:80", "8.8.8.8:80", "192.168.1.1:80"] {
+        let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+        if socket.connect(target).is_err() {
+            continue;
+        }
+        let ip = socket.local_addr().ok()?.ip();
+        if is_usable_lan_ip(ip) {
+            return Some(ip.to_string());
+        }
+    }
+    None
+}
+
+fn is_usable_lan_ip(ip: IpAddr) -> bool {
+    !ip.is_loopback() && !ip.is_unspecified()
 }
