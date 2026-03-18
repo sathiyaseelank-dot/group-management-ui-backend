@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
@@ -40,7 +40,7 @@ router.post('/scan', async (req: Request, res: Response) => {
     const result = await proxyToBackend('/api/admin/discovery/scan', {
       method: 'POST',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -51,7 +51,7 @@ router.post('/scan', async (req: Request, res: Response) => {
 router.get('/scan/:requestId', async (req: Request, res: Response) => {
   try {
     const { requestId } = req.params
-    const raw = await proxyToBackend(`/api/admin/discovery/scan/${requestId}`) as Record<string, unknown>
+    const raw = await proxyToBackend(`/api/admin/discovery/scan/${requestId}`, {}, getJWTFromRequest(req)) as Record<string, unknown>
     res.json(mapScanJob(raw))
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -63,7 +63,7 @@ router.get('/results', async (req: Request, res: Response) => {
   try {
     const connectorId = req.query.connector_id
     const query = connectorId ? `?connector_id=${connectorId}` : ''
-    const raw = await proxyToBackend(`/api/admin/discovery/results${query}`) as Record<string, unknown>[]
+    const raw = await proxyToBackend(`/api/admin/discovery/results${query}`, {}, getJWTFromRequest(req)) as Record<string, unknown>[]
     res.json(Array.isArray(raw) ? raw.map(mapResource) : [])
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })

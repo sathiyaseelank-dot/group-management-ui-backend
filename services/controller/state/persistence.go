@@ -7,7 +7,7 @@ import (
 
 func SaveConnectorToDB(db *sql.DB, rec ConnectorRecord) error {
 	var revoked int
-	if err := db.QueryRow(`SELECT revoked FROM connectors WHERE id = ?`, rec.ID).Scan(&revoked); err == nil {
+	if err := db.QueryRow(Rebind(`SELECT revoked FROM connectors WHERE id = ?`), rec.ID).Scan(&revoked); err == nil {
 		if revoked != 0 {
 			return nil
 		}
@@ -16,7 +16,7 @@ func SaveConnectorToDB(db *sql.DB, rec ConnectorRecord) error {
 	_, err := db.Exec(
 		Rebind(`INSERT INTO connectors (id, private_ip, version, last_seen, installed, status, last_seen_at, workspace_id)
 		VALUES (?, ?, ?, ?, 1, 'online', ?, ?)
-		ON CONFLICT(id) DO UPDATE SET private_ip=excluded.private_ip, version=excluded.version, last_seen=excluded.last_seen, installed=1, status='online', last_seen_at=excluded.last_seen_at, workspace_id=excluded.workspace_id`),
+		ON CONFLICT(id) DO UPDATE SET private_ip=excluded.private_ip, version=excluded.version, last_seen=excluded.last_seen, installed=1, status='online', last_seen_at=excluded.last_seen_at, workspace_id=CASE WHEN excluded.workspace_id = '' THEN connectors.workspace_id ELSE excluded.workspace_id END`),
 		rec.ID, rec.PrivateIP, rec.Version, rec.LastSeen.Unix(), lastSeenAt, rec.WorkspaceID,
 	)
 	return err

@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
 // GET /api/resources
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const resources = await proxyToBackend<any[]>('/api/resources')
+    const resources = await proxyToBackend<any[]>('/api/resources', {}, getJWTFromRequest(req))
 
     let resourceList: any[] = []
     if (Array.isArray(resources)) {
@@ -42,7 +42,7 @@ router.post('/', async (req: Request, res: Response) => {
     const resource = await proxyToBackend('/api/resources', {
       method: 'POST',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(resource)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -55,7 +55,7 @@ router.post('/batch', async (req: Request, res: Response) => {
     const result = await proxyToBackend('/api/resources/batch', {
       method: 'POST',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -66,7 +66,7 @@ router.post('/batch', async (req: Request, res: Response) => {
 router.get('/:resourceId', async (req: Request, res: Response) => {
   try {
     const { resourceId } = req.params
-    const result = await proxyToBackend<any>(`/api/resources/${resourceId}`)
+    const result = await proxyToBackend<any>(`/api/resources/${resourceId}`, {}, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -80,7 +80,7 @@ router.put('/:resourceId', async (req: Request, res: Response) => {
     const result = await proxyToBackend(`/api/resources/${resourceId}`, {
       method: 'PUT',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -94,7 +94,7 @@ router.patch('/:resourceId', async (req: Request, res: Response) => {
     const result = await proxyToBackend(`/api/resources/${resourceId}`, {
       method: 'PATCH',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -107,7 +107,7 @@ router.delete('/:resourceId', async (req: Request, res: Response) => {
     const { resourceId } = req.params
     const result = await proxyToBackend(`/api/resources/${resourceId}`, {
       method: 'DELETE',
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })

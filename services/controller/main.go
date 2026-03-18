@@ -247,6 +247,15 @@ func main() {
 		}
 	}
 
+	signupAllowedDomains := map[string]struct{}{}
+	if raw := os.Getenv("SIGNUP_ALLOWED_DOMAINS"); raw != "" {
+		for _, d := range strings.Split(raw, ",") {
+			if domain := strings.TrimSpace(strings.ToLower(d)); domain != "" {
+				signupAllowedDomains[domain] = struct{}{}
+			}
+		}
+	}
+
 	var m *mailer.Mailer
 	if host := os.Getenv("SMTP_HOST"); host != "" {
 		m = mailer.New(
@@ -278,7 +287,8 @@ func main() {
 		ClientOAuthConfig: clientOAuthCfg,
 		GitHubOAuthConfig: githubOAuthCfg,
 		JWTSecret:         []byte(os.Getenv("JWT_SECRET")),
-		AdminLoginEmails:  adminLoginEmails,
+		AdminLoginEmails:     adminLoginEmails,
+		SignupAllowedDomains: signupAllowedDomains,
 		DashboardURL:      os.Getenv("DASHBOARD_URL"),
 		InviteBaseURL:     os.Getenv("INVITE_BASE_URL"),
 		Mailer:            m,

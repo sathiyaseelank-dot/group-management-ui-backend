@@ -119,8 +119,8 @@ func (d *DeviceServiceServer) DeviceAuthorize(ctx context.Context, req *controll
 	deviceState := "device:" + csrfState
 
 	_, err = db.Exec(
-		state.Rebind(`INSERT INTO device_auth_requests (state, workspace_id, code_challenge, redirect_uri, idp_id, created_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`),
+		state.Rebind(`INSERT INTO device_auth_requests (state, workspace_id, code_challenge, redirect_uri, idp_id, platform, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, 'cli', ?, ?)`),
 		deviceState, ws.ID, req.CodeChallenge, req.RedirectUri, idpID,
 		time.Now().Unix(), time.Now().Add(10*time.Minute).Unix(),
 	)
@@ -147,9 +147,21 @@ func (d *DeviceServiceServer) DeviceAuthorize(ctx context.Context, req *controll
 
 	if authURL == "" {
 		if idpType == "github" && d.S.GitHubOAuthConfig != nil {
-			authURL = d.S.GitHubOAuthConfig.AuthCodeURL(deviceState)
+			cfg := *d.S.GitHubOAuthConfig
+			cfg.RedirectURL = callbackURI
+			authURL = cfg.AuthCodeURL(deviceState)
 		} else if d.S.OAuthConfig != nil {
+			// Use the admin OAuth app — its redirect URI (/oauth/google/callback) is
+			// already registered in Google Console and routes through handleOAuthCallback
+			// which forwards device: states to handleDeviceCallback.
 			authURL = d.S.OAuthConfig.AuthCodeURL(deviceState)
+		} else {
+			clientCfg := d.S.effectiveClientOAuthConfig()
+			if clientCfg != nil {
+				cfg := *clientCfg
+				cfg.RedirectURL = callbackURI
+				authURL = cfg.AuthCodeURL(deviceState)
+			}
 		}
 	}
 

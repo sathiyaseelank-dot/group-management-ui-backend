@@ -89,8 +89,8 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
-		if req.Name == "" || req.Description == "" {
-			http.Error(w, "name and description are required", http.StatusBadRequest)
+		if req.Name == "" {
+			http.Error(w, "name is required", http.StatusBadRequest)
 			return
 		}
 		id := fmt.Sprintf("grp_%d", time.Now().UTC().UnixMilli())

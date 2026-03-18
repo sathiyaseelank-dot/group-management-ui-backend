@@ -382,6 +382,20 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		}
 	}
 
+	// Phase 4 migration: backfill workspace_id on rows created before tenant scoping was
+	// enforced (those rows have workspace_id = '').  Assign them to the first workspace so
+	// they remain visible after the withWorkspaceContext middleware started requiring a JWT.
+	backfillTables := []string{
+		"connectors", "agents", "resources", "tokens",
+		"remote_networks", "access_rules", "user_groups",
+		"service_accounts",
+	}
+	for _, tbl := range backfillTables {
+		_, _ = db.Exec(fmt.Sprintf(
+			`UPDATE %s SET workspace_id = (SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1)
+			 WHERE workspace_id = '' AND (SELECT id FROM workspaces LIMIT 1) IS NOT NULL`, tbl))
+	}
+
 	return nil
 }
 

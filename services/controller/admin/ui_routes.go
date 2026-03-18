@@ -79,30 +79,35 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/devices", withCORS(ws(http.HandlerFunc(s.handleUIDevices))))
 }
 
-// withWorkspaceContext is a middleware that extracts workspace claims from JWT
-// and adds them to the request context. It does NOT require workspace claims —
-// requests without them proceed with empty workspace context (backward compatible).
+// withWorkspaceContext is a middleware that requires a valid JWT and extracts
+// workspace claims from it into the request context. Returns 401 if no valid token.
 func (s *Server) withWorkspaceContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(s.JWTSecret) > 0 {
-			tokenStr := ""
-			if cookie, err := r.Cookie(sessionCookieName); err == nil {
-				tokenStr = cookie.Value
-			} else {
-				auth := r.Header.Get("Authorization")
-				if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
-					tokenStr = after
-				}
-			}
-			if tokenStr != "" {
-				if email, userID, wsID, wsSlug, wsRole, err := workspaceClaimsFromJWT(tokenStr, s.JWTSecret); err == nil {
-					ctx := withSessionEmail(r.Context(), email)
-					ctx = withWorkspace(ctx, userID, wsID, wsSlug, wsRole)
-					r = r.WithContext(ctx)
-				}
+		if len(s.JWTSecret) == 0 {
+			http.Error(w, "JWT not configured", http.StatusServiceUnavailable)
+			return
+		}
+		tokenStr := ""
+		if cookie, err := r.Cookie(sessionCookieName); err == nil {
+			tokenStr = cookie.Value
+		} else {
+			auth := r.Header.Get("Authorization")
+			if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
+				tokenStr = after
 			}
 		}
-		next.ServeHTTP(w, r)
+		if tokenStr == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		email, userID, wsID, wsSlug, wsRole, err := workspaceClaimsFromJWT(tokenStr, s.JWTSecret)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		ctx := withSessionEmail(r.Context(), email)
+		ctx = withWorkspace(ctx, userID, wsID, wsSlug, wsRole)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

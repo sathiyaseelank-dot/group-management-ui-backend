@@ -315,7 +315,7 @@ func MarkStaleDiscoveredServices(db *sql.DB, threshold time.Duration) (int64, er
 	res, err := db.Exec(
 		Rebind(`UPDATE agent_discovered_services SET status = 'stale'
 			WHERE status = 'active' AND last_seen < ?
-			AND agent_id IN (SELECT id FROM tunnelers WHERE status = 'offline')`),
+			AND agent_id IN (SELECT id FROM agents WHERE status = 'offline')`),
 		cutoff,
 	)
 	if err != nil {

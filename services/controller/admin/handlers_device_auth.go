@@ -240,16 +240,14 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fallback to env-var config.
-	// Use the registered RedirectURL from the OAuth config so the redirect_uri
-	// in the Google auth URL matches what is registered in the OAuth provider's console.
+	// Fallback to env-var config, using callbackURI as the redirect URL.
 	if authURL == "" {
 		var cfg *oauth2.Config
 		if idpType == "github" && s.GitHubOAuthConfig != nil {
 			cfg = &oauth2.Config{
 				ClientID:     s.GitHubOAuthConfig.ClientID,
 				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
-				RedirectURL:  s.GitHubOAuthConfig.RedirectURL,
+				RedirectURL:  callbackURI,
 				Scopes:       s.GitHubOAuthConfig.Scopes,
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
@@ -259,7 +257,7 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 				cfg = &oauth2.Config{
 					ClientID:     clientCfg.ClientID,
 					ClientSecret: clientCfg.ClientSecret,
-					RedirectURL:  clientCfg.RedirectURL,
+					RedirectURL:  callbackURI,
 					Scopes:       clientCfg.Scopes,
 					Endpoint:     clientCfg.Endpoint,
 				}
@@ -412,7 +410,7 @@ func (s *Server) handleDeviceAuthStart(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     s.GitHubOAuthConfig.ClientID,
 				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
-				RedirectURL:  s.GitHubOAuthConfig.RedirectURL,
+				RedirectURL:  callbackURI,
 				Scopes:       s.GitHubOAuthConfig.Scopes,
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
@@ -422,7 +420,7 @@ func (s *Server) handleDeviceAuthStart(w http.ResponseWriter, r *http.Request) {
 				cfg = &oauth2.Config{
 					ClientID:     clientCfg.ClientID,
 					ClientSecret: clientCfg.ClientSecret,
-					RedirectURL:  clientCfg.RedirectURL,
+					RedirectURL:  callbackURI,
 					Scopes:       clientCfg.Scopes,
 					Endpoint:     clientCfg.Endpoint,
 				}
@@ -621,12 +619,21 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 	// Clean up the DB record
 	_, _ = db.Exec(state.Rebind(`DELETE FROM device_auth_requests WHERE state = ?`), stateParam)
 
-	// Exchange code with IdP
-	baseURL := s.InviteBaseURL
-	if baseURL == "" {
-		baseURL = "http://localhost:8081"
+	// Build callbackURI to match what was sent to the IdP in the authorization request.
+	// When called from handleOAuthCallback (/oauth/google/callback on :8080), r.Host and
+	// r.URL.Path reflect that registered URI. When called directly (/api/device/callback
+	// on :8081), they reflect the direct path. Using the request URL guarantees the token
+	// exchange redirect_uri always matches the authorization redirect_uri.
+	scheme := "http"
+	host := r.Host
+	if host == "" {
+		if s.InviteBaseURL != "" {
+			host = strings.TrimPrefix(strings.TrimPrefix(s.InviteBaseURL, "https://"), "http://")
+		} else {
+			host = "localhost:8081"
+		}
 	}
-	callbackURI := baseURL + "/api/device/callback"
+	callbackURI := scheme + "://" + host + r.URL.Path
 
 	var emailAddr string
 	var fetchErr error
@@ -668,7 +675,7 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     s.GitHubOAuthConfig.ClientID,
 				ClientSecret: s.GitHubOAuthConfig.ClientSecret,
-				RedirectURL:  s.GitHubOAuthConfig.RedirectURL,
+				RedirectURL:  callbackURI,
 				Scopes:       s.GitHubOAuthConfig.Scopes,
 				Endpoint:     s.GitHubOAuthConfig.Endpoint,
 			}
@@ -677,7 +684,7 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 			cfg = &oauth2.Config{
 				ClientID:     clientCfg.ClientID,
 				ClientSecret: clientCfg.ClientSecret,
-				RedirectURL:  clientCfg.RedirectURL,
+				RedirectURL:  callbackURI,
 				Scopes:       clientCfg.Scopes,
 				Endpoint:     clientCfg.Endpoint,
 			}

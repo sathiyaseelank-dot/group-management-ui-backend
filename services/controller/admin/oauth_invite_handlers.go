@@ -293,7 +293,19 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 			http.Error(w, "workspace invite context required", http.StatusForbidden)
 			return
 		} else if isSignup {
-			// Signup flow: create user record if not exists, skip allowlist check.
+			// Signup flow: check domain allowlist if configured.
+			if len(s.SignupAllowedDomains) > 0 {
+				parts := strings.SplitN(email, "@", 2)
+				if len(parts) != 2 {
+					http.Error(w, "invalid email", http.StatusBadRequest)
+					return
+				}
+				if _, ok := s.SignupAllowedDomains[parts[1]]; !ok {
+					http.Error(w, "signup not allowed for this email domain", http.StatusForbidden)
+					return
+				}
+			}
+			// Create user record if not exists.
 			if s.Users != nil {
 				user := state.User{
 					Name:      email,

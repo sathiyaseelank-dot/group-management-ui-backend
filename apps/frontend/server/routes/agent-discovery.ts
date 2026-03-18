@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
@@ -25,7 +25,7 @@ router.get('/results', async (req: Request, res: Response) => {
     if (req.query.agent_id) params.set('agent_id', String(req.query.agent_id))
     if (req.query.include_dismissed === 'true') params.set('include_dismissed', 'true')
     const query = params.toString() ? `?${params.toString()}` : ''
-    const raw = await proxyToBackend(`/api/admin/agent-discovery/results${query}`) as Record<string, unknown>[]
+    const raw = await proxyToBackend(`/api/admin/agent-discovery/results${query}`, {}, getJWTFromRequest(req)) as Record<string, unknown>[]
     res.json(Array.isArray(raw) ? raw.map(mapService) : [])
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -37,7 +37,7 @@ router.patch('/results/:id/dismiss', async (req: Request, res: Response) => {
   try {
     const result = await proxyToBackend(`/api/admin/agent-discovery/results/${req.params.id}/dismiss`, {
       method: 'PATCH',
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -49,7 +49,7 @@ router.patch('/results/:id/undismiss', async (req: Request, res: Response) => {
   try {
     const result = await proxyToBackend(`/api/admin/agent-discovery/results/${req.params.id}/undismiss`, {
       method: 'PATCH',
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -64,7 +64,7 @@ router.delete('/results', async (req: Request, res: Response) => {
     const query = params.toString() ? `?${params.toString()}` : ''
     const result = await proxyToBackend(`/api/admin/agent-discovery/results${query}`, {
       method: 'DELETE',
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -72,9 +72,9 @@ router.delete('/results', async (req: Request, res: Response) => {
 })
 
 // GET /api/agent-discovery/summary
-router.get('/summary', async (_req: Request, res: Response) => {
+router.get('/summary', async (req: Request, res: Response) => {
   try {
-    const result = await proxyToBackend('/api/admin/agent-discovery/summary')
+    const result = await proxyToBackend('/api/admin/agent-discovery/summary', {}, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })

@@ -33,12 +33,15 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   console.log(`[mock-api] Request to: ${url}`);
-  
+
+  const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+
   let res: Response;
   try {
     res = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         ...(options.headers || {}),
       },
       ...options,

@@ -26,18 +26,29 @@ function getAdminAuthToken() {
   return process.env.ADMIN_AUTH_TOKEN || '7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4'
 }
 
+// Extract JWT from an Express request's Authorization header.
+export function getJWTFromRequest(req: { headers: { authorization?: string } }): string | undefined {
+  const auth = req.headers.authorization
+  if (auth?.startsWith('Bearer ')) return auth.slice(7)
+  return undefined
+}
+
 export async function proxyToBackend<T = any>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  userJWT?: string
 ): Promise<T> {
   const url = `${getBackendUrl()}${path}`;
 
+  const authHeader = userJWT
+    ? `Bearer ${userJWT}`
+    : `Bearer ${getAdminAuthToken()}`;
 
   const response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${getAdminAuthToken()}`,
+      'Authorization': authHeader,
       ...options.headers,
     },
   });

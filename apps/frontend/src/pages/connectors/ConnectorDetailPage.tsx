@@ -54,6 +54,7 @@ export default function ConnectorDetailPage() {
   const detectedHost = window.location.hostname || '127.0.0.1';
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
+  const [connectorPrivateIP, setConnectorPrivateIP] = useState(detectedHost);
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
     return (
@@ -62,9 +63,10 @@ export default function ConnectorDetailPage() {
       `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${enrollmentToken}" \\\n` +
+      (connectorPrivateIP ? `  CONNECTOR_PRIVATE_IP="${connectorPrivateIP}" \\\n` : '') +
       `  bash`
     );
-  }, [enrollmentToken, controllerAddr, controllerHttpAddr, connectorId]);
+  }, [enrollmentToken, controllerAddr, controllerHttpAddr, connectorId, connectorPrivateIP]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -208,6 +210,18 @@ export default function ConnectorDetailPage() {
             />
             <p className="text-xs text-muted-foreground">
               The CA certificate is fetched automatically from this address.
+            </p>
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="connectorPrivateIP">Connector LAN IP (optional)</Label>
+            <Input
+              id="connectorPrivateIP"
+              value={connectorPrivateIP}
+              onChange={(e) => setConnectorPrivateIP(e.target.value)}
+              placeholder="192.168.1.x"
+            />
+            <p className="text-xs text-muted-foreground">
+              The LAN IP of the machine running the connector. Auto-detected from your browser address — override if the connector is on a different machine.
             </p>
           </div>
         </div>

@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
 // GET /api/service-accounts
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const serviceAccounts = await proxyToBackend<any[]>('/api/admin/service-accounts')
+    const serviceAccounts = await proxyToBackend<any[]>('/api/admin/service-accounts', {}, getJWTFromRequest(req))
     const formatted = serviceAccounts.map((s: any) => ({
       id: s.ID,
       name: s.Name,

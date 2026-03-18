@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
 // GET /api/device-trusted-profiles
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const result = await proxyToBackend<any[]>('/api/device-trusted-profiles')
+    const result = await proxyToBackend<any[]>('/api/device-trusted-profiles', {}, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -19,7 +19,7 @@ router.post('/', async (req: Request, res: Response) => {
     const result = await proxyToBackend('/api/device-trusted-profiles', {
       method: 'POST',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -33,7 +33,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
     const result = await proxyToBackend(`/api/device-trusted-profiles/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -46,7 +46,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     const { id } = req.params
     await proxyToBackend(`/api/device-trusted-profiles/${id}`, {
       method: 'DELETE',
-    })
+    }, getJWTFromRequest(req))
     res.json({ ok: true })
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })

@@ -47,9 +47,10 @@ type Server struct {
 	ClientOAuthConfig *oauth2.Config // Google client app for PKCE flows (device + invite)
 	GitHubOAuthConfig *oauth2.Config
 	JWTSecret         []byte
-	AdminLoginEmails  map[string]struct{}
-	DashboardURL      string
-	InviteBaseURL     string
+	AdminLoginEmails      map[string]struct{}
+	SignupAllowedDomains  map[string]struct{} // empty = open signup; set = restrict to these domains
+	DashboardURL          string
+	InviteBaseURL         string
 
 	// SMTP mailer (nil = disabled)
 	Mailer *mailer.Mailer
@@ -145,7 +146,11 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 						return
 					}
 				}
-				if !s.isAdminEmail(claims.email) {
+				// Allow workspace owners/admins via JWT workspace role claim,
+				// OR via DB users.role check (covers invited owners whose DB role is "Member").
+				wsRole := strings.ToLower(strings.TrimSpace(claims.wsRole))
+				isWsAdmin := wsRole == "owner" || wsRole == "admin"
+				if !isWsAdmin && !s.isAdminEmail(claims.email) {
 					http.Error(w, "forbidden", http.StatusForbidden)
 					return
 				}

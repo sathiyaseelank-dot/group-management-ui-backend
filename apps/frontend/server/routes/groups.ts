@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
@@ -42,9 +42,9 @@ function mapBackendGroup(group: BackendGroup) {
 }
 
 // GET /api/groups
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const groups = await proxyToBackend<BackendGroup[]>('/api/groups')
+    const groups = await proxyToBackend<BackendGroup[]>('/api/groups', {}, getJWTFromRequest(req))
     res.json(groups.map(mapBackendGroup))
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -54,10 +54,10 @@ router.get('/', async (_req: Request, res: Response) => {
 // POST /api/groups
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const group = await proxyToBackend<BackendGroup>('/api/admin/user-groups', {
+    const group = await proxyToBackend<BackendGroup>('/api/groups', {
       method: 'POST',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(mapBackendGroup(group))
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -68,7 +68,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:groupId', async (req: Request, res: Response) => {
   try {
     const { groupId } = req.params
-    const payload = await proxyToBackend(`/api/groups/${groupId}`)
+    const payload = await proxyToBackend(`/api/groups/${groupId}`, {}, getJWTFromRequest(req))
     res.json(payload)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -82,7 +82,7 @@ router.put('/:groupId', async (req: Request, res: Response) => {
     const group = await proxyToBackend(`/api/admin/user-groups/${groupId}`, {
       method: 'PUT',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(group)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -95,7 +95,7 @@ router.delete('/:groupId', async (req: Request, res: Response) => {
     const { groupId } = req.params
     const result = await proxyToBackend(`/api/admin/user-groups/${groupId}`, {
       method: 'DELETE',
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -106,7 +106,7 @@ router.delete('/:groupId', async (req: Request, res: Response) => {
 router.get('/:groupId/members', async (req: Request, res: Response) => {
   try {
     const { groupId } = req.params
-    const members = await proxyToBackend(`/api/admin/user-groups/${groupId}/members`)
+    const members = await proxyToBackend(`/api/admin/user-groups/${groupId}/members`, {}, getJWTFromRequest(req))
     res.json(members)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -120,7 +120,7 @@ router.post('/:groupId/members', async (req: Request, res: Response) => {
     const result = await proxyToBackend(`/api/groups/${groupId}/members`, {
       method: 'POST',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -133,7 +133,7 @@ router.delete('/:groupId/members/:userId', async (req: Request, res: Response) =
     const { groupId, userId } = req.params
     const result = await proxyToBackend(`/api/groups/${groupId}/members/${userId}`, {
       method: 'DELETE',
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -147,7 +147,7 @@ router.post('/:groupId/resources', async (req: Request, res: Response) => {
     const result = await proxyToBackend(`/api/groups/${groupId}/resources`, {
       method: 'POST',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })

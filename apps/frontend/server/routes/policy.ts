@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
@@ -7,7 +7,7 @@ const router = Router()
 router.get('/acl/:connectorId', async (req: Request, res: Response) => {
   try {
     const { connectorId } = req.params
-    const policy = await proxyToBackend(`/api/policy/acl/${connectorId}`)
+    const policy = await proxyToBackend(`/api/policy/acl/${connectorId}`, {}, getJWTFromRequest(req))
     res.json(policy)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -18,7 +18,7 @@ router.get('/acl/:connectorId', async (req: Request, res: Response) => {
 router.get('/compile/:connectorId', async (req: Request, res: Response) => {
   try {
     const { connectorId } = req.params
-    const policy = await proxyToBackend(`/api/policy/compile/${connectorId}`)
+    const policy = await proxyToBackend(`/api/policy/compile/${connectorId}`, {}, getJWTFromRequest(req))
     res.json(policy)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })

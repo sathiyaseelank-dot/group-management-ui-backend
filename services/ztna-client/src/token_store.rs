@@ -111,45 +111,15 @@ const ENC_PREFIX: &str = "enc1:";
 /// Retrieve (or create) the 32-byte AES-256 key used to protect the private
 /// key for `tenant_slug`.
 ///
-/// Strategy:
-/// 1. Try the OS keychain (via the `keyring` crate).
-/// 2. Fall back to a per-tenant key file (`.<tenant>.key`, 0600) so the tool
-///    continues to work on headless/server systems without a D-Bus keychain.
+/// Uses a per-tenant key file (`.<tenant>.key`, 0600).  The OS keychain is not
+/// used because it is unreliable on headless/server Linux systems (no D-Bus /
+/// keyring daemon), which causes inconsistent key retrieval between save and
+/// load and ultimately breaks decryption.
 fn get_or_create_workspace_key(tenant_slug: &str) -> Result<[u8; 32]> {
-    let service = "ztna-client";
-    let account = format!("device-key/{}", tenant_slug);
-
-    if let Ok(entry) = keyring::Entry::new(service, &account) {
-        match entry.get_password() {
-            Ok(b64) => {
-                let bytes = B64.decode(b64.trim())?;
-                if bytes.len() == 32 {
-                    let mut key = [0u8; 32];
-                    key.copy_from_slice(&bytes);
-                    return Ok(key);
-                }
-                // Corrupt entry — regenerate below.
-            }
-            Err(keyring::Error::NoEntry) => {
-                // First use — generate, store, and return.
-                let mut key = [0u8; 32];
-                rand::thread_rng().fill_bytes(&mut key);
-                let b64 = B64.encode(key);
-                if entry.set_password(&b64).is_ok() {
-                    return Ok(key);
-                }
-                // set_password failed (e.g. no unlock daemon) — fall through.
-            }
-            Err(_) => {
-                // Keychain not accessible — fall through to key file.
-            }
-        }
-    }
-
     get_or_create_keyfile_key(tenant_slug)
 }
 
-/// Fall-back: store the key in a separate file (`.<tenant>.key`) with 0600
+/// Store the key in a separate file (`.<tenant>.key`) with 0600
 /// permissions, keeping the key separate from the main JSON state file.
 fn get_or_create_keyfile_key(tenant_slug: &str) -> Result<[u8; 32]> {
     let path = key_file_path(tenant_slug)

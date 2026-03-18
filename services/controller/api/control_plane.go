@@ -304,7 +304,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 					s.seqMu.Unlock()
 
 					var wsID string
-					_ = s.db.QueryRow(state.Rebind(`SELECT workspace_id FROM tunnelers WHERE id = ?`), diff.AgentID).Scan(&wsID)
+					_ = s.db.QueryRow(state.Rebind(`SELECT workspace_id FROM agents WHERE id = ?`), diff.AgentID).Scan(&wsID)
 
 					for _, svc := range diff.Added {
 						s.batcher.QueueUpsert(state.AgentDiscoveredService{
@@ -357,7 +357,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 					}
 
 					var wsID string
-					_ = s.db.QueryRow(state.Rebind(`SELECT workspace_id FROM tunnelers WHERE id = ?`), sync.AgentID).Scan(&wsID)
+					_ = s.db.QueryRow(state.Rebind(`SELECT workspace_id FROM agents WHERE id = ?`), sync.AgentID).Scan(&wsID)
 
 					reported := make([]state.PortProto, 0, len(sync.Services))
 					for _, svc := range sync.Services {
@@ -402,7 +402,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 					// Look up agent's workspace_id once per report
 					var wsID string
 					_ = s.db.QueryRow(state.Rebind(
-						`SELECT workspace_id FROM tunnelers WHERE id = ?`),
+						`SELECT workspace_id FROM agents WHERE id = ?`),
 						report.AgentID,
 					).Scan(&wsID)
 

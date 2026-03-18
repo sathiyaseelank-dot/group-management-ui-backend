@@ -14,7 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus } from 'lucide-react';
-import { addGroup } from '@/lib/mock-api'; // Assuming a new addGroup function
+import { toast } from 'sonner';
+import { addGroup } from '@/lib/mock-api';
 
 interface AddGroupModalProps {
   isOpen: boolean;
@@ -38,8 +39,10 @@ export function AddGroupModal({ isOpen, onClose, onGroupAdded }: AddGroupModalPr
       setName('');
       setDescription('');
     } catch (error) {
-      console.error('Failed to add group:', error);
-      // TODO: Show an error toast
+      const msg = (error as Error).message || 'Failed to add group';
+      toast.error(msg.includes('forbidden') || msg.includes('403')
+        ? 'Permission denied. Only admins can create groups.'
+        : msg);
     } finally {
       setIsAdding(false);
     }

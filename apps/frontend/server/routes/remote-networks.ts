@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
@@ -45,9 +45,9 @@ function mapBackendNetwork(n: BackendRemoteNetwork) {
 }
 
 // GET /api/remote-networks
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const networks = await proxyToBackend<BackendRemoteNetwork[]>('/api/remote-networks')
+    const networks = await proxyToBackend<BackendRemoteNetwork[]>('/api/remote-networks', {}, getJWTFromRequest(req))
     res.json(networks.map(mapBackendNetwork))
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -60,7 +60,7 @@ router.post('/', async (req: Request, res: Response) => {
     const network = await proxyToBackend<BackendRemoteNetwork>('/api/remote-networks', {
       method: 'POST',
       body: JSON.stringify(req.body),
-    })
+    }, getJWTFromRequest(req))
     res.json(mapBackendNetwork(network))
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -71,7 +71,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:networkId', async (req: Request, res: Response) => {
   try {
     const { networkId } = req.params
-    const network = await proxyToBackend(`/api/remote-networks/${networkId}`)
+    const network = await proxyToBackend(`/api/remote-networks/${networkId}`, {}, getJWTFromRequest(req))
     res.json(network)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })
@@ -84,7 +84,7 @@ router.delete('/:networkId', async (req: Request, res: Response) => {
     const { networkId } = req.params
     const result = await proxyToBackend(`/api/remote-networks/${networkId}`, {
       method: 'DELETE',
-    })
+    }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
     res.status(500).json({ error: (error as Error).message })

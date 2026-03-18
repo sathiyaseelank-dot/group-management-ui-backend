@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { proxyToBackend } from '../../lib/proxy'
+import { proxyToBackend, getJWTFromRequest } from '../../lib/proxy'
 
 const router = Router()
 
@@ -7,10 +7,11 @@ const router = Router()
 router.get('/', async (req: Request, res: Response) => {
   try {
     const typeParam = req.query.type as string | undefined
+    const jwt = getJWTFromRequest(req)
     const subjects: any[] = []
 
     if (!typeParam || typeParam === 'USER') {
-      const users = await proxyToBackend<any[]>('/api/admin/users')
+      const users = await proxyToBackend<any[]>('/api/admin/users', {}, jwt)
       users.forEach((u: any) => {
         const id = u.id ?? u.ID
         const name = u.name ?? u.Name ?? ''
@@ -24,7 +25,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     if (!typeParam || typeParam === 'GROUP') {
-      const groups = await proxyToBackend<any[]>('/api/admin/user-groups')
+      const groups = await proxyToBackend<any[]>('/api/admin/user-groups', {}, jwt)
       groups.forEach((g: any) => {
         const id = g.id ?? g.ID
         const name = g.name ?? g.Name ?? ''
@@ -39,7 +40,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (!typeParam || typeParam === 'SERVICE') {
       try {
-        const services = await proxyToBackend<any[]>('/api/admin/service-accounts')
+        const services = await proxyToBackend<any[]>('/api/admin/service-accounts', {}, jwt)
         services.forEach((s: any) => {
           const id = s.id ?? s.ID
           const name = s.name ?? s.Name ?? ''
