@@ -17,6 +17,7 @@ import agentsRouter from './routes/agents'
 import policyRouter from './routes/policy'
 import auditLogsRouter from './routes/audit-logs'
 import discoveryRouter from './routes/discovery'
+import agentDiscoveryRouter from './routes/agent-discovery'
 import workspacesRouter from './routes/workspaces'
 import diagnosticsRouter from './routes/diagnostics'
 import deviceTrustedProfilesRouter from './routes/device-trusted-profiles'
@@ -42,6 +43,7 @@ app.use('/api/agents', agentsRouter)
 app.use('/api/policy', policyRouter)
 app.use('/api/audit-logs', auditLogsRouter)
 app.use('/api/discovery', discoveryRouter)
+app.use('/api/agent-discovery', agentDiscoveryRouter)
 app.use('/api/workspaces', workspacesRouter)
 app.use('/api/diagnostics', diagnosticsRouter)
 app.use('/api/device-trusted-profiles', deviceTrustedProfilesRouter)

@@ -31,6 +31,7 @@ const navItems: NavItem[] = [
     children: [
       { label: 'All Resources', href: '/dashboard/resources' },
       { label: 'Network Discovery', href: '/dashboard/discovery' },
+      { label: 'Agent Discovery', href: '/dashboard/agent-discovery' },
     ],
   },
 

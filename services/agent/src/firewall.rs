@@ -42,6 +42,16 @@ pub struct FirewallEnforcer {
     protected: Mutex<HashMap<u16, ProtectionEntry>>,
 }
 
+/// Validate that a protocol string is an allowed value.
+/// Prevents injection of arbitrary nft arguments via a crafted protocol field.
+fn validate_protocol(proto: &str) -> Result<&'static str> {
+    match proto.to_lowercase().as_str() {
+        "tcp" => Ok("tcp"),
+        "udp" => Ok("udp"),
+        _ => anyhow::bail!("invalid protocol: {}", proto),
+    }
+}
+
 impl FirewallEnforcer {
     pub fn new(tun_name: &str) -> Self {
         Self {
@@ -55,18 +65,16 @@ impl FirewallEnforcer {
     /// Create the nftables table and chain if they don't exist.
     pub async fn initialize(&self) -> Result<()> {
         // Create table
-        run_nft_allow_exists(&format!(
-            "add table inet {}",
-            self.table_name
-        ))
-        .await
-        .context("failed to create nftables table")?;
+        run_nft_cmd_allow_exists(&["add", "table", "inet", &self.table_name])
+            .await
+            .context("failed to create nftables table")?;
 
         // Create input chain with filter hook
-        run_nft_allow_exists(&format!(
-            "add chain inet {} {} {{ type filter hook input priority 0 ; policy accept ; }}",
-            self.table_name, self.chain_name
-        ))
+        run_nft_cmd_allow_exists(&[
+            "add", "chain", "inet", &self.table_name, &self.chain_name,
+            "{", "type", "filter", "hook", "input", "priority", "0", ";",
+            "policy", "accept", ";", "}",
+        ])
         .await
         .context("failed to create nftables chain")?;
 
@@ -131,30 +139,28 @@ impl FirewallEnforcer {
     /// 2. Accept from TUN interface
     /// 3. Drop everything else
     async fn protect_port(&self, port: u16, protocol: &str) -> Result<Vec<u64>> {
-        let proto = protocol.to_lowercase();
+        let proto = validate_protocol(protocol)?;
+        let port_str = port.to_string();
         let mut handles = Vec::new();
 
         // Rule 1: accept from lo
         let h1 = self
-            .add_rule(&format!(
-                "iifname \"lo\" {} dport {} accept",
-                proto, port
-            ))
+            .add_rule(&[
+                "iifname", "lo", proto, "dport", &port_str, "accept",
+            ])
             .await
             .context("lo accept rule")?;
         handles.push(h1);
 
         // Rule 2: accept from TUN
         let h2 = match self
-            .add_rule(&format!(
-                "iifname \"{}\" {} dport {} accept",
-                self.tun_name, proto, port
-            ))
+            .add_rule(&[
+                "iifname", &self.tun_name, proto, "dport", &port_str, "accept",
+            ])
             .await
         {
             Ok(h) => h,
             Err(e) => {
-                // Rollback rule 1
                 let _ = self.delete_rules(&handles).await;
                 return Err(e).context("tun accept rule");
             }
@@ -163,7 +169,7 @@ impl FirewallEnforcer {
 
         // Rule 3: drop all other traffic to this port
         let h3 = match self
-            .add_rule(&format!("{} dport {} drop", proto, port))
+            .add_rule(&[proto, "dport", &port_str, "drop"])
             .await
         {
             Ok(h) => h,
@@ -178,12 +184,12 @@ impl FirewallEnforcer {
     }
 
     /// Add a single rule and return its handle.
-    async fn add_rule(&self, rule_expr: &str) -> Result<u64> {
-        let cmd = format!(
-            "-ae add rule inet {} {} {}",
-            self.table_name, self.chain_name, rule_expr
-        );
-        let output = run_nft_output(&cmd).await?;
+    async fn add_rule(&self, rule_args: &[&str]) -> Result<u64> {
+        let mut args: Vec<&str> = vec![
+            "-ae", "add", "rule", "inet", &self.table_name, &self.chain_name,
+        ];
+        args.extend_from_slice(rule_args);
+        let output = run_nft_cmd_output(&args).await?;
 
         // nft -ae outputs "# handle <N>" — extract the handle number
         parse_handle(&output)
@@ -193,11 +199,13 @@ impl FirewallEnforcer {
     /// Delete rules by their handles.
     async fn delete_rules(&self, handles: &[u64]) -> Result<()> {
         for handle in handles {
-            let cmd = format!(
-                "delete rule inet {} {} handle {}",
-                self.table_name, self.chain_name, handle
-            );
-            if let Err(e) = run_nft(&cmd).await {
+            let handle_str = handle.to_string();
+            if let Err(e) = run_nft_cmd(&[
+                "delete", "rule", "inet", &self.table_name, &self.chain_name,
+                "handle", &handle_str,
+            ])
+            .await
+            {
                 warn!("failed to delete rule handle {}: {}", handle, e);
             }
         }
@@ -243,9 +251,8 @@ impl FirewallEnforcer {
 
     /// Delete the entire nftables table (cleanup on shutdown).
     pub async fn cleanup_all(&self) {
-        let cmd = format!("delete table inet {}", self.table_name);
-        match run_nft(&cmd).await {
-            Ok(()) => info!("cleaned up nftables table {}", self.table_name),
+        match run_nft_cmd(&["delete", "table", "inet", &self.table_name]).await {
+            Ok(_) => info!("cleaned up nftables table {}", self.table_name),
             Err(e) => warn!("failed to cleanup nftables table: {}", e),
         }
     }
@@ -292,25 +299,25 @@ pub async fn handle_firewall_policy(
     Ok(summary)
 }
 
-/// Run an nft command, returning an error if it fails.
-async fn run_nft(args: &str) -> Result<()> {
+/// Run an nft command with discrete arguments (no shell, no split_whitespace).
+async fn run_nft_cmd(args: &[&str]) -> Result<std::process::Output> {
     let output = Command::new("nft")
-        .args(args.split_whitespace())
+        .args(args)
         .output()
         .await
         .context("failed to execute nft")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("nft {} failed: {}", args, stderr.trim());
+        anyhow::bail!("nft {:?} failed: {}", args, stderr.trim());
     }
-    Ok(())
+    Ok(output)
 }
 
 /// Run an nft command and ignore "File exists" errors.
-async fn run_nft_allow_exists(args: &str) -> Result<()> {
-    match run_nft(args).await {
-        Ok(()) => Ok(()),
+async fn run_nft_cmd_allow_exists(args: &[&str]) -> Result<()> {
+    match run_nft_cmd(args).await {
+        Ok(_) => Ok(()),
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("File exists") {
@@ -323,17 +330,8 @@ async fn run_nft_allow_exists(args: &str) -> Result<()> {
 }
 
 /// Run an nft command and return stdout.
-async fn run_nft_output(args: &str) -> Result<String> {
-    let output = Command::new("nft")
-        .args(args.split_whitespace())
-        .output()
-        .await
-        .context("failed to execute nft")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("nft {} failed: {}", args, stderr.trim());
-    }
+async fn run_nft_cmd_output(args: &[&str]) -> Result<String> {
+    let output = run_nft_cmd(args).await?;
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
@@ -365,6 +363,18 @@ fn format_port_rules(rules: &[PortRule]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_protocol() {
+        assert_eq!(validate_protocol("tcp").unwrap(), "tcp");
+        assert_eq!(validate_protocol("TCP").unwrap(), "tcp");
+        assert_eq!(validate_protocol("udp").unwrap(), "udp");
+        assert_eq!(validate_protocol("Udp").unwrap(), "udp");
+        assert!(validate_protocol("icmp").is_err());
+        assert!(validate_protocol("").is_err());
+        assert!(validate_protocol("tcp dport 22 accept").is_err());
+        assert!(validate_protocol("tcp; drop").is_err());
+    }
 
     #[test]
     fn test_parse_handle() {

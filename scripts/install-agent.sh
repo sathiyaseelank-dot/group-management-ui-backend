@@ -10,9 +10,8 @@ set -euo pipefail
 #   sudo ./install-agent.sh
 #
 # Pre-set env vars to skip prompts:
-#   sudo AGENT_ID=agent_abc AGENT_TOKEN=<hex> CONNECTOR_ADDR=127.0.0.1:9443 \
+#   sudo AGENT_ID=agt_abc ENROLLMENT_TOKEN=<hex> CONNECTOR_ADDR=127.0.0.1:9443 \
 #        ./install-agent.sh
-#
 # ─────────────────────────────────────────────────────────────────────────────
 
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -65,8 +64,8 @@ echo "  Connector addr:    ${CONNECTOR_ADDR}"
 echo ""
 
 # ── Collect inputs ────────────────────────────────────────────────────────────
-prompt_if_empty AGENT_ID    "Agent ID (e.g. agent-local-01)"
-prompt_if_empty AGENT_TOKEN "Agent enrollment token (hex)" true
+prompt_if_empty AGENT_ID         "Agent ID (e.g. agt_abc123)"
+prompt_if_empty ENROLLMENT_TOKEN "Agent enrollment token (hex)" true
 echo ""
 
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
@@ -94,29 +93,59 @@ fi
 ok "Systemd unit file found"
 echo ""
 
+# ── Create system user ─────────────────────────────────────────────────────────
+echo "── System user ──────────────────────────────────────"
+
+if ! id -u zero-trust-agent &>/dev/null; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin zero-trust-agent
+    ok "Created system user zero-trust-agent"
+else
+    ok "System user zero-trust-agent already exists"
+fi
+echo ""
+
 # ── Install ───────────────────────────────────────────────────────────────────
-echo "── Installing Agent ────────────────────────────────"
+echo "── Installing Agent ─────────────────────────────────"
 
 install -m 0755 "${DIST_DIR}/agent" /usr/bin/agent
 ok "Binary installed → /usr/bin/agent"
 
 # Clear stale enrollment state so the new ID enrolls cleanly.
-rm -f /var/lib/agent/cert.pem /var/lib/agent/key.der /var/lib/agent/ca.pem
+rm -f /var/lib/agent/cert.pem /var/lib/agent/key.der /var/lib/agent/ca.pem \
+      /var/lib/agent/firewall_state.json /var/lib/agent/discovery_state.json
 ok "Stale enrollment state cleared"
 
+# /var/lib/agent — owned by agent user (state writes: certs, firewall, discovery)
+mkdir -p /var/lib/agent
+chown zero-trust-agent:zero-trust-agent /var/lib/agent
+chmod 0700 /var/lib/agent
+ok "State directory ready → /var/lib/agent (owner: zero-trust-agent)"
+
+# /etc/agent — config dir, owned by root, readable by agent user
 mkdir -p /etc/agent
-chmod 0700 /etc/agent
+chown root:zero-trust-agent /etc/agent
+chmod 0750 /etc/agent
+
 install -m 0644 "${CA_SRC_PATH}" /etc/agent/ca.crt
+chown root:zero-trust-agent /etc/agent/ca.crt
 ok "CA cert installed → /etc/agent/ca.crt"
 
 cat >/etc/agent/agent.conf <<EOF
 CONTROLLER_ADDR=${CONTROLLER_ADDR}
 CONNECTOR_ADDR=${CONNECTOR_ADDR}
 AGENT_ID=${AGENT_ID}
-ENROLLMENT_TOKEN=${AGENT_TOKEN}
+ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
 TRUST_DOMAIN=${TRUST_DOMAIN}
+# Discovery: process name detection (disabled by default for least-privilege)
+# Set to true to enrich discovered services with process names via /proc/*/fd
+# NOTE: Requires CAP_SYS_PTRACE added to agent.service AmbientCapabilities
+# and CapabilityBoundingSet to read other processes' fd links.
+# DISCOVERY_PROCESS_NAMES=false
+# Discovery: include ephemeral ports >32767 (disabled by default)
+# DISCOVERY_INCLUDE_EPHEMERAL=false
 EOF
-chmod 0600 /etc/agent/agent.conf
+chown root:zero-trust-agent /etc/agent/agent.conf
+chmod 0640 /etc/agent/agent.conf
 ok "Config written → /etc/agent/agent.conf"
 
 install -m 0644 "${SYSTEMD_SRC_DIR}/agent.service" /etc/systemd/system/agent.service
@@ -124,13 +153,13 @@ ok "Systemd unit installed → /etc/systemd/system/agent.service"
 echo ""
 
 # ── Enable and start ──────────────────────────────────────────────────────────
-echo "── Starting Agent ──────────────────────────────────"
+echo "── Starting Agent ───────────────────────────────────"
 systemctl daemon-reload
 systemctl enable agent.service
 systemctl restart agent.service
 ok "agent.service enabled and started"
 
-unset AGENT_TOKEN
+unset ENROLLMENT_TOKEN
 
 echo ""
 echo "════════════════════════════════════════════════════"

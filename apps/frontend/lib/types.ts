@@ -117,6 +117,30 @@ export interface AccessRule {
   updatedAt: string;
 }
 
+// Agent LAN Service Discovery
+export interface AgentDiscoveredService {
+  id: number;
+  agentId: string;
+  port: number;
+  protocol: string;
+  boundIp: string;
+  serviceName: string;
+  processName: string;
+  firstSeen: number;
+  lastSeen: number;
+  workspaceId: string;
+  dismissed: boolean;
+  status: 'active' | 'gone' | 'stale';
+}
+
+export interface DiscoverySummary {
+  total: number;
+  new_24h: number;
+  unmanaged: number;
+  gone: number;
+  stale: number;
+}
+
 // Network Discovery
 export interface DiscoveredResource {
   id: string;

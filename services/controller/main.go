@@ -150,11 +150,43 @@ func main() {
 	_ = state.LoadAgentsFromDB(db, agentStatus)
 	_ = state.LoadACLsFromDB(db, aclStore)
 	controlPlaneServer.NotifyACLInit()
+	controlPlaneServer.StartBatcher()
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
 			_ = state.PruneAuditLogs(db, time.Now().Add(-24*time.Hour))
+		}
+	}()
+	// Prune stale discovered services periodically.
+	go func() {
+		retentionHours := 72 // default 3 days
+		if v := os.Getenv("DISCOVERY_RETENTION_HOURS"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				retentionHours = n
+			}
+		}
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			cutoff := time.Now().Add(-time.Duration(retentionHours) * time.Hour)
+			if n, err := state.PruneDiscoveredServices(db, cutoff); err != nil {
+				log.Printf("discovery prune error: %v", err)
+			} else if n > 0 {
+				log.Printf("discovery prune: deleted %d stale rows (retention=%dh)", n, retentionHours)
+			}
+		}
+	}()
+	// Mark discovered services stale when their agent is offline.
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if n, err := state.MarkStaleDiscoveredServices(db, 90*time.Second); err != nil {
+				log.Printf("discovery staleness check error: %v", err)
+			} else if n > 0 {
+				log.Printf("discovery staleness: marked %d services stale", n)
+			}
 		}
 	}()
 	// Mark connectors and tunnelers offline when their last heartbeat is stale.

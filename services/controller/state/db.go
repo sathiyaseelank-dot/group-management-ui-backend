@@ -287,6 +287,17 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			created_at INTEGER NOT NULL DEFAULT 0,
 			expires_at INTEGER NOT NULL DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS agent_discovered_services (
+			id ` + serial + `,
+			agent_id TEXT NOT NULL,
+			port INTEGER NOT NULL,
+			protocol TEXT NOT NULL DEFAULT 'tcp',
+			bound_ip TEXT NOT NULL DEFAULT '',
+			first_seen INTEGER NOT NULL DEFAULT 0,
+			last_seen INTEGER NOT NULL DEFAULT 0,
+			workspace_id TEXT NOT NULL DEFAULT '',
+			UNIQUE(agent_id, port, protocol)
+		)`,
 		`CREATE TABLE IF NOT EXISTS invite_auth_requests (
 			state          TEXT PRIMARY KEY,
 			invite_token   TEXT NOT NULL,
@@ -336,6 +347,12 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 	}
 	// Add new columns for existing databases.
 	if dialect == "postgres" {
+		_, _ = db.Exec(`ALTER TABLE agent_discovered_services DROP COLUMN IF EXISTS pid`)
+		_, _ = db.Exec(`ALTER TABLE agent_discovered_services DROP COLUMN IF EXISTS process_name`)
+		_, _ = db.Exec(`ALTER TABLE agent_discovered_services ADD COLUMN IF NOT EXISTS dismissed INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE agent_discovered_services ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`)
+		_, _ = db.Exec(`ALTER TABLE agent_discovered_services ADD COLUMN IF NOT EXISTS service_name TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE agent_discovered_services ADD COLUMN IF NOT EXISTS process_name TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE device_auth_requests ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'mobile'`)
 		_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)

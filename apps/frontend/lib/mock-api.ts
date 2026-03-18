@@ -18,6 +18,8 @@ import {
   FirewallStatus,
   DiscoveredResource,
   ScanJob,
+  AgentDiscoveredService,
+  DiscoverySummary,
   DiagnosticsData,
   PingResult,
   AccessTrace,
@@ -447,6 +449,49 @@ export async function getScanStatus(requestId: string): Promise<ScanJob> {
 // API: Get all discovery results
 export async function getDiscoveryResults(): Promise<DiscoveredResource[]> {
   return request<DiscoveredResource[]>('/api/discovery/results');
+}
+
+// API: Agent Discovery
+export async function getAgentDiscoveredServices(agentId?: string, includeDismissed?: boolean): Promise<AgentDiscoveredService[]> {
+  const params = new URLSearchParams();
+  if (agentId) params.set('agent_id', agentId);
+  if (includeDismissed) params.set('include_dismissed', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return request<AgentDiscoveredService[]>(`/api/agent-discovery/results${query}`);
+}
+
+export async function dismissDiscoveredService(id: number): Promise<void> {
+  await request(`/api/agent-discovery/results/${id}/dismiss`, { method: 'PATCH' });
+}
+
+export async function undismissDiscoveredService(id: number): Promise<void> {
+  await request(`/api/agent-discovery/results/${id}/undismiss`, { method: 'PATCH' });
+}
+
+export async function purgeDiscoveredServices(agentId?: string): Promise<{ deleted: number }> {
+  const params = new URLSearchParams();
+  if (agentId) params.set('agent_id', agentId);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return request<{ deleted: number }>(`/api/agent-discovery/results${query}`, { method: 'DELETE' });
+}
+
+export async function getDiscoverySummary(): Promise<DiscoverySummary> {
+  return request<DiscoverySummary>('/api/agent-discovery/summary');
+}
+
+export async function addResourcesBatch(resources: {
+  network_id: string;
+  name: string;
+  type: ResourceType;
+  address: string;
+  protocol: 'TCP' | 'UDP';
+  port_from?: number | null;
+  port_to?: number | null;
+}[]): Promise<{ created: number; errors: string[] }> {
+  return request<{ created: number; errors: string[] }>('/api/resources/batch', {
+    method: 'POST',
+    body: JSON.stringify({ resources }),
+  });
 }
 
 // API: Diagnostics
