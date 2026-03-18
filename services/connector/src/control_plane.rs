@@ -185,6 +185,21 @@ async fn handle_agent_message(
         "agent_log" => {
             let _ = send_ch.send(msg.clone()).await;
         }
+        "agent_discovery_diff" => {
+            let _ = send_ch.send(msg.clone()).await;
+        }
+        "agent_discovery_full_sync" => {
+            let _ = send_ch.send(msg.clone()).await;
+        }
+        "agent_discovery_report" => {
+            let _ = send_ch.send(msg.clone()).await;
+        }
+        "agent_discovery_gone" => {
+            let _ = send_ch.send(msg.clone()).await;
+        }
+        "agent_discovery_heartbeat" => {
+            let _ = send_ch.send(msg.clone()).await;
+        }
         _ => {}
     }
 }

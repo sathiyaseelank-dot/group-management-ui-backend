@@ -107,6 +107,69 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleUIResourcesBatch(w http.ResponseWriter, r *http.Request) {
+	db, ok := s.uiDB(w)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Resources []struct {
+			NetworkID string  `json:"network_id"`
+			Name      string  `json:"name"`
+			Type      string  `json:"type"`
+			Address   string  `json:"address"`
+			Protocol  string  `json:"protocol"`
+			PortFrom  *int    `json:"port_from"`
+			PortTo    *int    `json:"port_to"`
+			Alias     *string `json:"alias"`
+		} `json:"resources"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if len(req.Resources) == 0 {
+		http.Error(w, "resources array is required", http.StatusBadRequest)
+		return
+	}
+
+	wsID := workspaceIDFromContext(r.Context())
+	created := 0
+	var errors []string
+	for _, res := range req.Resources {
+		if res.Name == "" || res.Type == "" || res.Address == "" || res.Protocol == "" {
+			errors = append(errors, fmt.Sprintf("skipping resource with missing fields: %s", res.Name))
+			continue
+		}
+		networkID, err := resolveResourceNetworkID(db, res.NetworkID, "")
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("network error for %s: %v", res.Name, err))
+			continue
+		}
+		ports := buildPorts(res.PortFrom, res.PortTo)
+		id := fmt.Sprintf("res_%d_%d", time.Now().UTC().UnixMilli(), created)
+		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			id, res.Name, res.Type, res.Address, ports, res.Protocol, nullInt(res.PortFrom), nullInt(res.PortTo), res.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(res.Type)), networkID, wsID); err != nil {
+			errors = append(errors, fmt.Sprintf("insert error for %s: %v", res.Name, err))
+			continue
+		}
+		created++
+	}
+
+	if s.ACLNotify != nil && created > 0 {
+		s.ACLNotify.NotifyPolicyChange()
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"created": created,
+		"errors":  errors,
+	})
+}
+
 func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Request) {
 	db, ok := s.uiDB(w)
 	if !ok {

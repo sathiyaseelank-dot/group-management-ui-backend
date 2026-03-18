@@ -110,6 +110,55 @@ pub fn load_firewall_state() -> Result<Option<crate::firewall::FirewallState>> {
     Ok(Some(state))
 }
 
+// ── Discovery state persistence ────────────────────────────────────
+
+const DISCOVERY_STATE_FILE: &str = "discovery_state.json";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DiscoveryState {
+    pub services: Vec<DiscoveryServiceEntry>,
+    pub fingerprint: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DiscoveryServiceEntry {
+    pub port: u16,
+    pub protocol: String,
+}
+
+pub fn save_discovery_state(state: &DiscoveryState) -> Result<()> {
+    let dir = match state_dir() {
+        Some(d) => d,
+        None => {
+            warn!("STATE_DIRECTORY not set, cannot persist discovery state");
+            return Ok(());
+        }
+    };
+    std::fs::create_dir_all(&dir)?;
+    let data = serde_json::to_vec_pretty(state)
+        .map_err(|e| anyhow::anyhow!("failed to serialize discovery state: {}", e))?;
+    std::fs::write(dir.join(DISCOVERY_STATE_FILE), data)?;
+    info!("saved discovery state to {}", dir.display());
+    Ok(())
+}
+
+pub fn load_discovery_state() -> Result<Option<DiscoveryState>> {
+    let dir = match state_dir() {
+        Some(d) => d,
+        None => return Ok(None),
+    };
+    let path = dir.join(DISCOVERY_STATE_FILE);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let data = std::fs::read(&path)
+        .map_err(|e| anyhow::anyhow!("failed to read discovery state: {}", e))?;
+    let state: DiscoveryState = serde_json::from_slice(&data)
+        .map_err(|e| anyhow::anyhow!("failed to parse discovery state: {}", e))?;
+    info!("loaded discovery state from {}", path.display());
+    Ok(Some(state))
+}
+
 // ── Enrollment persistence ─────────────────────────────────────────
 
 pub fn save_enrollment(result: &EnrollResult) -> Result<()> {

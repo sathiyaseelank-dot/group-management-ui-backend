@@ -22,6 +22,7 @@ import DeviceProfilesPage from './pages/policy/DeviceProfilesPage'
 import AuditLogsPage from './pages/AuditLogsPage'
 import NetworkDiagnosticsPage from './pages/diagnostics/NetworkDiagnosticsPage'
 import NetworkDiscoveryPage from './pages/resources/NetworkDiscoveryPage'
+import AgentDiscoveryPage from './pages/resources/AgentDiscoveryPage'
 import WorkspaceSelectorPage from './pages/workspaces/WorkspaceSelectorPage'
 import WorkspaceCreatePage from './pages/workspaces/WorkspaceCreatePage'
 import WorkspaceSettingsPage from './pages/workspaces/WorkspaceSettingsPage'
@@ -287,6 +288,7 @@ export default function App() {
           <Route path="device-profiles" element={<DeviceProfilesPage />} />
         </Route>
         <Route path="discovery" element={<NetworkDiscoveryPage />} />
+        <Route path="agent-discovery" element={<AgentDiscoveryPage />} />
         <Route path="audit-logs" element={<AuditLogsPage />} />
         <Route path="diagnostics" element={<NetworkDiagnosticsPage />} />
         <Route path="workspace/settings" element={<WorkspaceSettingsPage />} />

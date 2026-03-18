@@ -33,6 +33,9 @@ type ControlPlaneServer struct {
 	scanStore      *state.ScanStore
 	mu             sync.Mutex
 	clients        map[string]*connectorClient
+	seqMu     sync.Mutex
+	agentSeqs map[string]uint64
+	batcher   *DiscoveryBatcher
 }
 
 // NewControlPlaneServer creates a new control plane server.
@@ -48,6 +51,8 @@ func NewControlPlaneServer(trustDomain string, registry *state.Registry, agents 
 		snapshotTTL:    snapshotTTL,
 		scanStore:      scanStore,
 		clients:        make(map[string]*connectorClient),
+		agentSeqs: make(map[string]uint64),
+		batcher:   NewDiscoveryBatcher(db),
 	}
 }
 
@@ -232,6 +237,208 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 				)
 			}
 		}
+		if msg.GetType() == "agent_discovery_diff" {
+			log.Printf("agent_discovery_diff: received payload=%s", string(msg.GetPayload()))
+			if s.db != nil {
+				var diff struct {
+					AgentID string `json:"agent_id"`
+					Seq     uint64 `json:"seq"`
+					Added   []struct {
+						Protocol    string `json:"protocol"`
+						Port        int    `json:"port"`
+						BoundIP     string `json:"bound_ip"`
+						ServiceName string `json:"service_name"`
+						ProcessName string `json:"process_name"`
+					} `json:"added"`
+					Removed []struct {
+						Protocol string `json:"protocol"`
+						Port     int    `json:"port"`
+					} `json:"removed"`
+				}
+				if err := json.Unmarshal(msg.GetPayload(), &diff); err != nil {
+					log.Printf("agent_discovery_diff: parse error: %v", err)
+				} else {
+					// Sequence check
+					s.seqMu.Lock()
+					lastSeq := s.agentSeqs[diff.AgentID]
+					if diff.Seq > 0 && lastSeq > 0 && diff.Seq != lastSeq+1 {
+						log.Printf("agent_discovery_diff: seq gap for agent_id=%s expected=%d got=%d (next full_sync will correct)", diff.AgentID, lastSeq+1, diff.Seq)
+					}
+					s.agentSeqs[diff.AgentID] = diff.Seq
+					s.seqMu.Unlock()
+
+					var wsID string
+					_ = s.db.QueryRow(state.Rebind(`SELECT workspace_id FROM tunnelers WHERE id = ?`), diff.AgentID).Scan(&wsID)
+
+					for _, svc := range diff.Added {
+						s.batcher.QueueUpsert(state.AgentDiscoveredService{
+							AgentID:     diff.AgentID,
+							Port:        svc.Port,
+							Protocol:    svc.Protocol,
+							BoundIP:     svc.BoundIP,
+							ServiceName: svc.ServiceName,
+							ProcessName: svc.ProcessName,
+							WorkspaceID: wsID,
+						})
+					}
+
+					for _, svc := range diff.Removed {
+						s.batcher.QueueGone(diff.AgentID, svc.Port, svc.Protocol)
+					}
+
+					log.Printf("agent_discovery_diff: agent_id=%s seq=%d added=%d removed=%d", diff.AgentID, diff.Seq, len(diff.Added), len(diff.Removed))
+				}
+			}
+		}
+		if msg.GetType() == "agent_discovery_full_sync" {
+			log.Printf("agent_discovery_full_sync: received payload=%s", string(msg.GetPayload()))
+			if s.db != nil {
+				var sync struct {
+					AgentID     string `json:"agent_id"`
+					Seq         uint64 `json:"seq"`
+					Services    []struct {
+						Protocol    string `json:"protocol"`
+						Port        int    `json:"port"`
+						BoundIP     string `json:"bound_ip"`
+						ServiceName string `json:"service_name"`
+						ProcessName string `json:"process_name"`
+					} `json:"services"`
+					Fingerprint uint64 `json:"fingerprint"`
+				}
+				if err := json.Unmarshal(msg.GetPayload(), &sync); err != nil {
+					log.Printf("agent_discovery_full_sync: parse error: %v", err)
+				} else {
+					// Reset seq tracker
+					s.seqMu.Lock()
+					s.agentSeqs[sync.AgentID] = sync.Seq
+					s.seqMu.Unlock()
+
+					// Reactivate stale services first
+					if reactivated, err := state.ReactivateStaleServices(s.db, sync.AgentID); err != nil {
+						log.Printf("agent_discovery_full_sync: reactivate error: %v", err)
+					} else if reactivated > 0 {
+						log.Printf("agent_discovery_full_sync: reactivated %d stale services for agent_id=%s", reactivated, sync.AgentID)
+					}
+
+					var wsID string
+					_ = s.db.QueryRow(state.Rebind(`SELECT workspace_id FROM tunnelers WHERE id = ?`), sync.AgentID).Scan(&wsID)
+
+					reported := make([]state.PortProto, 0, len(sync.Services))
+					for _, svc := range sync.Services {
+						if err := state.UpsertAgentDiscoveredService(s.db, state.AgentDiscoveredService{
+							AgentID:     sync.AgentID,
+							Port:        svc.Port,
+							Protocol:    svc.Protocol,
+							BoundIP:     svc.BoundIP,
+							ServiceName: svc.ServiceName,
+							ProcessName: svc.ProcessName,
+							WorkspaceID: wsID,
+						}); err != nil {
+							log.Printf("agent_discovery_full_sync: upsert error port=%d: %v", svc.Port, err)
+						}
+						reported = append(reported, state.PortProto{Port: svc.Port, Protocol: svc.Protocol})
+					}
+
+					if gone, err := state.ReconcileDiscoveredServices(s.db, sync.AgentID, reported); err != nil {
+						log.Printf("agent_discovery_full_sync: reconcile error: %v", err)
+					} else if gone > 0 {
+						log.Printf("agent_discovery_full_sync: reconciled %d stale services for agent_id=%s", gone, sync.AgentID)
+					}
+
+					log.Printf("agent_discovery_full_sync: agent_id=%s seq=%d services=%d fingerprint=%d", sync.AgentID, sync.Seq, len(sync.Services), sync.Fingerprint)
+				}
+			}
+		}
+		if msg.GetType() == "agent_discovery_report" {
+			log.Printf("agent_discovery_report: received payload=%s", string(msg.GetPayload()))
+			if s.db != nil {
+				var report struct {
+					AgentID  string `json:"agent_id"`
+					Services []struct {
+						Protocol string `json:"protocol"`
+						Port     int    `json:"port"`
+						BoundIP  string `json:"bound_ip"`
+					} `json:"services"`
+				}
+				if err := json.Unmarshal(msg.GetPayload(), &report); err != nil {
+					log.Printf("agent_discovery_report: failed to parse payload: %v", err)
+				} else {
+					// Look up agent's workspace_id once per report
+					var wsID string
+					_ = s.db.QueryRow(state.Rebind(
+						`SELECT workspace_id FROM tunnelers WHERE id = ?`),
+						report.AgentID,
+					).Scan(&wsID)
+
+					reported := make([]state.PortProto, 0, len(report.Services))
+					for _, svc := range report.Services {
+						if err := state.UpsertAgentDiscoveredService(s.db, state.AgentDiscoveredService{
+							AgentID:     report.AgentID,
+							Port:        svc.Port,
+							Protocol:    svc.Protocol,
+							BoundIP:     svc.BoundIP,
+							WorkspaceID: wsID,
+						}); err != nil {
+							log.Printf("agent_discovery_report: upsert error port=%d: %v", svc.Port, err)
+						}
+						reported = append(reported, state.PortProto{Port: svc.Port, Protocol: svc.Protocol})
+					}
+					// Reconcile: mark any previously-active services not in this report as gone.
+					// Handles agent restarts where the agent's in-memory sent_services is empty.
+					if gone, err := state.ReconcileDiscoveredServices(s.db, report.AgentID, reported); err != nil {
+						log.Printf("agent_discovery_report: reconcile error: %v", err)
+					} else if gone > 0 {
+						log.Printf("agent_discovery_report: reconciled %d stale service(s) as gone for agent_id=%s", gone, report.AgentID)
+					}
+					log.Printf("agent_discovery_report: upserted agent_id=%s workspace=%s services=%d", report.AgentID, wsID, len(report.Services))
+				}
+			} else {
+				log.Printf("agent_discovery_report: db is nil, cannot persist")
+			}
+		}
+		if msg.GetType() == "agent_discovery_gone" {
+			log.Printf("agent_discovery_gone: received payload=%s", string(msg.GetPayload()))
+			if s.db != nil {
+				var report struct {
+					AgentID  string `json:"agent_id"`
+					Services []struct {
+						Protocol string `json:"protocol"`
+						Port     int    `json:"port"`
+					} `json:"services"`
+				}
+				if err := json.Unmarshal(msg.GetPayload(), &report); err != nil {
+					log.Printf("agent_discovery_gone: failed to parse payload: %v", err)
+				} else {
+					ports := make([]int, len(report.Services))
+					proto := "tcp"
+					for i, svc := range report.Services {
+						ports[i] = svc.Port
+						if svc.Protocol != "" {
+							proto = svc.Protocol
+						}
+					}
+					if err := state.MarkServicesGone(s.db, report.AgentID, ports, proto); err != nil {
+						log.Printf("agent_discovery_gone: mark gone error: %v", err)
+					} else {
+						log.Printf("agent_discovery_gone: marked %d services gone for agent_id=%s", len(ports), report.AgentID)
+					}
+				}
+			}
+		}
+		if msg.GetType() == "agent_discovery_heartbeat" {
+			if s.db != nil {
+				var payload struct {
+					AgentID string `json:"agent_id"`
+				}
+				if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
+					if err := state.TouchAgentDiscoveryLastSeen(s.db, payload.AgentID); err != nil {
+						log.Printf("agent_discovery_heartbeat: touch last_seen error: %v", err)
+					} else {
+						log.Printf("agent_discovery_heartbeat: bumped last_seen for agent_id=%s", payload.AgentID)
+					}
+				}
+			}
+		}
 		if msg.GetType() == "scan_report" && s.scanStore != nil {
 			var report struct {
 				RequestID string                     `json:"request_id"`
@@ -369,6 +576,12 @@ func (s *ControlPlaneServer) sendAllowlist(c *connectorClient) {
 }
 
 // ACL notifications
+func (s *ControlPlaneServer) StartBatcher() {
+	if s.batcher != nil {
+		go s.batcher.Run()
+	}
+}
+
 func (s *ControlPlaneServer) NotifyACLInit() {
 	s.broadcastPolicySnapshots("acl_init", "acl store initialized", "full_snapshot")
 }

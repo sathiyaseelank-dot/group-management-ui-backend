@@ -6,7 +6,13 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=root
+
+# Run as dedicated unprivileged user instead of root.
+# DynamicUser is not used because nftables requires host-netns
+# netlink access that is incompatible with user namespacing.
+User=zero-trust-agent
+Group=zero-trust-agent
+
 EnvironmentFile=/etc/agent/agent.conf
 LoadCredential=CONTROLLER_CA:/etc/agent/ca.crt
 
@@ -15,23 +21,31 @@ RestartSec=10
 
 ExecStart=/usr/bin/agent run
 
-# The agent needs CAP_NET_ADMIN to manage nftables firewall rules.
-# DynamicUser is not used because nftables requires real root-level
-# netlink access that is incompatible with user namespacing.
-PrivateTmp=yes
-PrivateDevices=yes
+# Grant only CAP_NET_ADMIN — required by the spawned `nft` binary
+# to manage nftables rules via NETLINK_NETFILTER.
+# CAP_NET_RAW is NOT needed (no raw sockets or inet_diag).
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
 
-ProtectSystem=full
+# Prevent privilege escalation via setuid/setgid binaries.
+# Compatible with AmbientCapabilities (ambient caps are inherited,
+# not considered "new privileges").
+NoNewPrivileges=yes
+
+# Filesystem: strict read-only except explicit write paths.
+# ProtectSystem=strict makes / read-only (vs full which only covers /usr /boot).
+ProtectSystem=strict
+StateDirectory=agent
+RuntimeDirectory=agent
 ProtectHome=yes
 ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectHostname=yes
 ProtectClock=yes
-
-AmbientCapabilities=CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_ADMIN
-DevicePolicy=closed
+ProtectControlGroups=yes
+PrivateTmp=yes
+PrivateDevices=yes
 
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictNamespaces=yes
@@ -43,8 +57,8 @@ SystemCallFilter=~@clock @debug @module @mount @raw-io @reboot @cpu-emulation @o
 MemoryDenyWriteExecute=yes
 LockPersonality=yes
 
+DevicePolicy=closed
 UMask=0077
-RuntimeDirectory=agent
 
 [Install]
 WantedBy=multi-user.target

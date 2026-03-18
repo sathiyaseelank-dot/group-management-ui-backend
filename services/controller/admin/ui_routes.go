@@ -28,6 +28,7 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/groups", withCORS(ws(http.HandlerFunc(s.handleUIGroups))))
 	mux.Handle("/api/groups/", withCORS(ws(http.HandlerFunc(s.handleUIGroupsSubroutes))))
 	mux.Handle("/api/resources", withCORS(ws(http.HandlerFunc(s.handleUIResources))))
+	mux.Handle("/api/resources/batch", withCORS(ws(http.HandlerFunc(s.handleUIResourcesBatch))))
 	mux.Handle("/api/resources/", withCORS(ws(http.HandlerFunc(s.handleUIResourcesSubroutes))))
 	mux.Handle("/api/access-rules", withCORS(ws(http.HandlerFunc(s.handleUIAccessRules))))
 	mux.Handle("/api/access-rules/", withCORS(ws(http.HandlerFunc(s.handleUIAccessRulesSubroutes))))
@@ -49,6 +50,11 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/admin/discovery/scan", withCORS(s.adminAuth(http.HandlerFunc(s.handleStartScan))))
 	mux.Handle("/api/admin/discovery/scan/", withCORS(s.adminAuth(http.HandlerFunc(s.handleScanStatus))))
 	mux.Handle("/api/admin/discovery/results", withCORS(s.adminAuth(http.HandlerFunc(s.handleDiscoveryResults))))
+
+	// Agent discovery routes
+	mux.Handle("/api/admin/agent-discovery/results", withCORS(ws(http.HandlerFunc(s.handleAgentDiscoveryResults))))
+	mux.Handle("/api/admin/agent-discovery/results/", withCORS(ws(http.HandlerFunc(s.handleAgentDiscoveryDismiss))))
+	mux.Handle("/api/admin/agent-discovery/summary", withCORS(ws(http.HandlerFunc(s.handleAgentDiscoverySummary))))
 
 	// Identity providers (Phase 1)
 	mux.Handle("/api/admin/identity-providers", withCORS(s.workspaceAuth(requireWorkspace(http.HandlerFunc(s.handleIdentityProviders)))))

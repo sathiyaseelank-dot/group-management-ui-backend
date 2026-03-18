@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::Notify;
@@ -179,6 +180,31 @@ async fn connect_to_connector(
     let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
     heartbeat.tick().await; // skip immediate tick
 
+    let mut diff_tick = tokio::time::interval(Duration::from_secs(30));
+    diff_tick.tick().await; // skip immediate tick
+
+    let mut sync_tick = tokio::time::interval(Duration::from_secs(300));
+    // Do NOT skip immediate tick — first tick fires now = on-connect full sync
+
+    let mut sent_services: HashSet<(u16, String)> = HashSet::new();
+    let mut last_fingerprint: u64 = 0;
+    let mut seq: u64 = 0;
+    let mut dirty = false;
+    let mut last_report_time = std::time::Instant::now();
+
+    // Load persisted discovery state
+    match crate::persistence::load_discovery_state() {
+        Ok(Some(state)) => {
+            for svc in &state.services {
+                sent_services.insert((svc.port, svc.protocol.clone()));
+            }
+            last_fingerprint = state.fingerprint;
+            info!("discovery: loaded {} persisted services", sent_services.len());
+        }
+        Ok(None) => {}
+        Err(e) => warn!("discovery: failed to load persisted state: {}", e),
+    }
+
     loop {
         tokio::select! {
             msg = stream.message() => {
@@ -205,7 +231,73 @@ async fn connect_to_connector(
                     ..Default::default()
                 }).await?;
             }
+            _ = sync_tick.tick() => {
+                match crate::discovery::run_discovery_full_sync(
+                    agent_id, enforcer, &stream_tx, &mut sent_services, &mut last_fingerprint, &mut seq, &mut dirty,
+                ).await {
+                    Ok(_) => {
+                        last_report_time = std::time::Instant::now();
+                    }
+                    Err(e) => {
+                        warn!("discovery full sync failed: {}", e);
+                    }
+                }
+                if dirty {
+                    persist_discovery_state(&sent_services, last_fingerprint);
+                    dirty = false;
+                }
+            }
+            _ = diff_tick.tick() => {
+                match crate::discovery::run_discovery_diff(
+                    agent_id, enforcer, &stream_tx, &mut sent_services, &mut last_fingerprint, &mut seq, &mut dirty,
+                ).await {
+                    Ok(true) => {
+                        last_report_time = std::time::Instant::now();
+                    }
+                    Ok(false) => {
+                        // Nothing changed — send heartbeat if 5 minutes elapsed
+                        if last_report_time.elapsed() >= Duration::from_secs(300) {
+                            let payload = serde_json::to_vec(&serde_json::json!({
+                                "agent_id": agent_id,
+                                "fingerprint": last_fingerprint,
+                            })).unwrap_or_default();
+                            if let Err(e) = stream_tx.send(ControlMessage {
+                                r#type: "agent_discovery_heartbeat".to_string(),
+                                payload,
+                                ..Default::default()
+                            }).await {
+                                warn!("discovery: failed to send heartbeat: {}", e);
+                            }
+                            last_report_time = std::time::Instant::now();
+                            info!("discovery: sent heartbeat (no changes for 5m)");
+                        }
+                    }
+                    Err(e) => {
+                        warn!("discovery diff scan failed: {}", e);
+                    }
+                }
+                if dirty {
+                    persist_discovery_state(&sent_services, last_fingerprint);
+                    dirty = false;
+                }
+            }
         }
+    }
+}
+
+fn persist_discovery_state(sent_services: &HashSet<(u16, String)>, fingerprint: u64) {
+    let state = crate::persistence::DiscoveryState {
+        services: sent_services
+            .iter()
+            .map(|(port, proto)| crate::persistence::DiscoveryServiceEntry {
+                port: *port,
+                protocol: proto.clone(),
+            })
+            .collect(),
+        fingerprint,
+    };
+    if let Err(e) = crate::persistence::save_discovery_state(&state) {
+        warn!("discovery: failed to persist state: {}", e);
     }
 }
 

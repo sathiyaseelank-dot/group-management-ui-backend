@@ -49,6 +49,19 @@ router.post('/', async (req: Request, res: Response) => {
   }
 })
 
+// POST /api/resources/batch
+router.post('/batch', async (req: Request, res: Response) => {
+  try {
+    const result = await proxyToBackend('/api/resources/batch', {
+      method: 'POST',
+      body: JSON.stringify(req.body),
+    })
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message })
+  }
+})
+
 // GET /api/resources/:resourceId
 router.get('/:resourceId', async (req: Request, res: Response) => {
   try {
