@@ -20,6 +20,7 @@ use crate::enroll::pb::ControlMessage;
 #[derive(Clone, Debug)]
 pub struct PeerCertInfo {
     pub peer_certs: Vec<Vec<u8>>,
+    pub peer_ip: String,
 }
 
 /// Wrapper around a TLS stream that implements `Connected` so tonic
@@ -37,9 +38,15 @@ impl TlsConnStream {
             .peer_certificates()
             .map(|certs| certs.iter().map(|c| c.as_ref().to_vec()).collect())
             .unwrap_or_default();
+        let peer_ip = tls
+            .get_ref()
+            .0
+            .peer_addr()
+            .map(|a| a.ip().to_string())
+            .unwrap_or_default();
         Self {
             inner: tls,
-            peer_info: PeerCertInfo { peer_certs },
+            peer_info: PeerCertInfo { peer_certs, peer_ip },
         }
     }
 }

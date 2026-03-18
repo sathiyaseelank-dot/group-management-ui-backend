@@ -13,13 +13,13 @@ use axum::{
 use p256::ecdsa::SigningKey;
 use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::auth::{
     compute_code_challenge, enroll_device_cert, exchange_device_code, fetch_device_view,
-    generate_code_verifier, refresh_device_token, revoke_device_token, start_device_auth,
-    sync_device_view, DeviceResource, DeviceUserView,
+    generate_code_verifier, refresh_device_token, report_device_posture, revoke_device_token,
+    start_device_auth, sync_device_view, DeviceResource, DeviceUserView,
 };
 use crate::config::Config;
 use crate::token_store::{
@@ -53,6 +53,50 @@ struct DeviceMaterial {
     public_key_pem: String,
     hostname: String,
     os: String,
+    device_name: String,
+    device_model: String,
+    device_make: String,
+    serial_number: String,
+}
+
+async fn report_posture(config: &Config, state: &StoredWorkspaceState) {
+    if state.device.id.is_empty() {
+        return;
+    }
+    let posture = crate::posture::collect(&state.device.id, &state.device.spiffe_id);
+    if let Err(e) =
+        report_device_posture(&config.controller_grpc_addr, &state.session.access_token, &posture).await
+    {
+        warn!("posture report failed: {}", e);
+    }
+}
+
+pub async fn run_posture_reporter(config: Config) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(300)).await;
+        let states = match list_workspace_states() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        for ws in states {
+            if ws.session.expires_at <= now_unix() {
+                continue;
+            }
+            let posture = crate::posture::collect(&ws.device.id, &ws.device.spiffe_id);
+            if let Err(e) = report_device_posture(
+                &config.controller_grpc_addr,
+                &ws.session.access_token,
+                &posture,
+            )
+            .await
+            {
+                warn!(
+                    "background posture report failed for {}: {}",
+                    ws.workspace.slug, e
+                );
+            }
+        }
+    }
 }
 
 pub fn router(state: AppState) -> Router {
@@ -81,6 +125,69 @@ fn local_hostname() -> String {
         .ok()
         .and_then(|v| v.into_string().ok())
         .unwrap_or_else(|| "unknown-host".to_string())
+}
+
+fn read_dmi_file(path: &str) -> String {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+fn collect_device_info() -> (String, String, String, String) {
+    // Returns (device_name, device_model, device_make, serial_number)
+    #[cfg(target_os = "linux")]
+    {
+        let model = read_dmi_file("/sys/class/dmi/id/product_name");
+        let make = read_dmi_file("/sys/class/dmi/id/sys_vendor");
+        let serial = read_dmi_file("/sys/class/dmi/id/product_serial");
+        let name = local_hostname();
+        return (name, model, make, serial);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        fn run_cmd(cmd: &str, args: &[&str]) -> String {
+            std::process::Command::new(cmd)
+                .args(args)
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .unwrap_or_default()
+        }
+        let sp = run_cmd("system_profiler", &["SPHardwareDataType"]);
+        let model = sp.lines()
+            .find(|l| l.trim_start().starts_with("Model Name:"))
+            .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
+            .unwrap_or_default();
+        let serial = sp.lines()
+            .find(|l| l.trim_start().starts_with("Serial Number"))
+            .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
+            .unwrap_or_default();
+        let name = local_hostname();
+        return (name, model, "Apple Inc.".to_string(), serial);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        fn wmic(query: &str) -> String {
+            std::process::Command::new("wmic")
+                .args(query.split_whitespace())
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.lines().nth(1).unwrap_or("").trim().to_string())
+                .unwrap_or_default()
+        }
+        let model = wmic("computersystem get Model");
+        let make = wmic("computersystem get Manufacturer");
+        let serial = wmic("bios get SerialNumber");
+        let name = local_hostname();
+        return (name, model, make, serial);
+    }
+
+    #[allow(unreachable_code)]
+    (local_hostname(), String::new(), String::new(), String::new())
 }
 
 fn map_resources(resources: Vec<DeviceResource>) -> Vec<StoredResource> {
@@ -135,6 +242,8 @@ fn build_workspace_state(
 }
 
 fn existing_device_material(existing: Option<&StoredWorkspaceState>) -> Result<DeviceMaterial> {
+    let (device_name, device_model, device_make, serial_number) = collect_device_info();
+
     if let Some(existing) = existing {
         if !existing.device.id.is_empty() && !existing.device.private_key_pem.is_empty() {
             let signing_key = SigningKey::from_pkcs8_pem(&existing.device.private_key_pem)?;
@@ -145,6 +254,10 @@ fn existing_device_material(existing: Option<&StoredWorkspaceState>) -> Result<D
                 public_key_pem: verifying_key.to_public_key_pem(LineEnding::LF)?,
                 hostname: existing.device.hostname.clone(),
                 os: existing.device.os.clone(),
+                device_name,
+                device_model,
+                device_make,
+                serial_number,
             });
         }
     }
@@ -160,6 +273,10 @@ fn existing_device_material(existing: Option<&StoredWorkspaceState>) -> Result<D
         public_key_pem,
         hostname: local_hostname(),
         os: local_os(),
+        device_name,
+        device_model,
+        device_make,
+        serial_number,
     })
 }
 
@@ -173,16 +290,20 @@ async fn enroll_and_sync(
 ) -> Result<StoredWorkspaceState> {
     let material = existing_device_material(existing)?;
     let enroll = enroll_device_cert(
-        &config.controller_url,
+        &config.controller_grpc_addr,
         &access_token,
         &material.device_id,
         &material.public_key_pem,
         &material.hostname,
         &material.os,
         CLIENT_VERSION,
+        &material.device_name,
+        &material.device_model,
+        &material.device_make,
+        &material.serial_number,
     )
     .await?;
-    let view = fetch_device_view(&config.controller_url, &enroll.access_token).await?;
+    let view = fetch_device_view(&config.controller_grpc_addr, &enroll.access_token).await?;
     Ok(build_workspace_state(
         view,
         enroll.access_token,
@@ -208,7 +329,7 @@ pub async fn begin_login(state: &AppState, tenant_slug: &str) -> Result<String> 
     let redirect_uri = format!("http://localhost:{}/callback", state.config.port);
 
     let auth = start_device_auth(
-        &state.config.controller_url,
+        &state.config.controller_grpc_addr,
         tenant_slug,
         &code_challenge,
         &redirect_uri,
@@ -254,7 +375,7 @@ pub async fn ensure_workspace_state(
 
     if state.session.expires_at <= now + 60 {
         let refreshed =
-            refresh_device_token(&config.controller_url, &state.session.refresh_token).await?;
+            refresh_device_token(&config.controller_grpc_addr, &state.session.refresh_token).await?;
         state.session.access_token = refreshed.access_token;
         state.session.refresh_token = refreshed.refresh_token;
         state.session.expires_at = now + refreshed.expires_in;
@@ -271,11 +392,12 @@ pub async fn ensure_workspace_state(
         )
         .await?;
         save_workspace_state(tenant_slug, &state)?;
+        report_posture(config, &state).await;
         return Ok(state);
     }
 
     if force_sync || state.last_sync_at <= now - 60 || state.resources.is_empty() {
-        let view = sync_device_view(&config.controller_url, &state.session.access_token).await?;
+        let view = sync_device_view(&config.controller_grpc_addr, &state.session.access_token).await?;
         state.workspace = StoredWorkspace {
             id: view.workspace.id,
             name: view.workspace.name,
@@ -293,12 +415,13 @@ pub async fn ensure_workspace_state(
     }
 
     save_workspace_state(tenant_slug, &state)?;
+    report_posture(config, &state).await;
     Ok(state)
 }
 
 pub async fn disconnect_workspace(config: &Config, tenant_slug: &str) -> Result<()> {
     if let Some(state) = load_workspace_state(tenant_slug) {
-        revoke_device_token(&config.controller_url, &state.session.refresh_token).await?;
+        revoke_device_token(&config.controller_grpc_addr, &state.session.refresh_token).await?;
     }
     clear_workspace_state(tenant_slug);
     Ok(())
@@ -347,7 +470,7 @@ async fn handle_callback(
     };
 
     match exchange_device_code(
-        &state.config.controller_url,
+        &state.config.controller_grpc_addr,
         &code,
         &pending.code_verifier,
         &oauth_state,
@@ -371,6 +494,7 @@ async fn handle_callback(
                     if let Err(err) = save_workspace_state(&pending.tenant_slug, &stored) {
                         error!("failed to save workspace state: {}", err);
                     }
+                    report_posture(&state.config, &stored).await;
                     info!("authenticated to workspace: {}", pending.tenant_slug);
                     Html(format!(
                         "<html><body><h2>Connected to {}.</h2><p>You can close this tab and return to the terminal.</p></body></html>",

@@ -103,6 +103,7 @@ export interface Agent {
   installed?: boolean;
   lastSeen?: string;
   lastSeenAt?: string | null;
+  ip?: string;
 }
 
 // Access Rules bind subjects to resources
@@ -205,7 +206,7 @@ export interface ConnectorDiagnostic {
   remoteNetworkId: string;
 }
 
-export interface TunnelerDiagnostic {
+export interface AgentDiagnostic {
   id: string;
   name: string;
   status: string;
@@ -214,7 +215,7 @@ export interface TunnelerDiagnostic {
 
 export interface DiagnosticsData {
   connectors: ConnectorDiagnostic[];
-  tunnelers: TunnelerDiagnostic[];
+  agents: AgentDiagnostic[];
 }
 
 export interface PingResult {
@@ -239,4 +240,53 @@ export interface AccessTrace {
   path: TraceHop[];
   userGroups: { id: string; name: string }[];
   matchedRules: { id: string; name: string; enabled: boolean }[];
+}
+
+export interface TrustedProfile {
+  id: string;
+  workspaceId: string;
+  name: string;
+  requireFirewall: boolean;
+  requireDiskEncryption: boolean;
+  requireScreenLock: boolean;
+  minOsVersion?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DevicePostureSnapshot {
+  deviceId: string;
+  workspaceId: string;
+  spiffeId: string;
+  osType: string;
+  osVersion: string;
+  hostname: string;
+  firewallEnabled: boolean;
+  diskEncrypted: boolean;
+  screenLockEnabled: boolean;
+  clientVersion: string;
+  collectedAt: string;
+  reportedAt: string;
+}
+
+export interface Device {
+  deviceId: string;
+  workspaceId: string;
+  userId: string;
+  ownerName: string;
+  ownerEmail: string;
+  deviceName: string;
+  deviceModel: string;
+  deviceMake: string;
+  serialNumber: string;
+  spiffeId: string;
+  osType: string;
+  osVersion: string;
+  hostname: string;
+  clientVersion: string;
+  firewallEnabled: boolean;
+  diskEncrypted: boolean;
+  screenLockEnabled: boolean;
+  collectedAt: string;
+  reportedAt: string;
 }

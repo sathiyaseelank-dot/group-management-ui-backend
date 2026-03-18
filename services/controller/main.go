@@ -129,10 +129,18 @@ func main() {
 	grpcServer := grpc.NewServer(
 		grpc.Creds(creds),
 		grpc.UnaryInterceptor(api.UnaryAuthInterceptor(trustDomain, map[string]struct{}{
-			controllerpb.EnrollmentService_EnrollConnector_FullMethodName: {},
-			controllerpb.EnrollmentService_EnrollTunneler_FullMethodName:  {},
-		}, "connector", "tunneler")),
-		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "tunneler")),
+			controllerpb.EnrollmentService_EnrollConnector_FullMethodName:     {},
+			controllerpb.EnrollmentService_EnrollTunneler_FullMethodName:      {},
+			controllerpb.DeviceService_DeviceAuthorize_FullMethodName:         {},
+			controllerpb.DeviceService_DeviceToken_FullMethodName:             {},
+			controllerpb.DeviceService_DeviceRefresh_FullMethodName:           {},
+			controllerpb.DeviceService_DeviceRevoke_FullMethodName:            {},
+			controllerpb.DeviceService_DeviceEnrollCert_FullMethodName:        {},
+			controllerpb.DeviceService_DeviceMe_FullMethodName:                {},
+			controllerpb.DeviceService_DeviceSync_FullMethodName:              {},
+			controllerpb.DeviceService_DeviceReportPosture_FullMethodName:     {},
+		}, "connector", "agent")),
+		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "agent")),
 	)
 
 	scanStore := state.NewScanStore()
@@ -188,7 +196,7 @@ func main() {
 		for range ticker.C {
 			cutoff := time.Now().Add(-45 * time.Second).Unix()
 			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
-			_, _ = db.Exec(state.Rebind(`UPDATE tunnelers  SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
+			_, _ = db.Exec(state.Rebind(`UPDATE agents     SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
 		}
 	}()
 
@@ -216,6 +224,13 @@ func main() {
 		os.Getenv("GOOGLE_CLIENT_ID"),
 		os.Getenv("GOOGLE_CLIENT_SECRET"),
 		os.Getenv("OAUTH_REDIRECT_URL"),
+	)
+	// Client app: used for PKCE flows (device auth v2 + invite registration).
+	// Falls back to oauthCfg if unset.
+	var clientOAuthCfg = admin.BuildClientGoogleOAuthConfig(
+		os.Getenv("CLIENT_GOOGLE_CLIENT_ID"),
+		os.Getenv("CLIENT_GOOGLE_CLIENT_SECRET"),
+		os.Getenv("CLIENT_OAUTH_REDIRECT_URL"),
 	)
 	var githubOAuthCfg = admin.BuildGitHubOAuthConfig(
 		os.Getenv("GITHUB_CLIENT_ID"),
@@ -260,6 +275,7 @@ func main() {
 		InternalAuthToken: internalAuthToken,
 		CACertPEM:         caCertPEM,
 		OAuthConfig:       oauthCfg,
+		ClientOAuthConfig: clientOAuthCfg,
 		GitHubOAuthConfig: githubOAuthCfg,
 		JWTSecret:         []byte(os.Getenv("JWT_SECRET")),
 		AdminLoginEmails:  adminLoginEmails,
@@ -276,6 +292,10 @@ func main() {
 	}
 	adminServer.RegisterRoutes(adminMux)
 	adminServer.RegisterOAuthRoutes(adminMux)
+
+	// ---- device gRPC service ----
+	deviceSvcServer := &admin.DeviceServiceServer{S: adminServer}
+	controllerpb.RegisterDeviceServiceServer(grpcServer, deviceSvcServer)
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { pingConnector } from '@/lib/mock-api';
-import { ConnectorDiagnostic, PingResult, TunnelerDiagnostic } from '@/lib/types';
+import { AgentDiagnostic, ConnectorDiagnostic, PingResult } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { Loader2, Wifi, WifiOff } from 'lucide-react';
 
 interface Props {
   connectors: ConnectorDiagnostic[];
-  tunnelers: TunnelerDiagnostic[];
+  agents: AgentDiagnostic[];
 }
 
 function formatStaleness(seconds: number): string {
@@ -20,13 +20,13 @@ function formatStaleness(seconds: number): string {
   return `${Math.round(seconds / 86400)}d ago`;
 }
 
-export function ConnectivityPanel({ connectors, tunnelers }: Props) {
+export function ConnectivityPanel({ connectors, agents }: Props) {
   const [pingResults, setPingResults] = useState<Record<string, PingResult>>({});
   const [pinging, setPinging] = useState<Record<string, boolean>>({});
 
   const onlineCount = connectors.filter((c) => c.status === 'online').length;
   const streamActiveCount = Object.values(pingResults).filter((r) => r.streamActive).length;
-  const onlineTunnelerCount = tunnelers.filter((t) => t.status === 'online').length;
+  const onlineAgentCount = agents.filter((t) => t.status === 'online').length;
 
   const handlePing = async (id: string) => {
     setPinging((prev) => ({ ...prev, [id]: true }));
@@ -72,7 +72,7 @@ export function ConnectivityPanel({ connectors, tunnelers }: Props) {
             <CardTitle className="text-sm font-medium text-muted-foreground">Agents Online</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-violet-600">{onlineTunnelerCount}</p>
+            <p className="text-2xl font-bold text-violet-600">{onlineAgentCount}</p>
           </CardContent>
         </Card>
       </div>
@@ -177,23 +177,23 @@ export function ConnectivityPanel({ connectors, tunnelers }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tunnelers.length === 0 && (
+              {agents.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
                     No agents found
                   </TableCell>
                 </TableRow>
               )}
-              {tunnelers.map((tunneler) => (
-                <TableRow key={tunneler.id}>
-                  <TableCell className="font-medium">{tunneler.name || tunneler.id}</TableCell>
+              {agents.map((agent) => (
+                <TableRow key={agent.id}>
+                  <TableCell className="font-medium">{agent.name || agent.id}</TableCell>
                   <TableCell>
-                    <Badge variant={tunneler.status === 'online' ? 'default' : 'secondary'}>
-                      {tunneler.status}
+                    <Badge variant={agent.status === 'online' ? 'default' : 'secondary'}>
+                      {agent.status}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {tunneler.lastSeenAt ? new Date(tunneler.lastSeenAt).toLocaleString() : 'Never'}
+                    {agent.lastSeenAt ? new Date(agent.lastSeenAt).toLocaleString() : 'Never'}
                   </TableCell>
                 </TableRow>
               ))}

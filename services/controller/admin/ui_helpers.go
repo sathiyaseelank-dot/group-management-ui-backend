@@ -157,9 +157,11 @@ func scanUIAgent(scanner interface{ Scan(dest ...any) error }) (uiAgent, bool) {
 	var installed sql.NullInt64
 	var lastSeen sql.NullString
 	var lastSeenAt sql.NullString
-	if err := scanner.Scan(&t.ID, &name, &status, &version, &hostname, &remoteNetworkID, &connectorID, &connectorName, &revoked, &installed, &lastSeen, &lastSeenAt); err != nil {
+	var ip sql.NullString
+	if err := scanner.Scan(&t.ID, &name, &status, &version, &hostname, &remoteNetworkID, &connectorID, &connectorName, &revoked, &installed, &lastSeen, &lastSeenAt, &ip); err != nil {
 		return uiAgent{}, false
 	}
+	t.IP = ip.String
 	t.ConnectorID = connectorID.String
 	t.ConnectorName = strings.TrimSpace(connectorName.String)
 	t.Name = strings.TrimSpace(name.String)

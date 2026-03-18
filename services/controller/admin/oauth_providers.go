@@ -24,6 +24,25 @@ func BuildGoogleOAuthConfig(clientID, clientSecret, redirectURL string) *oauth2.
 	}
 }
 
+// BuildClientGoogleOAuthConfig returns a Google OAuth2 config for PKCE client flows (device + invite).
+// It adds the "openid" scope so Google includes an id_token in the token response.
+// Returns nil if clientID is empty.
+func BuildClientGoogleOAuthConfig(clientID, clientSecret, redirectURL string) *oauth2.Config {
+	if clientID == "" {
+		return nil
+	}
+	return &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURL,
+		Scopes: []string{
+			"openid",
+			"https://www.googleapis.com/auth/userinfo.email",
+		},
+		Endpoint: google.Endpoint,
+	}
+}
+
 // BuildGitHubOAuthConfig returns a configured *oauth2.Config for GitHub, or nil if clientID is empty.
 func BuildGitHubOAuthConfig(clientID, clientSecret, redirectURL string) *oauth2.Config {
 	if clientID == "" {

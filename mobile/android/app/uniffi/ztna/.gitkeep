@@ -1,0 +1,3 @@
+# This directory is populated by the `generateUniffiBindings` Gradle task.
+# Run:  ./gradlew generateUniffiBindings
+# The generated ztna.kt file is gitignored; it is always regenerated from ztna.udl.

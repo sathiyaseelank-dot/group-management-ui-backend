@@ -205,12 +205,15 @@ async fn connect_to_connector(
         Err(e) => warn!("discovery: failed to load persisted state: {}", e),
     }
 
+    let mut posture_interval = tokio::time::interval(Duration::from_secs(300));
+    posture_interval.tick().await; // skip immediate first tick
+
     loop {
         tokio::select! {
             msg = stream.message() => {
                 match msg {
                     Ok(Some(m)) => {
-                        if let Err(e) = handle_inbound_message(&m, enforcer, &stream_tx, agent_id).await {
+                        if let Err(e) = handle_inbound_message(&m, enforcer, &stream_tx, agent_id, spiffe_id).await {
                             warn!("failed to handle message type={}: {}", m.r#type, e);
                         }
                     }
@@ -222,6 +225,7 @@ async fn connect_to_connector(
                 let payload = serde_json::to_vec(&serde_json::json!({
                     "agent_id": agent_id,
                     "spiffe_id": spiffe_id,
+                    "ip": crate::enroll::get_local_ip(),
                 })).unwrap_or_default();
 
                 stream_tx.send(ControlMessage {
@@ -281,6 +285,16 @@ async fn connect_to_connector(
                     dirty = false;
                 }
             }
+            _ = posture_interval.tick() => {
+                let posture = crate::posture::collect(agent_id, spiffe_id);
+                if let Ok(payload) = serde_json::to_vec(&posture) {
+                    let _ = stream_tx.send(ControlMessage {
+                        r#type: "agent_posture".to_string(),
+                        payload,
+                        ..Default::default()
+                    }).await;
+                }
+            }
         }
     }
 }
@@ -306,6 +320,7 @@ async fn handle_inbound_message(
     enforcer: &Arc<FirewallEnforcer>,
     stream_tx: &tokio::sync::mpsc::Sender<ControlMessage>,
     agent_id: &str,
+    spiffe_id: &str,
 ) -> Result<()> {
     match msg.r#type.as_str() {
         "firewall_policy" => {
@@ -326,6 +341,40 @@ async fn handle_inbound_message(
                     ..Default::default()
                 })
                 .await;
+        }
+        "posture_requirements" => {
+            #[derive(serde::Deserialize)]
+            struct PostureReq {
+                require_firewall: bool,
+                require_disk_encryption: bool,
+                require_screen_lock: bool,
+            }
+            if let Ok(req) = serde_json::from_slice::<PostureReq>(&msg.payload) {
+                let p = crate::posture::collect(agent_id, spiffe_id);
+                let mut violations: Vec<&str> = vec![];
+                if req.require_firewall && !p.firewall_enabled {
+                    violations.push("firewall not enabled");
+                }
+                if req.require_disk_encryption && !p.disk_encrypted {
+                    violations.push("disk not encrypted");
+                }
+                if req.require_screen_lock && !p.screen_lock_enabled {
+                    violations.push("screen lock not enabled");
+                }
+                if !violations.is_empty() {
+                    let payload = serde_json::json!({
+                        "agent_id": agent_id,
+                        "message": format!("posture_check failed: {}", violations.join(", ")),
+                    });
+                    let _ = stream_tx
+                        .send(ControlMessage {
+                            r#type: "agent_log".to_string(),
+                            payload: serde_json::to_vec(&payload).unwrap_or_default(),
+                            ..Default::default()
+                        })
+                        .await;
+                }
+            }
         }
         "pong" => { /* expected response to ping */ }
         other => {

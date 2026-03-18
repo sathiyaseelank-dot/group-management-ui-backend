@@ -20,6 +20,11 @@ func (s *Server) RegisterOAuthRoutes(mux *http.ServeMux) {
 	// Invite send + admin audit logs — require admin auth.
 	mux.Handle("/api/admin/users/invite", withCORS(s.adminAuth(http.HandlerFunc(s.handleInviteUser))))
 	mux.Handle("/api/admin/audit-logs", withCORS(s.adminAuth(http.HandlerFunc(s.handleAdminAuditLogs))))
+
+	// Invite PKCE flow (browser-based registration with PKCE + ID token validation)
+	mux.Handle("/api/invite/authorize", withCORS(http.HandlerFunc(s.handleInviteAuthorize)))
+	mux.Handle("/api/invite/callback", http.HandlerFunc(s.handleInviteCallback)) // no CORS: browser navigates here
+	mux.Handle("/api/invite/token", withCORS(http.HandlerFunc(s.handleInviteToken)))
 }
 
 func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
@@ -66,6 +71,12 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 
 	// Device auth routes (Phase 3)
 	s.RegisterDeviceAuthRoutes(mux)
+
+	// Device posture & trusted profiles
+	mux.Handle("/api/device-trusted-profiles", withCORS(ws(http.HandlerFunc(s.handleUIDeviceTrustedProfiles))))
+	mux.Handle("/api/device-trusted-profiles/", withCORS(ws(http.HandlerFunc(s.handleUIDeviceTrustedProfilesSubroutes))))
+	mux.Handle("/api/device-posture", withCORS(ws(http.HandlerFunc(s.handleUIDevicePosture))))
+	mux.Handle("/api/devices", withCORS(ws(http.HandlerFunc(s.handleUIDevices))))
 }
 
 // withWorkspaceContext is a middleware that extracts workspace claims from JWT

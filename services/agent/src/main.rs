@@ -3,6 +3,7 @@ mod discovery;
 mod enroll;
 mod firewall;
 mod persistence;
+mod posture;
 mod renewal;
 mod run;
 mod tls;

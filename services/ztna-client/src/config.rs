@@ -3,9 +3,14 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug, Clone)]
 #[command(name = "ztna-client", about = "ZTNA native client")]
 pub struct Config {
-    /// Controller URL (e.g. http://localhost:8081)
+    /// Controller HTTP URL (legacy, still used for OAuth callback redirect base).
+    /// Deprecated: use CONTROLLER_GRPC_ADDR for gRPC transport.
     #[arg(long, env = "CONTROLLER_URL", default_value = "http://localhost:8081")]
     pub controller_url: String,
+
+    /// Controller gRPC address (host:port), e.g. localhost:8443
+    #[arg(long, env = "CONTROLLER_GRPC_ADDR", default_value = "localhost:8443")]
+    pub controller_grpc_addr: String,
 
     /// Local port to listen on for browser callbacks
     #[arg(long, env = "ZTNA_CLIENT_PORT", default_value_t = 19515)]
