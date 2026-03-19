@@ -24,6 +24,8 @@ pub struct RunConfig {
     pub stale_grace: Duration,
     pub enrollment_token: String,
     pub ca_pem: Vec<u8>,
+    pub controller_http_url: String,
+    pub device_tunnel_addr: String,
 }
 
 pub fn normalize_trust_domain(v: &str) -> String {
@@ -151,6 +153,11 @@ pub fn run_config_from_env() -> Result<RunConfig> {
     } else {
         listen_addr_env.trim().to_string()
     };
+    let controller_http_url = env::var("CONTROLLER_HTTP_URL").unwrap_or_default();
+    let controller_http_url = controller_http_url.trim().to_string();
+    let device_tunnel_addr = env::var("DEVICE_TUNNEL_ADDR")
+        .unwrap_or_else(|_| format!("{}:9444", private_ip));
+    let device_tunnel_addr = device_tunnel_addr.trim().to_string();
 
     let ca_pem = load_controller_ca()?;
 
@@ -164,6 +171,8 @@ pub fn run_config_from_env() -> Result<RunConfig> {
         stale_grace,
         enrollment_token: enrollment_token.trim().to_string(),
         ca_pem,
+        controller_http_url,
+        device_tunnel_addr,
     })
 }
 

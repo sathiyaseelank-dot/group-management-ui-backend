@@ -78,6 +78,14 @@ impl FirewallEnforcer {
         .await
         .context("failed to create nftables chain")?;
 
+        // Flush stale rules from a previous run so we never duplicate.
+        run_nft(&format!(
+            "flush chain inet {} {}",
+            self.table_name, self.chain_name
+        ))
+        .await
+        .context("failed to flush nftables chain")?;
+
         info!(
             "nftables initialized: table={} chain={}",
             self.table_name, self.chain_name

@@ -372,6 +372,9 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 	if err := migrateWorkspaceColumns(db, dialect); err != nil {
 		return err
 	}
+	if err := backfillWorkspaceScope(db); err != nil {
+		log.Printf("migration warning [workspace backfill]: %v", err)
+	}
 
 	// Phase 3 migration: add firewall_status column to resources.
 	if dialect == "postgres" {
@@ -421,6 +424,162 @@ func migrateWorkspaceColumns(db *sql.DB, dialect string) error {
 					log.Printf("migration warning [%s.workspace_id]: %v", table, err)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// backfillWorkspaceScope repairs legacy rows that predate workspace scoping.
+// It first infers workspace ownership from existing relationships, then falls back
+// to a full-table assignment only when exactly one workspace exists.
+func backfillWorkspaceScope(db *sql.DB) error {
+	for i := 0; i < 3; i++ {
+		if err := inferWorkspaceScope(db); err != nil {
+			return err
+		}
+	}
+
+	rows, err := db.Query(`SELECT id FROM workspaces ORDER BY id ASC LIMIT 2`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	workspaceIDs := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		if strings.TrimSpace(id) != "" {
+			workspaceIDs = append(workspaceIDs, id)
+		}
+	}
+	if len(workspaceIDs) != 1 {
+		return nil
+	}
+
+	return fillBlankWorkspaceScope(db, workspaceIDs[0], []string{
+		"connectors",
+		"tunnelers",
+		"resources",
+		"tokens",
+		"remote_networks",
+		"access_rules",
+		"user_groups",
+		"service_accounts",
+		"audit_logs",
+	})
+}
+
+func inferWorkspaceScope(db *sql.DB) error {
+	statements := []string{
+		`UPDATE remote_networks rn
+			SET workspace_id = src.workspace_id
+		FROM (
+			SELECT remote_network_id AS id, MIN(workspace_id) AS workspace_id
+			FROM connectors
+			WHERE COALESCE(TRIM(remote_network_id), '') <> '' AND COALESCE(TRIM(workspace_id), '') <> ''
+			GROUP BY remote_network_id
+			HAVING COUNT(DISTINCT workspace_id) = 1
+			UNION
+			SELECT remote_network_id AS id, MIN(workspace_id) AS workspace_id
+			FROM resources
+			WHERE COALESCE(TRIM(remote_network_id), '') <> '' AND COALESCE(TRIM(workspace_id), '') <> ''
+			GROUP BY remote_network_id
+			HAVING COUNT(DISTINCT workspace_id) = 1
+		) src
+		WHERE rn.id = src.id AND COALESCE(TRIM(rn.workspace_id), '') = ''`,
+		`UPDATE connectors c
+			SET workspace_id = rn.workspace_id
+		FROM remote_networks rn
+		WHERE c.remote_network_id = rn.id
+		  AND COALESCE(TRIM(c.workspace_id), '') = ''
+		  AND COALESCE(TRIM(rn.workspace_id), '') <> ''`,
+		`UPDATE tunnelers t
+			SET workspace_id = src.workspace_id
+		FROM (
+			SELECT id, workspace_id FROM connectors WHERE COALESCE(TRIM(workspace_id), '') <> ''
+			UNION
+			SELECT id, workspace_id FROM remote_networks WHERE COALESCE(TRIM(workspace_id), '') <> ''
+		) src
+		WHERE (t.connector_id = src.id OR t.remote_network_id = src.id)
+		  AND COALESCE(TRIM(t.workspace_id), '') = ''`,
+		`UPDATE resources r
+			SET workspace_id = src.workspace_id
+		FROM (
+			SELECT id, workspace_id FROM remote_networks WHERE COALESCE(TRIM(workspace_id), '') <> ''
+			UNION
+			SELECT resource_id AS id, MIN(workspace_id) AS workspace_id
+			FROM access_rules
+			WHERE COALESCE(TRIM(workspace_id), '') <> ''
+			GROUP BY resource_id
+			HAVING COUNT(DISTINCT workspace_id) = 1
+		) src
+		WHERE (r.remote_network_id = src.id OR r.id = src.id)
+		  AND COALESCE(TRIM(r.workspace_id), '') = ''`,
+		`UPDATE access_rules ar
+			SET workspace_id = src.workspace_id
+		FROM (
+			SELECT id, workspace_id FROM resources WHERE COALESCE(TRIM(workspace_id), '') <> ''
+			UNION
+			SELECT arg.rule_id AS id, MIN(ug.workspace_id) AS workspace_id
+			FROM access_rule_groups arg
+			JOIN user_groups ug ON ug.id = arg.group_id
+			WHERE COALESCE(TRIM(ug.workspace_id), '') <> ''
+			GROUP BY arg.rule_id
+			HAVING COUNT(DISTINCT ug.workspace_id) = 1
+		) src
+		WHERE (ar.resource_id = src.id OR ar.id = src.id)
+		  AND COALESCE(TRIM(ar.workspace_id), '') = ''`,
+		`UPDATE user_groups ug
+			SET workspace_id = src.workspace_id
+		FROM (
+			SELECT arg.group_id AS id, MIN(ar.workspace_id) AS workspace_id
+			FROM access_rule_groups arg
+			JOIN access_rules ar ON ar.id = arg.rule_id
+			WHERE COALESCE(TRIM(ar.workspace_id), '') <> ''
+			GROUP BY arg.group_id
+			HAVING COUNT(DISTINCT ar.workspace_id) = 1
+			UNION
+			SELECT ugm.group_id AS id, MIN(wm.workspace_id) AS workspace_id
+			FROM user_group_members ugm
+			JOIN workspace_members wm ON wm.user_id = ugm.user_id
+			WHERE COALESCE(TRIM(wm.workspace_id), '') <> ''
+			GROUP BY ugm.group_id
+			HAVING COUNT(DISTINCT wm.workspace_id) = 1
+		) src
+		WHERE ug.id = src.id
+		  AND COALESCE(TRIM(ug.workspace_id), '') = ''`,
+		`UPDATE tokens tok
+			SET workspace_id = c.workspace_id
+		FROM connectors c
+		WHERE tok.connector_id = c.id
+		  AND COALESCE(TRIM(tok.workspace_id), '') = ''
+		  AND COALESCE(TRIM(c.workspace_id), '') <> ''`,
+		`UPDATE audit_logs a
+			SET workspace_id = src.workspace_id
+		FROM (
+			SELECT id, workspace_id FROM resources WHERE COALESCE(TRIM(workspace_id), '') <> ''
+			UNION
+			SELECT id, workspace_id FROM tunnelers WHERE COALESCE(TRIM(workspace_id), '') <> ''
+		) src
+		WHERE (a.resource_id = src.id OR a.tunneler_id = src.id)
+		  AND COALESCE(TRIM(a.workspace_id), '') = ''`,
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func fillBlankWorkspaceScope(db *sql.DB, workspaceID string, tables []string) error {
+	for _, table := range tables {
+		stmt := fmt.Sprintf(`UPDATE %s SET workspace_id = ? WHERE COALESCE(TRIM(workspace_id), '') = ''`, table)
+		if _, err := db.Exec(Rebind(stmt), workspaceID); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -21,6 +21,7 @@ pub struct ConnectorControlPlane {
     pub acl: Arc<PolicyCache>,
     pub trust_domain: String,
     pub agent_registry: Arc<crate::AgentRegistry>,
+    pub agent_tunnel_hub: crate::agent_tunnel::AgentTunnelHub,
     pub firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
     pub latest_fw_policy: crate::LatestFirewallPolicy,
 }
@@ -66,8 +67,10 @@ impl ControlPlane for ConnectorControlPlane {
         let acl = self.acl.clone();
         let connector_id = self.connector_id.clone();
         let agent_registry = self.agent_registry.clone();
+        let agent_tunnel_hub = self.agent_tunnel_hub.clone();
         let mut firewall_rx = self.firewall_tx.subscribe();
         let latest_fw_policy = self.latest_fw_policy.clone();
+        agent_tunnel_hub.register_agent(&agent_id, tx.clone());
 
         // Register with the peer IP immediately so it's available before any heartbeat.
         agent_registry.update(&agent_id, "ONLINE", &peer_ip);
@@ -98,6 +101,7 @@ impl ControlPlane for ConnectorControlPlane {
                                     &acl,
                                     &agent_registry,
                                     &peer_ip,
+                                    &agent_tunnel_hub,
                                 )
                                 .await;
                             }
@@ -116,6 +120,7 @@ impl ControlPlane for ConnectorControlPlane {
                     }
                 }
             }
+            agent_tunnel_hub.unregister_agent(&agent_id);
             agent_registry.remove(&agent_id);
             info!("agent disconnected: {}", spiffe_id);
         });
@@ -134,7 +139,11 @@ async fn handle_agent_message(
     acl: &Arc<PolicyCache>,
     agent_registry: &Arc<crate::AgentRegistry>,
     peer_ip: &str,
+    agent_tunnel_hub: &crate::agent_tunnel::AgentTunnelHub,
 ) {
+    if agent_tunnel_hub.handle_incoming(msg) {
+        return;
+    }
     match msg.r#type.as_str() {
         "ping" => {
             let _ = tx

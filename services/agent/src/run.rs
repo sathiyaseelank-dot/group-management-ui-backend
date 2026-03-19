@@ -9,6 +9,7 @@ use crate::config;
 use crate::enroll;
 use crate::enroll::pb::ControlMessage;
 use crate::firewall::FirewallEnforcer;
+use crate::tunnel::{AgentTunnelManager, TunnelClose, TunnelData, TunnelOpen};
 use crate::tls::cert_store::CertStore;
 
 pub async fn run() -> Result<()> {
@@ -70,6 +71,7 @@ pub async fn run() -> Result<()> {
     }
 
     let reload = Arc::new(Notify::new());
+    let tunnel_manager = Arc::new(AgentTunnelManager::new());
 
     // Start control plane loop (connects to connector)
     tokio::spawn(control_plane_loop(
@@ -81,6 +83,7 @@ pub async fn run() -> Result<()> {
         cfg.agent_id.clone(),
         reload.clone(),
         enforcer.clone(),
+        tunnel_manager.clone(),
     ));
 
     // Start certificate renewal loop
@@ -111,6 +114,7 @@ async fn control_plane_loop(
     agent_id: String,
     reload: Arc<Notify>,
     enforcer: Arc<FirewallEnforcer>,
+    tunnel_manager: Arc<AgentTunnelManager>,
 ) {
     let mut backoff = Duration::from_secs(2);
     loop {
@@ -123,6 +127,7 @@ async fn control_plane_loop(
                 &spiffe_id,
                 &agent_id,
                 &enforcer,
+                &tunnel_manager,
             ) => {
                 if let Err(e) = result {
                     warn!("connector connection ended: {}", e);
@@ -148,6 +153,7 @@ async fn connect_to_connector(
     spiffe_id: &str,
     agent_id: &str,
     enforcer: &Arc<FirewallEnforcer>,
+    tunnel_manager: &Arc<AgentTunnelManager>,
 ) -> Result<()> {
     let channel = crate::tls::client_cfg::build_tonic_channel_with_role(
         connector_addr,
@@ -213,7 +219,7 @@ async fn connect_to_connector(
             msg = stream.message() => {
                 match msg {
                     Ok(Some(m)) => {
-                        if let Err(e) = handle_inbound_message(&m, enforcer, &stream_tx, agent_id, spiffe_id).await {
+                        if let Err(e) = handle_inbound_message(&m, enforcer, &stream_tx, agent_id, spiffe_id, tunnel_manager).await {
                             warn!("failed to handle message type={}: {}", m.r#type, e);
                         }
                     }
@@ -321,6 +327,7 @@ async fn handle_inbound_message(
     stream_tx: &tokio::sync::mpsc::Sender<ControlMessage>,
     agent_id: &str,
     spiffe_id: &str,
+    tunnel_manager: &Arc<AgentTunnelManager>,
 ) -> Result<()> {
     match msg.r#type.as_str() {
         "firewall_policy" => {
@@ -375,6 +382,18 @@ async fn handle_inbound_message(
                         .await;
                 }
             }
+        }
+        "connector_tunnel_open" => {
+            let req: TunnelOpen = serde_json::from_slice(&msg.payload)?;
+            tunnel_manager.open(req, stream_tx.clone()).await?;
+        }
+        "connector_tunnel_data" => {
+            let data: TunnelData = serde_json::from_slice(&msg.payload)?;
+            tunnel_manager.write(data).await?;
+        }
+        "connector_tunnel_close" => {
+            let close: TunnelClose = serde_json::from_slice(&msg.payload)?;
+            tunnel_manager.close(close).await?;
         }
         "pong" => { /* expected response to ping */ }
         other => {

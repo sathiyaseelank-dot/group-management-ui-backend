@@ -1,7 +1,9 @@
 mod allowlist;
+mod agent_tunnel;
 mod buildinfo;
 mod config;
 mod control_plane;
+mod device_tunnel;
 mod discovery;
 mod enroll;
 mod net_util;
@@ -13,6 +15,7 @@ mod tls;
 mod watchdog;
 
 use allowlist::{AgentAllowlist, AgentInfo};
+use agent_tunnel::AgentTunnelHub;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use enroll::pb::ControlMessage;
@@ -209,8 +212,31 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     let acl = Arc::new(PolicyCache::new(cfg.policy_key.clone(), cfg.stale_grace));
     let (send_ch, recv_ch) = mpsc::channel::<ControlMessage>(16);
     let agent_registry = Arc::new(AgentRegistry::new());
+    let agent_tunnel_hub = AgentTunnelHub::new();
     let (firewall_tx, _) = broadcast::channel::<Vec<u8>>(16);
     let latest_fw_policy = LatestFirewallPolicy::new();
+
+    if !cfg.device_tunnel_addr.is_empty() && !cfg.controller_http_url.is_empty() {
+        let device_tunnel_addr = cfg.device_tunnel_addr.clone();
+        let controller_http_url = cfg.controller_http_url.clone();
+        let tunnel_store = store.clone();
+        let tunnel_acl = acl.clone();
+        let tunnel_hub = agent_tunnel_hub.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                device_tunnel::listen(
+                    &device_tunnel_addr,
+                    controller_http_url,
+                    tunnel_store,
+                    tunnel_acl,
+                    tunnel_hub,
+                )
+                .await
+            {
+                warn!("device tunnel stopped: {}", e);
+            }
+        });
+    }
 
     // Start agent-facing gRPC server
     tokio::spawn(server::server_loop(
@@ -223,6 +249,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         send_ch.clone(),
         enrolled_connector_id.clone(),
         agent_registry.clone(),
+        agent_tunnel_hub.clone(),
         firewall_tx.clone(),
         latest_fw_policy.clone(),
     ));

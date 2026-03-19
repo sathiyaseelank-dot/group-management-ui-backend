@@ -68,7 +68,7 @@ func isAllowedInviteRedirectURI(uri string) bool {
 	if scheme == "https" {
 		return true
 	}
-	return isAllowedRedirectURI(uri)
+	return isLoopbackURI(uri)
 }
 
 // ── POST /api/invite/authorize ─────────────────────────────────────────────

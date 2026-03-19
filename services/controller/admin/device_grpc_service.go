@@ -64,7 +64,7 @@ func (d *DeviceServiceServer) DeviceAuthorize(ctx context.Context, req *controll
 	if req.TenantSlug == "" || req.CodeChallenge == "" || req.RedirectUri == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_slug, code_challenge, and redirect_uri are required")
 	}
-	if !isAllowedRedirectURI(req.RedirectUri) {
+	if !isLoopbackURI(req.RedirectUri) {
 		return nil, status.Error(codes.InvalidArgument, "redirect_uri must be a loopback address or a custom URI scheme")
 	}
 	if req.CodeChallengeMethod != "" && req.CodeChallengeMethod != "S256" {

@@ -186,6 +186,13 @@ impl PolicyCache {
         (false, String::new(), "not_allowed")
     }
 
+    pub fn resource_by_id(&self, resource_id: &str) -> Option<PolicyResource> {
+        self.inner
+            .read()
+            .ok()
+            .and_then(|inner| inner.by_id.get(resource_id).cloned())
+    }
+
     fn verify_snapshot(&self, snap: &PolicySnapshot) -> bool {
         let key = self.signing_key.read().unwrap();
         if key.is_empty() {

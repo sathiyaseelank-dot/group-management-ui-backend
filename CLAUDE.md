@@ -56,6 +56,29 @@ cargo run
 ```bash
 cargo build --release
 cargo run                        # default: connects to http://localhost:8081
+
+# Run in TUN mode (default, requires root)
+sudo CONTROLLER_URL=http://localhost:8081 \
+ZTNA_TENANT=<workspace-slug> \
+CONNECTOR_TUNNEL_ADDR=<connector-host>:9444 \
+CA_CERT_PATH=ca/ca.crt \
+cargo run
+
+# Run in SOCKS5 mode (unprivileged fallback)
+CONTROLLER_URL=http://localhost:8081 \
+ZTNA_TENANT=<workspace-slug> \
+ZTNA_MODE=socks5 \
+SOCKS5_ADDR=127.0.0.1:1080 \
+CONNECTOR_TUNNEL_ADDR=<connector-host>:9444 \
+INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
+cargo run
+
+# CLI commands (interactive UI is default)
+ztna-client login <tenant>
+ztna-client status [tenant]
+ztna-client resources [tenant]
+ztna-client sync <tenant>
+ztna-client disconnect <tenant>
 ```
 
 ### ZTNA Mobile Library (`cd services/ztna-client-mobile`)
@@ -100,16 +123,47 @@ make clean              # Remove build artifacts
 | Service | Language | Port | Purpose |
 |---|---|---|---|
 | **Controller** | Go 1.24 | `:8081` (HTTP admin), `:8443` (gRPC enrollment), `:8080` (OAuth callbacks) | Control plane: CA, enrollment, ACLs, OAuth, device auth |
-| **Connector** | Rust | `:9443` (inbound) | Gateway between tunnelers and resources |
-| **Agent** | Rust | outbound only | Client tunneler: connects to connector, exposes SOCKS5 proxy, enforces nftables firewall |
-| **ztna-client** | Rust | N/A | Desktop CLI for device enrollment and OAuth |
+| **Connector** | Rust | `:9443` (agent gRPC), `:9444` (device tunnel) | Gateway between agents/devices and resources |
+| **Agent** | Rust | outbound only | Server-side agent: connects to connector, enforces nftables firewall. Runs entirely in-memory. |
+| **ztna-client** | Rust | N/A | Desktop CLI: device enrollment, OAuth PKCE, TUN/SOCKS5 split-tunnel |
 | **ztna-client-mobile** | Rust (UniFFI lib) | N/A | Shared auth/networking core for Android (and future iOS) |
 | **Frontend** | React 19 + Express | `:3000` (Vite), `:3001` (Express) | Admin dashboard + user portal |
 | **Android** | Kotlin 2.0 | N/A | Mobile zero-trust client |
 
+### Split-Tunnel Traffic Flow
+
+**TUN mode (default, `ZTNA_MODE=tun`):**
+```
+App (no config) → kernel route → TUN device (ztna0) → smoltcp TCP stack → ACL check → Connector tunnel (:9444) → Agent → Protected resource
+```
+
+**SOCKS5 mode (`ZTNA_MODE=socks5`):**
+```
+App (must configure proxy) → SOCKS5 proxy (ztna-client:1080) → ACL check → Connector tunnel (:9444) → Agent → Protected resource
+```
+
+**TUN mode flow:**
+1. App sends TCP to resource IP — kernel routes through TUN device `ztna0` (via `ip route add <ip>/32 dev ztna0`)
+2. smoltcp userspace TCP stack handles SYN/ACK handshake transparently
+3. Client checks ACL via `POST /api/device/check-access` on the controller
+4. If allowed, opens TLS tunnel to connector's device tunnel port (`:9444`)
+5. Bidirectional relay: smoltcp socket <-> tunnel stream
+6. Connector routes to the agent protecting the target resource
+7. Agent forwards traffic to the resource
+
+**SOCKS5 mode flow:**
+1. Application connects through SOCKS5 proxy on `127.0.0.1:1080`
+2. Client checks ACL via `POST /api/device/check-access` on the controller
+3. If allowed, opens TLS tunnel to connector's device tunnel port (`:9444`)
+4. Connector routes to the agent protecting the target resource
+5. Agent forwards traffic to the resource
+
+### SPIFFE Identity
+
 All services use SPIFFE IDs under trust domain `spiffe://mycorp.internal`:
 - Connector: `spiffe://mycorp.internal/connector/<id>`
 - Agent: `spiffe://mycorp.internal/tunneler/<id>` (SPIFFE path kept as `tunneler` for wire compatibility)
+- Device: `spiffe://mycorp.internal/device/<user_id>/<device_id>`
 
 Go module name for controller is `controller` (in `services/controller/go.mod`).
 
@@ -196,6 +250,20 @@ disconnect(tenant_slug, controller_url, data_dir) → void
 State is persisted as JSON files in `data_dir` (Android: `filesDir`). PKCE `code_verifier` is stored transiently during the auth flow.
 
 ---
+
+### Device Auth API
+
+```
+POST /api/device/authorize       # Start OAuth PKCE flow
+GET  /api/device/callback        # OAuth provider redirect target
+POST /api/device/token           # Exchange code for JWT + ACL snapshot
+POST /api/device/refresh         # Rotate refresh token, issue new JWT
+POST /api/device/revoke          # Revoke a session
+POST /api/device/check-access    # Per-request ACL check (destination:port)
+GET  /api/device/me              # Current user/workspace/resources view
+POST /api/device/sync            # Refresh cached resources
+POST /api/device/enroll-cert     # Issue device mTLS certificate
+```
 
 ### Frontend (Vite + React + Express)
 
@@ -303,3 +371,10 @@ All tables created via `initSchemaDialect()` in `state/db.go` on startup. New co
 - **Android deep link** — `ztna://callback?code=...&state=...` is registered in `AndroidManifest.xml`. `MainActivity` handles it and calls `viewModel.completeLogin()`.
 - **Policy state** (sign-in policy, resource policies, device profiles) is stored in localStorage on the frontend, not in the database.
 - `make dev-controller` loads env from `services/controller/.env` automatically.
+- **Device OAuth flow** — `POST /api/device/authorize` builds the callback URI as `INVITE_BASE_URL + /api/device/callback`. Both `http://localhost:8080/oauth/google/callback` (web UI) and `http://localhost:8081/api/device/callback` (device flow) must be registered as authorized redirect URIs in Google Cloud Console for the same OAuth Client ID.
+- **Access rule chain** — for a user to see resources via `ztna-client resources`, the full chain must exist: `user → user_group_members → user_groups → access_rule_groups → access_rules (enabled=1) → resources`. The `resourceCount` shown in the groups UI API counts all rules regardless of `enabled`, so a group can show `resourceCount > 0` while the agent sees 0 resources if the rule is disabled.
+- **ZTNA Client caches resources** at login time. Run `ztna-client sync <tenant>` or re-login after changing group membership or access rules to refresh the local cache.
+- **Agent is memory-only** — the agent does not persist any state to disk. It enrolls fresh on every start and receives firewall policy from the connector. On `initialize()` the nftables chain is flushed to prevent rule duplication across restarts.
+- **Connector has two listener ports** — `:9443` for agent gRPC (mTLS) and `:9444` for device tunnel (TLS with JWT auth). The device tunnel port is set via `DEVICE_TUNNEL_ADDR`.
+- **PostgreSQL runs in Docker** — container name `ztna-postgres`, image `postgres:16-alpine`, port `5432`. Connect with: `docker exec ztna-postgres psql -U ztnaadmin -d ztna -c "<query>"`
+- **Systemd services** — unit files in `systemd/` directory (`agent.service`, `connector.service`). Connector config at `/etc/connector/connector.conf`, agent config at `/etc/agent/agent.conf`. Both use `LoadCredential=CONTROLLER_CA:/etc/<service>/ca.crt`.

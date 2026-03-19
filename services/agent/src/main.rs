@@ -7,6 +7,7 @@ mod posture;
 mod renewal;
 mod run;
 mod tls;
+mod tunnel;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
