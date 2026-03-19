@@ -259,6 +259,7 @@ fn start_socks_listener(config: &Config) {
     let socks5_addr = config.socks5_addr.clone();
     let socks5_addr_for_listener = socks5_addr.clone();
     let controller_url = config.controller_url.clone();
+    let controller_grpc_addr = config.controller_grpc_addr.clone();
     let callback_bind_addr = config.callback_bind_addr.clone();
     let callback_host = config.callback_host.clone();
     let tenant = config.tenant.clone();
@@ -269,6 +270,7 @@ fn start_socks_listener(config: &Config) {
         let handler = move |req: socks5::ConnectRequest, mut stream: tokio::net::TcpStream| {
             let config = Config {
                 controller_url: controller_url.clone(),
+                controller_grpc_addr: controller_grpc_addr.clone(),
                 port: 0,
                 callback_bind_addr: callback_bind_addr.clone(),
                 callback_host: callback_host.clone(),
