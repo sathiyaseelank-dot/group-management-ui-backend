@@ -162,6 +162,8 @@ pub struct DeviceResourceProto {
     pub has_port_to: bool,
     #[prost(bool, tag = "15")]
     pub has_alias: bool,
+    #[prost(string, tag = "16")]
+    pub connector_tunnel_addr: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeviceUserProto {
@@ -249,10 +251,10 @@ pub mod enrollment_service_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
     #[derive(Debug, Clone)]
     pub struct EnrollmentServiceClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -285,9 +287,8 @@ pub mod enrollment_service_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             EnrollmentServiceClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -326,64 +327,48 @@ pub mod enrollment_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::EnrollRequest>,
         ) -> std::result::Result<tonic::Response<super::EnrollResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/controller.v1.EnrollmentService/EnrollConnector",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("controller.v1.EnrollmentService", "EnrollConnector"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "controller.v1.EnrollmentService",
+                "EnrollConnector",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn enroll_tunneler(
             &mut self,
             request: impl tonic::IntoRequest<super::EnrollRequest>,
         ) -> std::result::Result<tonic::Response<super::EnrollResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/controller.v1.EnrollmentService/EnrollTunneler",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("controller.v1.EnrollmentService", "EnrollTunneler"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "controller.v1.EnrollmentService",
+                "EnrollTunneler",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn renew(
             &mut self,
             request: impl tonic::IntoRequest<super::EnrollRequest>,
         ) -> std::result::Result<tonic::Response<super::EnrollResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controller.v1.EnrollmentService/Renew",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/controller.v1.EnrollmentService/Renew");
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("controller.v1.EnrollmentService", "Renew"));
@@ -398,10 +383,10 @@ pub mod control_plane_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
     #[derive(Debug, Clone)]
     pub struct ControlPlaneClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -434,9 +419,8 @@ pub mod control_plane_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ControlPlaneClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -478,18 +462,11 @@ pub mod control_plane_client {
             tonic::Response<tonic::codec::Streaming<super::ControlMessage>>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controller.v1.ControlPlane/Connect",
-            );
+            let path = http::uri::PathAndQuery::from_static("/controller.v1.ControlPlane/Connect");
             let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("controller.v1.ControlPlane", "Connect"));
@@ -504,10 +481,10 @@ pub mod device_service_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value,
+        clippy::let_unit_value
     )]
-    use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
     #[derive(Debug, Clone)]
     pub struct DeviceServiceClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -540,9 +517,8 @@ pub mod device_service_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             DeviceServiceClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -581,147 +557,107 @@ pub mod device_service_client {
         pub async fn device_authorize(
             &mut self,
             request: impl tonic::IntoRequest<super::DeviceAuthorizeRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeviceAuthorizeResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::DeviceAuthorizeResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/controller.v1.DeviceService/DeviceAuthorize",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("controller.v1.DeviceService", "DeviceAuthorize"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "controller.v1.DeviceService",
+                "DeviceAuthorize",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn device_token(
             &mut self,
             request: impl tonic::IntoRequest<super::DeviceTokenRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeviceTokenResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::DeviceTokenResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controller.v1.DeviceService/DeviceToken",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/controller.v1.DeviceService/DeviceToken");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("controller.v1.DeviceService", "DeviceToken"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "controller.v1.DeviceService",
+                "DeviceToken",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn device_refresh(
             &mut self,
             request: impl tonic::IntoRequest<super::DeviceRefreshRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeviceRefreshResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::DeviceRefreshResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controller.v1.DeviceService/DeviceRefresh",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/controller.v1.DeviceService/DeviceRefresh");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("controller.v1.DeviceService", "DeviceRefresh"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "controller.v1.DeviceService",
+                "DeviceRefresh",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn device_revoke(
             &mut self,
             request: impl tonic::IntoRequest<super::DeviceRevokeRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeviceRevokeResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::DeviceRevokeResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controller.v1.DeviceService/DeviceRevoke",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/controller.v1.DeviceService/DeviceRevoke");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("controller.v1.DeviceService", "DeviceRevoke"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "controller.v1.DeviceService",
+                "DeviceRevoke",
+            ));
             self.inner.unary(req, path, codec).await
         }
         /// JWT authenticated
         pub async fn device_enroll_cert(
             &mut self,
             request: impl tonic::IntoRequest<super::DeviceEnrollCertRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeviceEnrollCertResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::DeviceEnrollCertResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/controller.v1.DeviceService/DeviceEnrollCert",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("controller.v1.DeviceService", "DeviceEnrollCert"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "controller.v1.DeviceService",
+                "DeviceEnrollCert",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn device_me(
             &mut self,
             request: impl tonic::IntoRequest<super::DeviceViewRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeviceViewResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::DeviceViewResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controller.v1.DeviceService/DeviceMe",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/controller.v1.DeviceService/DeviceMe");
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("controller.v1.DeviceService", "DeviceMe"));
@@ -730,22 +666,14 @@ pub mod device_service_client {
         pub async fn device_sync(
             &mut self,
             request: impl tonic::IntoRequest<super::DeviceViewRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeviceViewResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::DeviceViewResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controller.v1.DeviceService/DeviceSync",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/controller.v1.DeviceService/DeviceSync");
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("controller.v1.DeviceService", "DeviceSync"));
@@ -754,27 +682,20 @@ pub mod device_service_client {
         pub async fn device_report_posture(
             &mut self,
             request: impl tonic::IntoRequest<super::DevicePostureRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DevicePostureResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::DevicePostureResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/controller.v1.DeviceService/DeviceReportPosture",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("controller.v1.DeviceService", "DeviceReportPosture"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "controller.v1.DeviceService",
+                "DeviceReportPosture",
+            ));
             self.inner.unary(req, path, codec).await
         }
     }

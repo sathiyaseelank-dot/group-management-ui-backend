@@ -1,8 +1,8 @@
-use anyhow::Result;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit},
     Aes256Gcm, Key, Nonce,
 };
+use anyhow::Result;
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use rand::RngCore;
@@ -103,6 +103,26 @@ pub struct StoredResource {
     pub remote_network_name: String,
     #[serde(default)]
     pub firewall_status: String,
+    #[serde(default)]
+    pub connector_tunnel_addr: String,
+}
+
+pub fn connector_tunnel_addr_for_resource(
+    resources: &[StoredResource],
+    resource_id: &str,
+    fallback: &str,
+) -> String {
+    let resource_id = resource_id.trim();
+    if !resource_id.is_empty() {
+        if let Some(resource) = resources.iter().find(|resource| resource.id == resource_id) {
+            let addr = resource.connector_tunnel_addr.trim();
+            if !addr.is_empty() {
+                return addr.to_string();
+            }
+        }
+    }
+
+    fallback.trim().to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -276,7 +296,8 @@ pub fn load_workspace_state(tenant_slug: &str) -> Option<StoredWorkspaceState> {
     // Decrypt private key if it was stored in enc1 format.
     if state.device.private_key_pem.starts_with(ENC_PREFIX) {
         let key = get_or_create_workspace_key(tenant_slug).ok()?;
-        state.device.private_key_pem = decrypt_private_key(&key, &state.device.private_key_pem).ok()?;
+        state.device.private_key_pem =
+            decrypt_private_key(&key, &state.device.private_key_pem).ok()?;
     }
     // Legacy plain-text keys are left as-is here; they will be encrypted on
     // the next call to save_workspace_state.

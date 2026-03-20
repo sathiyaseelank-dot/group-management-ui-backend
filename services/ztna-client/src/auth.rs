@@ -96,6 +96,7 @@ pub struct DeviceResource {
     pub remote_network_id: String,
     pub remote_network_name: String,
     pub firewall_status: String,
+    pub connector_tunnel_addr: String,
 }
 
 #[derive(Debug, Clone)]
@@ -145,7 +146,9 @@ fn has_spiffe_controller_san(cert_der: &[u8]) -> bool {
             if end <= cert_der.len() {
                 let val = &cert_der[start..end];
                 if val.starts_with(b"spiffe://")
-                    && val.windows(CONTROLLER_SEGMENT.len()).any(|w| w == CONTROLLER_SEGMENT)
+                    && val
+                        .windows(CONTROLLER_SEGMENT.len())
+                        .any(|w| w == CONTROLLER_SEGMENT)
                 {
                     return true;
                 }
@@ -257,8 +260,7 @@ async fn build_channel(
                 msg,
                 cert,
                 dss,
-                &rustls::crypto::ring::default_provider()
-                    .signature_verification_algorithms,
+                &rustls::crypto::ring::default_provider().signature_verification_algorithms,
             )
         }
 
@@ -272,8 +274,7 @@ async fn build_channel(
                 msg,
                 cert,
                 dss,
-                &rustls::crypto::ring::default_provider()
-                    .signature_verification_algorithms,
+                &rustls::crypto::ring::default_provider().signature_verification_algorithms,
             )
         }
 
@@ -319,9 +320,7 @@ fn with_token<T>(req: T, token: &str) -> tonic::Request<T> {
     let header_value = format!("Bearer {}", token)
         .parse()
         .expect("valid header value");
-    request
-        .metadata_mut()
-        .insert("authorization", header_value);
+    request.metadata_mut().insert("authorization", header_value);
     request
 }
 
@@ -340,13 +339,18 @@ fn proto_view_to_local(view: pb::DeviceViewResponse) -> DeviceUserView {
             r#type: r.r#type,
             address: r.address,
             protocol: r.protocol,
-            port_from: if r.has_port_from { Some(r.port_from) } else { None },
+            port_from: if r.has_port_from {
+                Some(r.port_from)
+            } else {
+                None
+            },
             port_to: if r.has_port_to { Some(r.port_to) } else { None },
             alias: if r.has_alias { Some(r.alias) } else { None },
             description: r.description,
             remote_network_id: r.remote_network_id,
             remote_network_name: r.remote_network_name,
             firewall_status: r.firewall_status,
+            connector_tunnel_addr: r.connector_tunnel_addr,
         })
         .collect();
     DeviceUserView {

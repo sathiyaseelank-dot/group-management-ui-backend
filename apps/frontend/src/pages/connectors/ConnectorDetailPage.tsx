@@ -55,19 +55,21 @@ export default function ConnectorDetailPage() {
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
   const [connectorPrivateIP, setConnectorPrivateIP] = useState(detectedHost);
+  const [deviceTunnelAddr, setDeviceTunnelAddr] = useState('0.0.0.0:9444');
   const connectorInstallScript = 'https://raw.githubusercontent.com/vairabarath/zero-trust/feature/client-grpc-lan-auth/scripts/setup.sh';
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
     return (
       `curl -fsSL ${connectorInstallScript} | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
-      `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
+      `  CONTROLLER_HTTP_URL="http://${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${enrollmentToken}" \\\n` +
+      `  DEVICE_TUNNEL_ADDR="${deviceTunnelAddr || '0.0.0.0:9444'}" \\\n` +
       (connectorPrivateIP ? `  CONNECTOR_PRIVATE_IP="${connectorPrivateIP}" \\\n` : '') +
       `  bash`
     );
-  }, [connectorInstallScript, enrollmentToken, controllerAddr, controllerHttpAddr, connectorId, connectorPrivateIP]);
+  }, [connectorInstallScript, enrollmentToken, controllerAddr, controllerHttpAddr, connectorId, deviceTunnelAddr, connectorPrivateIP]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -211,6 +213,18 @@ export default function ConnectorDetailPage() {
             />
             <p className="text-xs text-muted-foreground">
               The CA certificate is fetched automatically from this address.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="deviceTunnelAddr">Device Tunnel Address</Label>
+            <Input
+              id="deviceTunnelAddr"
+              value={deviceTunnelAddr}
+              onChange={(e) => setDeviceTunnelAddr(e.target.value)}
+              placeholder="0.0.0.0:9444"
+            />
+            <p className="text-xs text-muted-foreground">
+              Address the connector binds for device tunnel traffic.
             </p>
           </div>
           <div className="space-y-2 sm:col-span-2">

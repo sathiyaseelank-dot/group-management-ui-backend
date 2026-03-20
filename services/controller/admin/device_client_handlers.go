@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -15,18 +16,20 @@ import (
 )
 
 type deviceUserResource struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name"`
-	Type              string  `json:"type"`
-	Address           string  `json:"address"`
-	Protocol          string  `json:"protocol"`
-	PortFrom          *int    `json:"port_from,omitempty"`
-	PortTo            *int    `json:"port_to,omitempty"`
-	Alias             *string `json:"alias,omitempty"`
-	Description       string  `json:"description"`
-	RemoteNetworkID   string  `json:"remote_network_id"`
-	RemoteNetworkName string  `json:"remote_network_name"`
-	FirewallStatus    string  `json:"firewall_status"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Type                string  `json:"type"`
+	Address             string  `json:"address"`
+	Protocol            string  `json:"protocol"`
+	PortFrom            *int    `json:"port_from,omitempty"`
+	PortTo              *int    `json:"port_to,omitempty"`
+	Alias               *string `json:"alias,omitempty"`
+	Description         string  `json:"description"`
+	ConnectorID         string  `json:"-"`
+	RemoteNetworkID     string  `json:"remote_network_id"`
+	RemoteNetworkName   string  `json:"remote_network_name"`
+	FirewallStatus      string  `json:"firewall_status"`
+	ConnectorTunnelAddr string  `json:"connector_tunnel_addr,omitempty"`
 }
 
 func parsePEMPublicKey(publicKeyPEM string) (interface{}, error) {
@@ -49,7 +52,7 @@ func loadAuthorizedResources(db *sql.DB, workspaceID, userID string) ([]deviceUs
 	rows, err := db.Query(
 		state.Rebind(`SELECT DISTINCT
 			r.id, r.name, r.type, r.address, r.protocol, r.port_from, r.port_to, r.alias,
-			r.description, r.remote_network_id, COALESCE(rn.name, ''), r.firewall_status
+			r.description, r.connector_id, r.remote_network_id, COALESCE(rn.name, ''), r.firewall_status
 		FROM resources r
 		JOIN access_rules ar ON ar.resource_id = r.id AND ar.enabled = 1
 		JOIN access_rule_groups arg ON arg.rule_id = ar.id
@@ -95,6 +98,7 @@ func loadAuthorizedResources(db *sql.DB, workspaceID, userID string) ([]deviceUs
 			&portTo,
 			&alias,
 			&res.Description,
+			&res.ConnectorID,
 			&res.RemoteNetworkID,
 			&res.RemoteNetworkName,
 			&res.FirewallStatus,
@@ -119,12 +123,113 @@ func loadAuthorizedResources(db *sql.DB, workspaceID, userID string) ([]deviceUs
 		if strings.TrimSpace(res.FirewallStatus) == "" {
 			res.FirewallStatus = "unprotected"
 		}
+		res.ConnectorTunnelAddr = lookupAuthorizedConnectorTunnelAddr(db, res.RemoteNetworkID, res.ConnectorID)
 		out = append(out, res)
 	}
 	if out == nil {
 		out = []deviceUserResource{}
 	}
 	return out, rows.Err()
+}
+
+func lookupAuthorizedConnectorTunnelAddr(db *sql.DB, remoteNetworkID, connectorID string) string {
+	if addr, err := lookupOnlineConnectorTunnelAddrByNetwork(db, remoteNetworkID); err == nil && addr != "" {
+		return addr
+	}
+	if addr, err := lookupOnlineConnectorTunnelAddrByID(db, connectorID); err == nil && addr != "" {
+		return addr
+	}
+	return ""
+}
+
+func lookupOnlineConnectorTunnelAddrByNetwork(db *sql.DB, remoteNetworkID string) (string, error) {
+	if strings.TrimSpace(remoteNetworkID) == "" {
+		return "", sql.ErrNoRows
+	}
+
+	rows, err := db.Query(state.Rebind(`SELECT c.private_ip, c.last_seen
+		FROM connectors c
+		WHERE c.revoked = 0
+		  AND c.status = 'online'
+		  AND COALESCE(TRIM(c.private_ip), '') <> ''
+		  AND (
+			c.remote_network_id = ?
+			OR EXISTS (
+				SELECT 1
+				FROM remote_network_connectors rnc
+				WHERE rnc.connector_id = c.id
+				  AND rnc.network_id = ?
+			)
+		  )
+		ORDER BY c.last_seen DESC, c.id ASC`), remoteNetworkID, remoteNetworkID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var privateIP sql.NullString
+		var lastSeen sql.NullInt64
+		if err := rows.Scan(&privateIP, &lastSeen); err != nil {
+			return "", err
+		}
+		addr := connectorTunnelAddrFromRecord(privateIP.String, lastSeen)
+		if addr != "" {
+			return addr, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return "", sql.ErrNoRows
+}
+
+func lookupOnlineConnectorTunnelAddrByID(db *sql.DB, connectorID string) (string, error) {
+	if strings.TrimSpace(connectorID) == "" {
+		return "", sql.ErrNoRows
+	}
+
+	var privateIP sql.NullString
+	var lastSeen sql.NullInt64
+	if err := db.QueryRow(state.Rebind(`SELECT private_ip, last_seen
+		FROM connectors
+		WHERE id = ?
+		  AND revoked = 0
+		  AND status = 'online'
+		  AND COALESCE(TRIM(private_ip), '') <> ''`), connectorID).Scan(&privateIP, &lastSeen); err != nil {
+		return "", err
+	}
+
+	addr := connectorTunnelAddrFromRecord(privateIP.String, lastSeen)
+	if addr == "" {
+		return "", sql.ErrNoRows
+	}
+	return addr, nil
+}
+
+func connectorTunnelAddrFromRecord(privateIP string, lastSeen sql.NullInt64) string {
+	privateIP = strings.TrimSpace(privateIP)
+	if privateIP == "" {
+		return ""
+	}
+	if !lastSeen.Valid || lastSeen.Int64 <= 0 {
+		return ""
+	}
+	if time.Since(time.Unix(lastSeen.Int64, 0)) > connectorStaleThreshold {
+		return ""
+	}
+	return formatTunnelAddr(privateIP, 9444)
+}
+
+func formatTunnelAddr(host string, port int) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return fmt.Sprintf("[%s]:%d", host, port)
+	}
+	return fmt.Sprintf("%s:%d", host, port)
 }
 
 func (s *Server) writeDeviceView(w http.ResponseWriter, r *http.Request) {
@@ -338,19 +443,19 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 	if db := s.db(); db != nil {
 		now := isoStringNow()
 		_ = state.UpsertDevicePosture(db, state.DevicePosture{
-			DeviceID:    deviceID,
-			WorkspaceID: claims.wsID,
-			SPIFFEID:    spiffeID,
-			OSType:      req.OS,
-			OSVersion:   "",
-			Hostname:    req.Hostname,
+			DeviceID:      deviceID,
+			WorkspaceID:   claims.wsID,
+			SPIFFEID:      spiffeID,
+			OSType:        req.OS,
+			OSVersion:     "",
+			Hostname:      req.Hostname,
 			ClientVersion: req.ClientVersion,
-			CollectedAt: now,
-			UserID:      claims.userID,
-			DeviceName:  req.DeviceName,
-			DeviceModel: req.DeviceModel,
-			DeviceMake:  req.DeviceMake,
-			SerialNumber: req.SerialNumber,
+			CollectedAt:   now,
+			UserID:        claims.userID,
+			DeviceName:    req.DeviceName,
+			DeviceModel:   req.DeviceModel,
+			DeviceMake:    req.DeviceMake,
+			SerialNumber:  req.SerialNumber,
 		})
 	}
 

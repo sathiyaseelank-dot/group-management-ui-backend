@@ -104,8 +104,12 @@ async fn report_posture(config: &Config, state: &StoredWorkspaceState) {
         return;
     }
     let posture = crate::posture::collect(&state.device.id, &state.device.spiffe_id);
-    if let Err(e) =
-        report_device_posture(&config.controller_grpc_addr, &state.session.access_token, &posture).await
+    if let Err(e) = report_device_posture(
+        &config.controller_grpc_addr,
+        &state.session.access_token,
+        &posture,
+    )
+    .await
     {
         warn!("posture report failed: {}", e);
     }
@@ -240,11 +244,13 @@ fn collect_device_info() -> (String, String, String, String) {
                 .unwrap_or_default()
         }
         let sp = run_cmd("system_profiler", &["SPHardwareDataType"]);
-        let model = sp.lines()
+        let model = sp
+            .lines()
             .find(|l| l.trim_start().starts_with("Model Name:"))
             .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
             .unwrap_or_default();
-        let serial = sp.lines()
+        let serial = sp
+            .lines()
             .find(|l| l.trim_start().starts_with("Serial Number"))
             .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
             .unwrap_or_default();
@@ -271,7 +277,12 @@ fn collect_device_info() -> (String, String, String, String) {
     }
 
     #[allow(unreachable_code)]
-    (local_hostname(), String::new(), String::new(), String::new())
+    (
+        local_hostname(),
+        String::new(),
+        String::new(),
+        String::new(),
+    )
 }
 
 fn map_resources(resources: Vec<DeviceResource>) -> Vec<StoredResource> {
@@ -290,6 +301,7 @@ fn map_resources(resources: Vec<DeviceResource>) -> Vec<StoredResource> {
             remote_network_id: res.remote_network_id,
             remote_network_name: res.remote_network_name,
             firewall_status: res.firewall_status,
+            connector_tunnel_addr: res.connector_tunnel_addr,
         })
         .collect()
 }
@@ -458,7 +470,8 @@ pub async fn ensure_workspace_state(
 
     if state.session.expires_at <= now + 60 {
         let refreshed =
-            refresh_device_token(&config.controller_grpc_addr, &state.session.refresh_token).await?;
+            refresh_device_token(&config.controller_grpc_addr, &state.session.refresh_token)
+                .await?;
         state.session.access_token = refreshed.access_token;
         state.session.refresh_token = refreshed.refresh_token;
         state.session.expires_at = now + refreshed.expires_in;
@@ -480,7 +493,8 @@ pub async fn ensure_workspace_state(
     }
 
     if force_sync || state.last_sync_at <= now - 60 || state.resources.is_empty() {
-        let view = sync_device_view(&config.controller_grpc_addr, &state.session.access_token).await?;
+        let view =
+            sync_device_view(&config.controller_grpc_addr, &state.session.access_token).await?;
         state.workspace = StoredWorkspace {
             id: view.workspace.id,
             name: view.workspace.name,
@@ -686,9 +700,7 @@ async fn handle_login(
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     match begin_login(&state, &body.tenant).await {
-        Ok(auth_url) => {
-            Json(serde_json::json!({ "auth_url": auth_url })).into_response()
-        }
+        Ok(auth_url) => Json(serde_json::json!({ "auth_url": auth_url })).into_response(),
         Err(err) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": err.to_string() })),

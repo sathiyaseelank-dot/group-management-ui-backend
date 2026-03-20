@@ -19,15 +19,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use config::{Command, Config};
-use tracing_subscriber::EnvFilter;
 use product::{CliResourceInfo, CliWorkspaceStatus};
 use server::{
     begin_login, callback_router, disconnect_workspace, ensure_workspace_state, management_router,
     wait_for_login, AppState,
 };
 use sha2::{Digest, Sha256};
-use token_store::list_workspace_states;
+use token_store::{connector_tunnel_addr_for_resource, list_workspace_states};
 use tracing::{info, warn};
+use tracing_subscriber::EnvFilter;
 
 /// Initialize logging with a command-appropriate default level.
 ///
@@ -70,8 +70,14 @@ async fn run(config: Config) -> Result<()> {
     // `doctor` always runs (it's the diagnostic tool).  `serve` has its own
     // loop.  Everything else gets a clear actionable error.
     if config.is_product_install_broken() {
-        let active_cmd = config.command.clone().unwrap_or(Command::Ui { tenant: None });
-        if !matches!(active_cmd, Command::Doctor | Command::Report | Command::Serve) {
+        let active_cmd = config
+            .command
+            .clone()
+            .unwrap_or(Command::Ui { tenant: None });
+        if !matches!(
+            active_cmd,
+            Command::Doctor | Command::Report | Command::Serve
+        ) {
             eprintln!(
                 "Config file exists but failed to parse: /etc/ztna-client/client.conf\n\
                  \n\
@@ -102,9 +108,12 @@ async fn run(config: Config) -> Result<()> {
                 }
             }
             info!("starting ztna-client service in {} mode", config.mode);
-            let service_token = service_auth::init_service_token(&config.state_dir)
-                .unwrap_or_else(|e| {
-                    warn!("failed to write service token: {}; management API will be unprotected", e);
+            let service_token =
+                service_auth::init_service_token(&config.state_dir).unwrap_or_else(|e| {
+                    warn!(
+                        "failed to write service token: {}; management API will be unprotected",
+                        e
+                    );
                     String::new()
                 });
             let app_state = AppState {
@@ -224,8 +233,13 @@ async fn run_proxied_login(config: &Config, tenant: &str, timeout_secs: u64) -> 
     }
     println!("Open this URL if your browser did not launch:\n{auth_url}");
 
-    let ws = product::poll_login_complete(&base_url, tenant, Duration::from_secs(timeout_secs), token.as_deref())
-        .await?;
+    let ws = product::poll_login_complete(
+        &base_url,
+        tenant,
+        Duration::from_secs(timeout_secs),
+        token.as_deref(),
+    )
+    .await?;
     println!(
         "Connected to workspace {} as {}",
         ws.workspace_slug, ws.user_email
@@ -250,11 +264,7 @@ async fn run_proxied_status(config: &Config, tenant: Option<&str>) -> Result<()>
     }
 
     if let Some(tenant) = tenant {
-        match resp
-            .workspaces
-            .iter()
-            .find(|w| w.workspace_slug == tenant)
-        {
+        match resp.workspaces.iter().find(|w| w.workspace_slug == tenant) {
             Some(ws) => print_cli_status(ws, &resp.mode),
             None => println!("No session for workspace {tenant}. Run: ztna-client login"),
         }
@@ -395,7 +405,10 @@ async fn run_service_listeners(state: AppState) -> Result<()> {
 
     // Management API — always localhost-only.
     let mgmt_addr = format!("127.0.0.1:{}", state.config.management_port());
-    info!("management API listening on http://{} (localhost only)", mgmt_addr);
+    info!(
+        "management API listening on http://{} (localhost only)",
+        mgmt_addr
+    );
     let mgmt_listener = tokio::net::TcpListener::bind(&mgmt_addr)
         .await
         .expect("failed to bind management listener");
@@ -445,8 +458,8 @@ async fn shutdown_signal() {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
-        let mut sigterm = signal(SignalKind::terminate())
-            .expect("failed to install SIGTERM handler");
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
         tokio::select! {
             _ = sigterm.recv() => { info!("received SIGTERM"); }
             _ = tokio::signal::ctrl_c() => { info!("received SIGINT"); }
@@ -479,7 +492,9 @@ async fn run_direct_callback_server(state: AppState) -> Result<()> {
         .await
         .expect("failed to bind callback listener");
     let app = callback_router(state);
-    axum::serve(listener, app).await.expect("callback server failed");
+    axum::serve(listener, app)
+        .await
+        .expect("callback server failed");
     Ok(())
 }
 
@@ -514,9 +529,16 @@ async fn run_doctor(config: &Config) -> Result<()> {
     if config.config_file_loaded {
         let configured = config.is_configured();
         let controller = &config.controller_url;
-        let tenant = if config.tenant.is_empty() { "(none)" } else { &config.tenant };
+        let tenant = if config.tenant.is_empty() {
+            "(none)"
+        } else {
+            &config.tenant
+        };
         if configured {
-            println!("[OK]   config:   controller={controller}  tenant={tenant}  mode={}", config.mode);
+            println!(
+                "[OK]   config:   controller={controller}  tenant={tenant}  mode={}",
+                config.mode
+            );
         } else {
             println!("[WARN] config:   loaded but incomplete — set controller_url and tenant");
             println!("       controller: {controller}");
@@ -533,7 +555,10 @@ async fn run_doctor(config: &Config) -> Result<()> {
         println!("[ERR]  config:   cannot check — config file is invalid");
     } else {
         println!("[INFO] config:   no product config (dev mode defaults)");
-        println!("       controller: {}  mode: {}", config.controller_url, config.mode);
+        println!(
+            "       controller: {}  mode: {}",
+            config.controller_url, config.mode
+        );
     }
 
     // ── Service reachability ──────────────────────────────────────────────
@@ -642,14 +667,18 @@ async fn run_report(config: &Config) -> Result<()> {
                 Ok(status) => {
                     report["service"]["configured"] = status.configured.into();
                     report["service"]["mode"] = status.mode.clone().into();
-                    let sessions: Vec<_> = status.workspaces.iter().map(|w| {
-                        serde_json::json!({
-                            "workspace_slug": w.workspace_slug,
-                            "user_email": w.user_email,
-                            "resource_count": w.resources.len(),
-                            "session_expires_at": w.session_expires_at,
+                    let sessions: Vec<_> = status
+                        .workspaces
+                        .iter()
+                        .map(|w| {
+                            serde_json::json!({
+                                "workspace_slug": w.workspace_slug,
+                                "user_email": w.user_email,
+                                "resource_count": w.resources.len(),
+                                "session_expires_at": w.session_expires_at,
+                            })
                         })
-                    }).collect();
+                        .collect();
                     report["sessions"] = sessions.into();
                 }
                 Err(e) => {
@@ -660,14 +689,17 @@ async fn run_report(config: &Config) -> Result<()> {
     } else {
         // Dev mode — read state files directly
         if let Ok(states) = token_store::list_workspace_states() {
-            let sessions: Vec<_> = states.iter().map(|w| {
-                serde_json::json!({
-                    "workspace_slug": w.workspace.slug,
-                    "user_email": w.user.email,
-                    "resource_count": w.resources.len(),
-                    "session_expires_at": w.session.expires_at,
+            let sessions: Vec<_> = states
+                .iter()
+                .map(|w| {
+                    serde_json::json!({
+                        "workspace_slug": w.workspace.slug,
+                        "user_email": w.user.email,
+                        "resource_count": w.resources.len(),
+                        "session_expires_at": w.session.expires_at,
+                    })
                 })
-            }).collect();
+                .collect();
             report["sessions"] = sessions.into();
         }
     }
@@ -845,7 +877,7 @@ fn print_cli_resources(slug: &str, resources: &[CliResourceInfo]) {
     println!("\n{}", "─".repeat(60));
     println!("Workspace: {}", slug);
     println!("────────────────────────────────────────────────────────────");
-    
+
     if resources.is_empty() {
         println!("  No authorized resources");
         println!();
@@ -853,10 +885,15 @@ fn print_cli_resources(slug: &str, resources: &[CliResourceInfo]) {
         println!("  access to networks and applications.");
         return;
     }
-    
+
     println!("  {:<25} {:<12} {:<20}", "Name", "Status", "Address");
-    println!("  {:<25} {:<12} {:<20}", "─".repeat(25), "─".repeat(12), "─".repeat(20));
-    
+    println!(
+        "  {:<25} {:<12} {:<20}",
+        "─".repeat(25),
+        "─".repeat(12),
+        "─".repeat(20)
+    );
+
     for resource in resources {
         let ports = format_ports(resource.port_from, resource.port_to);
         let address = format!("{}:{}", resource.address, ports);
@@ -865,7 +902,10 @@ fn print_cli_resources(slug: &str, resources: &[CliResourceInfo]) {
             "denied" => "✗ denied",
             other => other,
         };
-        println!("  {:<25} {:<12} {:<20}", resource.name, status_indicator, address);
+        println!(
+            "  {:<25} {:<12} {:<20}",
+            resource.name, status_indicator, address
+        );
     }
     println!();
 }
@@ -875,7 +915,7 @@ fn print_stored_resources(state: &token_store::StoredWorkspaceState) {
     println!("\n{}", "─".repeat(60));
     println!("Workspace: {}", state.workspace.slug);
     println!("────────────────────────────────────────────────────────────");
-    
+
     if state.resources.is_empty() {
         println!("  No authorized resources");
         println!();
@@ -883,10 +923,15 @@ fn print_stored_resources(state: &token_store::StoredWorkspaceState) {
         println!("  access to networks and applications.");
         return;
     }
-    
+
     println!("  {:<25} {:<12} {:<20}", "Name", "Status", "Address");
-    println!("  {:<25} {:<12} {:<20}", "─".repeat(25), "─".repeat(12), "─".repeat(20));
-    
+    println!(
+        "  {:<25} {:<12} {:<20}",
+        "─".repeat(25),
+        "─".repeat(12),
+        "─".repeat(20)
+    );
+
     for resource in &state.resources {
         let ports = format_ports(resource.port_from, resource.port_to);
         let address = format!("{}:{}", resource.address, ports);
@@ -895,7 +940,10 @@ fn print_stored_resources(state: &token_store::StoredWorkspaceState) {
             "denied" => "✗ denied",
             other => other,
         };
-        println!("  {:<25} {:<12} {:<20}", resource.name, status_indicator, address);
+        println!(
+            "  {:<25} {:<12} {:<20}",
+            resource.name, status_indicator, address
+        );
     }
     println!();
 }
@@ -1008,9 +1056,16 @@ fn start_socks_listener(config: &Config) {
                     return;
                 }
 
+                let connector_tunnel_addr = connector_tunnel_addr_for_resource(
+                    &state.resources,
+                    &acl_resp.resource_id,
+                    &connector_tunnel_addr,
+                );
+
                 if connector_tunnel_addr.trim().is_empty() {
                     tracing::warn!(
-                        "CONNECTOR_TUNNEL_ADDR not set; cannot forward {}:{} through the split tunnel",
+                        "no connector tunnel address for resource_id={}; cannot forward {}:{} through the split tunnel",
+                        acl_resp.resource_id,
                         req.destination,
                         req.port
                     );

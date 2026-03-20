@@ -16,7 +16,9 @@ use tracing::{debug, info, warn};
 use crate::acl;
 use crate::config::Config;
 use crate::server::ensure_workspace_state;
-use crate::token_store::StoredWorkspaceState;
+use crate::token_store::{
+    connector_tunnel_addr_for_resource, StoredResource, StoredWorkspaceState,
+};
 use crate::tun_routing::{RouteManager, BYPASS_FWMARK};
 use crate::tunnel;
 
@@ -571,6 +573,10 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
             let controller_url = config.controller_url.clone();
             let tenant = config.tenant.clone();
             let connector_tunnel_addr = config.connector_tunnel_addr.clone();
+            let workspace_resources = ws_state
+                .as_ref()
+                .map(|s| s.resources.clone())
+                .unwrap_or_default();
             let ca_pem = Arc::clone(&ca_pem);
             let dst_port = conn.dst_port;
             let destination = route_manager
@@ -591,6 +597,7 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                 access_token,
                 tenant,
                 connector_tunnel_addr,
+                workspace_resources,
                 ca_pem,
                 destination,
                 dst_port,
@@ -695,7 +702,8 @@ async fn tunnel_relay_task(
     controller_url: String,
     access_token: String,
     _tenant: String,
-    connector_tunnel_addr: String,
+    fallback_connector_tunnel_addr: String,
+    workspace_resources: Vec<StoredResource>,
     ca_pem: Arc<Vec<u8>>,
     destination: String,
     dst_port: u16,
@@ -770,15 +778,21 @@ async fn tunnel_relay_task(
         return;
     }
 
+    let connector_tunnel_addr = connector_tunnel_addr_for_resource(
+        &workspace_resources,
+        &acl_resp.resource_id,
+        &fallback_connector_tunnel_addr,
+    );
+
     info!(
-        "[tun-relay] ACL allowed {}:{} — opening tunnel to {}",
-        destination, dst_port, connector_tunnel_addr
+        "[tun-relay] ACL allowed {}:{} resource_id={} — opening tunnel to {}",
+        destination, dst_port, acl_resp.resource_id, connector_tunnel_addr
     );
 
     if connector_tunnel_addr.trim().is_empty() {
         warn!(
-            "[tun-relay] CONNECTOR_TUNNEL_ADDR not set; cannot forward {}:{}",
-            destination, dst_port
+            "[tun-relay] no connector tunnel address for resource_id={}; cannot forward {}:{}",
+            acl_resp.resource_id, destination, dst_port
         );
         let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
         return;

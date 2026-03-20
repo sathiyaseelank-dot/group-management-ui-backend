@@ -291,7 +291,11 @@ impl Config {
 
         // Track tenant source for logging
         let tenant_source = if cli.tenant.is_some() {
-            if std::env::var("ZTNA_TENANT").is_ok() { "env" } else { "cli" }
+            if std::env::var("ZTNA_TENANT").is_ok() {
+                "env"
+            } else {
+                "cli"
+            }
         } else if file.tenant.is_some() {
             "config"
         } else {
@@ -307,46 +311,41 @@ impl Config {
             .or(file.controller_grpc_addr)
             .or_else(|| derive_grpc_addr_from_url(&controller_url))
             .unwrap_or_else(|| "localhost:8443".to_string());
+        let connector_tunnel_addr = cli
+            .connector_tunnel_addr
+            .or(file.connector_tunnel_addr)
+            .unwrap_or_default();
 
         let config = Config {
             controller_url,
             controller_grpc_addr,
-            port: cli.port
-                .or(file.port)
-                .unwrap_or(19515),
-            callback_bind_addr: cli.callback_bind_addr
+            port: cli.port.or(file.port).unwrap_or(19515),
+            callback_bind_addr: cli
+                .callback_bind_addr
                 .or(file.callback_bind_addr)
                 .unwrap_or_else(|| "0.0.0.0".to_string()),
-            callback_host: cli.callback_host
-                .or(file.callback_host)
-                .unwrap_or_default(),
-            socks5_addr: cli.socks5_addr
+            callback_host: cli.callback_host.or(file.callback_host).unwrap_or_default(),
+            socks5_addr: cli
+                .socks5_addr
                 .or(file.socks5_addr)
                 .unwrap_or_else(|| "127.0.0.1:1080".to_string()),
-            tenant: cli.tenant
-                .or(file.tenant)
-                .unwrap_or_default(),
-            connector_tunnel_addr: cli.connector_tunnel_addr
-                .or(file.connector_tunnel_addr)
-                .unwrap_or_default(),
-            internal_ca_cert: cli.internal_ca_cert
+            tenant: cli.tenant.or(file.tenant).unwrap_or_default(),
+            connector_tunnel_addr,
+            internal_ca_cert: cli
+                .internal_ca_cert
                 .or(file.internal_ca_cert)
                 .unwrap_or_default(),
-            ca_cert_path: cli.ca_cert_path
-                .or(file.ca_cert_path)
-                .unwrap_or_default(),
-            mode: cli.mode
-                .or(file.mode)
-                .unwrap_or_else(|| "tun".to_string()),
-            tun_name: cli.tun_name
+            ca_cert_path: cli.ca_cert_path.or(file.ca_cert_path).unwrap_or_default(),
+            mode: cli.mode.or(file.mode).unwrap_or_else(|| "tun".to_string()),
+            tun_name: cli
+                .tun_name
                 .or(file.tun_name)
                 .unwrap_or_else(|| "ztna0".to_string()),
-            tun_addr: cli.tun_addr
+            tun_addr: cli
+                .tun_addr
                 .or(file.tun_addr)
                 .unwrap_or_else(|| "10.200.0.1/24".to_string()),
-            tun_mtu: cli.tun_mtu
-                .or(file.tun_mtu)
-                .unwrap_or(1500),
+            tun_mtu: cli.tun_mtu.or(file.tun_mtu).unwrap_or(1500),
             state_dir: resolve_state_dir(
                 cli.state_dir.as_deref(),
                 file.state_dir.as_deref(),
@@ -378,10 +377,25 @@ impl Config {
 
         // Log final resolved values
         info!("config: controller_url={}", config.controller_url);
-        info!("config: controller_grpc_addr={}", config.controller_grpc_addr);
+        info!(
+            "config: controller_grpc_addr={}",
+            config.controller_grpc_addr
+        );
+        info!(
+            "config: connector_tunnel_addr={}",
+            if config.connector_tunnel_addr.is_empty() {
+                "(none)"
+            } else {
+                &config.connector_tunnel_addr
+            }
+        );
         info!(
             "config: tenant={} (from {})",
-            if config.tenant.is_empty() { "(none)" } else { &config.tenant },
+            if config.tenant.is_empty() {
+                "(none)"
+            } else {
+                &config.tenant
+            },
             tenant_source
         );
         info!("config: state_dir={}", config.state_dir.display());
@@ -421,9 +435,7 @@ impl Config {
     /// when no tenant is available from either the command or config.
     pub fn require_tenant(&self, cmd_tenant: Option<&str>) -> anyhow::Result<String> {
         self.resolve_tenant(cmd_tenant).ok_or_else(|| {
-            anyhow::anyhow!(
-                "no tenant specified; use --tenant or set tenant in config file"
-            )
+            anyhow::anyhow!("no tenant specified; use --tenant or set tenant in config file")
         })
     }
 
@@ -475,6 +487,10 @@ impl Config {
 }
 
 fn derive_grpc_addr_from_url(controller_url: &str) -> Option<String> {
+    derive_host_port_from_url(controller_url, 8443)
+}
+
+fn derive_host_port_from_url(controller_url: &str, port: u16) -> Option<String> {
     let parsed = reqwest::Url::parse(controller_url).ok()?;
     let host = parsed.host_str()?;
     let host = if host.contains(':') {
@@ -482,7 +498,7 @@ fn derive_grpc_addr_from_url(controller_url: &str) -> Option<String> {
     } else {
         host.to_string()
     };
-    Some(format!("{host}:8443"))
+    Some(format!("{host}:{port}"))
 }
 
 /// Product state directory.  When a product install is detected (config file

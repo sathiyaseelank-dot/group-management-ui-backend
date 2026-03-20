@@ -441,15 +441,16 @@ func (d *DeviceServiceServer) deviceViewResponse(ctx context.Context, claims all
 	protoResources := make([]*controllerpb.DeviceResourceProto, 0, len(resources))
 	for _, r := range resources {
 		pr := &controllerpb.DeviceResourceProto{
-			Id:                r.ID,
-			Name:              r.Name,
-			Type:              r.Type,
-			Address:           r.Address,
-			Protocol:          r.Protocol,
-			Description:       r.Description,
-			RemoteNetworkId:   r.RemoteNetworkID,
-			RemoteNetworkName: r.RemoteNetworkName,
-			FirewallStatus:    r.FirewallStatus,
+			Id:                  r.ID,
+			Name:                r.Name,
+			Type:                r.Type,
+			Address:             r.Address,
+			Protocol:            r.Protocol,
+			Description:         r.Description,
+			RemoteNetworkId:     r.RemoteNetworkID,
+			RemoteNetworkName:   r.RemoteNetworkName,
+			FirewallStatus:      r.FirewallStatus,
+			ConnectorTunnelAddr: r.ConnectorTunnelAddr,
 		}
 		if r.PortFrom != nil {
 			pr.PortFrom = int32(*r.PortFrom)
@@ -483,9 +484,9 @@ func (d *DeviceServiceServer) deviceViewResponse(ctx context.Context, claims all
 			CertificateIssued: strings.TrimSpace(sess.DeviceID) != "",
 		},
 		Session: &controllerpb.DeviceSessionProto{
-			Id:                        sess.ID,
-			ExpiresAt:                 sess.ExpiresAt,
-			AccessTokenExpiresAtHint:  time.Now().Add(15 * time.Minute).Unix(),
+			Id:                       sess.ID,
+			ExpiresAt:                sess.ExpiresAt,
+			AccessTokenExpiresAtHint: time.Now().Add(15 * time.Minute).Unix(),
 		},
 		Resources: protoResources,
 		SyncedAt:  time.Now().Unix(),
