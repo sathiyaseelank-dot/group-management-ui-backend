@@ -17,7 +17,8 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use auth::{compute_code_challenge, generate_code_verifier, start_device_auth};
 use config::{Command, Config};
 use product::{CliResourceInfo, CliWorkspaceStatus};
 use server::{
@@ -78,12 +79,13 @@ async fn run(config: Config) -> Result<()> {
             active_cmd,
             Command::Doctor | Command::Report | Command::Serve
         ) {
+            let config_path = config.config_file.display();
             eprintln!(
-                "Config file exists but failed to parse: /etc/ztna-client/client.conf\n\
+                "Config file exists but failed to parse: {config_path}\n\
                  \n\
                  Fix the syntax and restart the service:\n\
                  \n\
-                 \x20 sudo nano /etc/ztna-client/client.conf\n\
+                 \x20 sudo nano {config_path}\n\
                  \x20 sudo systemctl restart ztna-client\n\
                  \n\
                  Run 'ztna-client doctor' for a full diagnostic."
@@ -97,11 +99,18 @@ async fn run(config: Config) -> Result<()> {
         .clone()
         .unwrap_or(Command::Ui { tenant: None })
     {
+        Command::Setup {
+            tenant,
+            disable_network_verification,
+        } => run_setup(&config, tenant, disable_network_verification).await,
         Command::Doctor => run_doctor(&config).await,
         Command::Report => run_report(&config).await,
         Command::Serve => {
             if !config.is_configured() {
-                info!("client not configured; create /etc/ztna-client/client.conf and restart the service");
+                info!(
+                    "client not configured; update {} and restart the service",
+                    config.config_file.display()
+                );
                 loop {
                     tokio::time::sleep(Duration::from_secs(60)).await;
                     info!("waiting for configuration...");
@@ -186,6 +195,87 @@ async fn run(config: Config) -> Result<()> {
     }
 }
 
+fn prompt_line(prompt: &str) -> Result<String> {
+    print!("{prompt}");
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim().to_string())
+}
+
+async fn verify_workspace_slug(config: &Config, tenant: &str) -> Result<()> {
+    let verifier = generate_code_verifier();
+    let challenge = compute_code_challenge(&verifier);
+    let redirect_uri = format!(
+        "http://{}:{}/callback",
+        config.effective_callback_host(),
+        config.port
+    );
+    start_device_auth(
+        &config.controller_grpc_addr,
+        tenant,
+        &challenge,
+        &redirect_uri,
+    )
+    .await
+    .map(|_| ())
+    .with_context(|| {
+        format!(
+            "workspace verification failed for '{}' via {}",
+            tenant, config.controller_grpc_addr
+        )
+    })
+}
+
+async fn run_setup(
+    config: &Config,
+    tenant: Option<String>,
+    disable_network_verification: bool,
+) -> Result<()> {
+    if config.config_file.starts_with("/etc") && !config.running_as_root() {
+        anyhow::bail!(
+            "setup requires root permissions for {}. Try `sudo ztna-client setup`",
+            config.config_file.display()
+        );
+    }
+
+    let tenant = tenant
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(prompt_line("Enter your workspace slug: ")?);
+
+    if tenant.trim().is_empty() {
+        anyhow::bail!("workspace slug cannot be empty");
+    }
+
+    if disable_network_verification {
+        println!("Accepting workspace '{}' without verification", tenant);
+    } else {
+        print!("Checking workspace '{}'...", tenant);
+        io::stdout().flush()?;
+        match verify_workspace_slug(config, &tenant).await {
+            Ok(()) => println!(" ok"),
+            Err(err) => {
+                println!(" failed");
+                return Err(err);
+            }
+        }
+    }
+
+    config.persist_tenant(&tenant)?;
+    println!(
+        "Saved active workspace '{}' to {}",
+        tenant,
+        config.config_file.display()
+    );
+    if config.config_file.starts_with("/etc") {
+        println!("Restart the service to apply it:");
+        println!("sudo systemctl restart ztna-client");
+    }
+    println!("Then run: ztna-client login");
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Service proxy helpers
 // ---------------------------------------------------------------------------
@@ -203,8 +293,9 @@ async fn ensure_service_reachable(config: &Config) -> Result<()> {
          \n\
          If the service is running but not configured:\n\
          \n\
-         \x20 sudo nano /etc/ztna-client/client.conf\n\
+         \x20 sudo nano {}\n\
          \x20 sudo systemctl restart ztna-client",
+        config.config_file.display(),
         config.management_port()
     );
 }
@@ -256,9 +347,10 @@ async fn run_proxied_status(config: &Config, tenant: Option<&str>) -> Result<()>
     if !resp.configured {
         eprintln!(
             "Service is running but not configured.\n\
-             Edit /etc/ztna-client/client.conf and restart:\n\
+             Edit {} and restart:\n\
              \n\
-             \x20 sudo systemctl restart ztna-client"
+             \x20 sudo systemctl restart ztna-client",
+            config.config_file.display()
         );
         return Ok(());
     }
@@ -511,7 +603,7 @@ async fn run_doctor(config: &Config) -> Result<()> {
     println!("{}", "-".repeat(40));
 
     // ── Install mode ──────────────────────────────────────────────────────
-    let config_path = "/etc/ztna-client/client.conf";
+    let config_path = config.config_file.display();
     if config.config_file_loaded {
         println!("[OK]   install:  product ({config_path})");
     } else if config.config_file_exists {
@@ -980,6 +1072,7 @@ fn start_socks_listener(config: &Config) {
         let fallback_ca_pem: Arc<Vec<u8>> = Arc::new(load_ca_pem(&config_for_ca).await);
         let handler = move |req: socks5::ConnectRequest, mut stream: tokio::net::TcpStream| {
             let config = Config {
+                config_file: std::path::PathBuf::new(),
                 controller_url: controller_url.clone(),
                 controller_grpc_addr: controller_grpc_addr.clone(),
                 port: 0,

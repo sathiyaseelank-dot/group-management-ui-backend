@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -12,7 +12,7 @@ use tracing::info;
 ///
 /// All fields are optional.  Missing keys fall through to environment
 /// variables (via clap), then to hard-coded defaults.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 struct FileConfig {
     controller_url: Option<String>,
@@ -135,6 +135,19 @@ struct CliArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
+    /// First-time setup or workspace switch for product installs.
+    ///
+    /// Persists the active workspace slug to the client config so later
+    /// commands can run without `--tenant`, similar to a "network setup"
+    /// flow in other ZTNA clients.
+    Setup {
+        /// Workspace slug to persist as the active workspace
+        #[arg(long)]
+        tenant: Option<String>,
+        /// Accept the workspace value without verifying it against the controller
+        #[arg(long)]
+        disable_network_verification: bool,
+    },
     /// Run the interactive terminal client (legacy mode).
     ///
     /// Starts an interactive CLI session where you can type commands like
@@ -230,6 +243,8 @@ pub enum Command {
 /// Precedence for each field: CLI flag > environment variable > config file > default.
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// Path to the active TOML configuration file.
+    pub config_file: PathBuf,
     /// Controller HTTP URL (OAuth callbacks, ACL checks)
     pub controller_url: String,
     /// Controller gRPC address (host:port)
@@ -317,6 +332,7 @@ impl Config {
             .unwrap_or_default();
 
         let config = Config {
+            config_file: PathBuf::from(&cli.config_file),
             controller_url,
             controller_grpc_addr,
             port: cli.port.or(file.port).unwrap_or(19515),
@@ -401,6 +417,86 @@ impl Config {
         info!("config: state_dir={}", config.state_dir.display());
 
         config
+    }
+
+    fn persisted_file_config(&self) -> FileConfig {
+        FileConfig {
+            controller_url: Some(self.controller_url.clone()),
+            controller_grpc_addr: Some(self.controller_grpc_addr.clone()),
+            tenant: if self.tenant.trim().is_empty() {
+                None
+            } else {
+                Some(self.tenant.clone())
+            },
+            ca_cert_path: if self.ca_cert_path.trim().is_empty() {
+                None
+            } else {
+                Some(self.ca_cert_path.clone())
+            },
+            mode: Some(self.mode.clone()),
+            connector_tunnel_addr: if self.connector_tunnel_addr.trim().is_empty() {
+                None
+            } else {
+                Some(self.connector_tunnel_addr.clone())
+            },
+            socks5_addr: if self.socks5_addr.trim().is_empty() {
+                None
+            } else {
+                Some(self.socks5_addr.clone())
+            },
+            port: Some(self.port),
+            callback_bind_addr: if self.callback_bind_addr.trim().is_empty() {
+                None
+            } else {
+                Some(self.callback_bind_addr.clone())
+            },
+            callback_host: if self.callback_host.trim().is_empty() {
+                None
+            } else {
+                Some(self.callback_host.clone())
+            },
+            tun_name: if self.tun_name.trim().is_empty() {
+                None
+            } else {
+                Some(self.tun_name.clone())
+            },
+            tun_addr: if self.tun_addr.trim().is_empty() {
+                None
+            } else {
+                Some(self.tun_addr.clone())
+            },
+            tun_mtu: Some(self.tun_mtu),
+            internal_ca_cert: if self.internal_ca_cert.trim().is_empty() {
+                None
+            } else {
+                Some(self.internal_ca_cert.clone())
+            },
+            state_dir: if self.state_dir.as_os_str().is_empty() {
+                None
+            } else {
+                Some(self.state_dir.display().to_string())
+            },
+        }
+    }
+
+    pub fn persist_tenant(&self, tenant: &str) -> anyhow::Result<()> {
+        let tenant = tenant.trim();
+        if tenant.is_empty() {
+            anyhow::bail!("workspace slug cannot be empty");
+        }
+
+        if let Some(parent) = self.config_file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut file = self.persisted_file_config();
+        file.tenant = Some(tenant.to_string());
+        let mut rendered = toml::to_string_pretty(&file)?;
+        if !rendered.ends_with('\n') {
+            rendered.push('\n');
+        }
+        std::fs::write(&self.config_file, rendered)?;
+        Ok(())
     }
 
     /// Whether the client has a usable configuration.

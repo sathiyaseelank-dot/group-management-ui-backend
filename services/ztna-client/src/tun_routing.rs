@@ -45,13 +45,20 @@ impl RouteManager {
         // so direct-connect (ACL-denied) traffic exits via the real NIC.
         let _ = Command::new("ip")
             .args([
-                "rule", "add",
-                "fwmark", BYPASS_MARK_STR,
-                "lookup", "main",
-                "priority", BYPASS_PRIORITY,
+                "rule",
+                "add",
+                "fwmark",
+                BYPASS_MARK_STR,
+                "lookup",
+                "main",
+                "priority",
+                BYPASS_PRIORITY,
             ])
             .output();
-        info!("[routing] installed bypass fwmark rule (mark={}, prio={})", BYPASS_MARK_STR, BYPASS_PRIORITY);
+        info!(
+            "[routing] installed bypass fwmark rule (mark={}, prio={})",
+            BYPASS_MARK_STR, BYPASS_PRIORITY
+        );
 
         Self {
             tun_name: tun_name.to_string(),
@@ -63,10 +70,8 @@ impl RouteManager {
     /// Adds routes + rules for new IPs and removes them for IPs no longer authorized.
     pub async fn sync_routes(&mut self, resources: &[StoredResource]) -> Result<()> {
         let resolved = tun_dns::resolve_resources(resources).await;
-        let desired: HashMap<IpAddr, ResolvedResource> = resolved
-            .into_iter()
-            .map(|r| (r.ip, r))
-            .collect();
+        let desired: HashMap<IpAddr, ResolvedResource> =
+            resolved.into_iter().map(|r| (r.ip, r)).collect();
 
         let current_ips: HashSet<IpAddr> = self.active_routes.keys().copied().collect();
         let desired_ips: HashSet<IpAddr> = desired.keys().copied().collect();
@@ -130,7 +135,10 @@ impl RouteManager {
                 warn!("[routing] cleanup: failed to remove rule for {}: {}", ip, e);
             }
             if let Err(e) = self.del_route(ip) {
-                warn!("[routing] cleanup: failed to remove route for {}: {}", ip, e);
+                warn!(
+                    "[routing] cleanup: failed to remove route for {}: {}",
+                    ip, e
+                );
             }
         }
         self.active_routes.clear();
@@ -141,10 +149,14 @@ impl RouteManager {
         // Remove bypass fwmark rule
         let _ = Command::new("ip")
             .args([
-                "rule", "del",
-                "fwmark", BYPASS_MARK_STR,
-                "lookup", "main",
-                "priority", BYPASS_PRIORITY,
+                "rule",
+                "del",
+                "fwmark",
+                BYPASS_MARK_STR,
+                "lookup",
+                "main",
+                "priority",
+                BYPASS_PRIORITY,
             ])
             .output();
         info!("[routing] all routes and rules cleaned up");
@@ -155,16 +167,23 @@ impl RouteManager {
     fn add_route(&self, ip: IpAddr) -> Result<()> {
         let output = Command::new("ip")
             .args([
-                "route", "add",
+                "route",
+                "add",
                 &format!("{}/32", ip),
-                "dev", &self.tun_name,
-                "table", ZTNA_TABLE,
+                "dev",
+                &self.tun_name,
+                "table",
+                ZTNA_TABLE,
             ])
             .output()?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.contains("File exists") {
-                anyhow::bail!("ip route add (table {}) failed: {}", ZTNA_TABLE, stderr.trim());
+                anyhow::bail!(
+                    "ip route add (table {}) failed: {}",
+                    ZTNA_TABLE,
+                    stderr.trim()
+                );
             }
         }
         Ok(())
@@ -173,16 +192,23 @@ impl RouteManager {
     fn del_route(&self, ip: IpAddr) -> Result<()> {
         let output = Command::new("ip")
             .args([
-                "route", "del",
+                "route",
+                "del",
                 &format!("{}/32", ip),
-                "dev", &self.tun_name,
-                "table", ZTNA_TABLE,
+                "dev",
+                &self.tun_name,
+                "table",
+                ZTNA_TABLE,
             ])
             .output()?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.contains("No such process") {
-                anyhow::bail!("ip route del (table {}) failed: {}", ZTNA_TABLE, stderr.trim());
+                anyhow::bail!(
+                    "ip route del (table {}) failed: {}",
+                    ZTNA_TABLE,
+                    stderr.trim()
+                );
             }
         }
         Ok(())
@@ -193,10 +219,14 @@ impl RouteManager {
     fn add_rule(&self, ip: IpAddr) -> Result<()> {
         let output = Command::new("ip")
             .args([
-                "rule", "add",
-                "to", &format!("{}/32", ip),
-                "lookup", ZTNA_TABLE,
-                "priority", RULE_PRIORITY,
+                "rule",
+                "add",
+                "to",
+                &format!("{}/32", ip),
+                "lookup",
+                ZTNA_TABLE,
+                "priority",
+                RULE_PRIORITY,
             ])
             .output()?;
         if !output.status.success() {
@@ -211,15 +241,20 @@ impl RouteManager {
     fn del_rule(&self, ip: IpAddr) -> Result<()> {
         let output = Command::new("ip")
             .args([
-                "rule", "del",
-                "to", &format!("{}/32", ip),
-                "lookup", ZTNA_TABLE,
-                "priority", RULE_PRIORITY,
+                "rule",
+                "del",
+                "to",
+                &format!("{}/32", ip),
+                "lookup",
+                ZTNA_TABLE,
+                "priority",
+                RULE_PRIORITY,
             ])
             .output()?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            if !stderr.contains("No such file or directory") && !stderr.contains("No such process") {
+            if !stderr.contains("No such file or directory") && !stderr.contains("No such process")
+            {
                 anyhow::bail!("ip rule del failed: {}", stderr.trim());
             }
         }

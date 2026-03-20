@@ -43,9 +43,9 @@ impl ServerCertVerifier for InternalCaVerifier {
             ocsp_response,
             now,
         ) {
-            Err(rustls::Error::InvalidCertificate(
-                rustls::CertificateError::NotValidForName,
-            )) => Ok(ServerCertVerified::assertion()),
+            Err(rustls::Error::InvalidCertificate(rustls::CertificateError::NotValidForName)) => {
+                Ok(ServerCertVerified::assertion())
+            }
             other => other,
         }
     }

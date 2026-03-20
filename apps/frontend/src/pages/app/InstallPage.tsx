@@ -123,15 +123,20 @@ export default function InstallPage() {
   const platform = detectPlatform()
   const controllerUrl = buildControllerUrl()
   const controllerGrpcAddr = buildControllerGrpcAddr(controllerUrl)
-  const installCommand = 'curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/client-install-release.sh | sudo bash'
-  const configCommand = [
+  const installCommand =
+    'curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/feature/client-grpc-lan-auth/scripts/client-install-release.sh | sudo bash'
+  const setupCommand = [
     'sudo tee /etc/ztna-client/client.conf >/dev/null <<\'CONF\'',
     `controller_url = "${controllerUrl}"`,
     `controller_grpc_addr = "${controllerGrpcAddr}"`,
-    `tenant = "${claims.wslug}"`,
     'CONF',
+    `sudo ztna-client setup --tenant "${claims.wslug}"`,
   ].join('\n')
-  const finishCommand = ['sudo systemctl restart ztna-client', 'ztna-client login', 'ztna-client status'].join('\n')
+  const finishCommand = [
+    'sudo systemctl restart ztna-client',
+    'ztna-client login',
+    'ztna-client resources',
+  ].join('\n')
 
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] justify-center bg-background p-4">
@@ -145,7 +150,7 @@ export default function InstallPage() {
               <div className="space-y-2">
                 <h1 className="text-2xl font-semibold tracking-tight">Install ZTNA Client</h1>
                 <p className="text-sm text-muted-foreground">
-                  Install the Linux client, point it at your controller, then sign in to{' '}
+                  Install the Linux client, register the active workspace, then sign in to{' '}
                   <span className="font-medium text-foreground">{claims.wslug}</span>.
                 </p>
               </div>
@@ -187,14 +192,14 @@ export default function InstallPage() {
             />
 
             <CommandBlock
-              title="2. Configure this workspace"
-              description="Write the controller URL and workspace slug into the local client config."
-              command={configCommand}
+              title="2. Set the active workspace"
+              description="Write the controller endpoints once, then let ztna-client setup persist the selected workspace like a network setup flow."
+              command={setupCommand}
             />
 
             <CommandBlock
               title="3. Start and sign in"
-              description="Restart the service, complete login, then confirm the client is connected."
+              description="Restart the service, complete login, then confirm your resource list is available."
               command={finishCommand}
             />
 

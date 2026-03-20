@@ -164,11 +164,7 @@ pub async fn proxy_sync(
     Ok(resp.json().await?)
 }
 
-pub async fn proxy_disconnect(
-    base_url: &str,
-    tenant: &str,
-    token: Option<&str>,
-) -> Result<()> {
+pub async fn proxy_disconnect(base_url: &str, tenant: &str, token: Option<&str>) -> Result<()> {
     let resp = authed_client(token)
         .post(format!("{}/disconnect", base_url))
         .json(&serde_json::json!({ "tenant": tenant }))

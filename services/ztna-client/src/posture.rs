@@ -135,8 +135,8 @@ fn check_screen_lock(os_type: &str) -> bool {
                 return true;
             }
             // KDE: check kscreenlocker config for Autolock=true
-            let kde_cfg_path = std::env::var("HOME").unwrap_or_default()
-                + "/.config/kscreenlockerrc";
+            let kde_cfg_path =
+                std::env::var("HOME").unwrap_or_default() + "/.config/kscreenlockerrc";
             if std::fs::read_to_string(&kde_cfg_path)
                 .unwrap_or_default()
                 .lines()
@@ -146,12 +146,14 @@ fn check_screen_lock(os_type: &str) -> bool {
             }
             false
         }
-        "macos" => run_cmd(
-            "defaults",
-            &["read", "com.apple.screensaver", "askForPassword"],
-        )
-        .trim()
-            == "1",
+        "macos" => {
+            run_cmd(
+                "defaults",
+                &["read", "com.apple.screensaver", "askForPassword"],
+            )
+            .trim()
+                == "1"
+        }
         "windows" => run_cmd(
             "reg",
             &[
