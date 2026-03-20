@@ -26,7 +26,7 @@ go build -o controller ./...
 ```bash
 cd backend/connector-rs
 cargo build --release
-# Binary at: target/release/grpcconnector2
+# Binary at: target/release/connector
 ```
 
 ---
@@ -90,7 +90,7 @@ sudo \
   TRUST_DOMAIN="mycorp.internal" \
   POLICY_SIGNING_KEY="e4b2f8d1c3a9e6f7b0d2a4c9e8f1a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3" \
   CONTROLLER_CA="$(cat /tmp/controller-ca.crt)" \
-  ./target/release/grpcconnector2 run
+  ./target/release/connector run
 ```
 
 You should see logs like:
@@ -166,7 +166,7 @@ curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts
   bash
 ```
 
-This downloads the binary, fetches the CA cert, writes the config to `/etc/grpcconnector2/connector.conf`, installs the systemd unit, and starts the service.
+This downloads the binary, fetches the CA cert, writes the config to `/etc/connector/connector.conf`, installs the systemd unit, and starts the service.
 
 **Option B: Manual run (for development/testing)**
 
@@ -184,7 +184,7 @@ sudo \
   TRUST_DOMAIN="mycorp.internal" \
   POLICY_SIGNING_KEY="e4b2f8d1c3a9e6f7b0d2a4c9e8f1a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3" \
   CONTROLLER_CA="$(cat /tmp/controller-ca.crt)" \
-  ./grpcconnector2 run
+  ./connector run
 ```
 
 ### Step 4: Verify (from Machine A or B)
@@ -198,8 +198,8 @@ curl -s http://192.168.1.213:8081/api/admin/connectors \
 
 On Machine B:
 ```bash
-sudo systemctl status grpcconnector2.service
-sudo journalctl -u grpcconnector2.service -f
+sudo systemctl status connector.service
+sudo journalctl -u connector.service -f
 ```
 
 ---
@@ -312,7 +312,7 @@ Fixed by calling `rustls::crypto::ring::default_provider().install_default()` at
 The connector needs the controller's CA certificate. Provide it via one of:
 - `CONTROLLER_CA` env var (PEM content directly)
 - `CONTROLLER_CA_PATH` env var (file path)
-- systemd `LoadCredential=CONTROLLER_CA:/etc/grpcconnector2/ca.crt` (handled by the systemd unit)
+- systemd `LoadCredential=CONTROLLER_CA:/etc/connector/ca.crt` (handled by the systemd unit)
 
 ### "enrollment RPC failed: token invalid"
 Enrollment tokens are single-use. Generate a new one via the admin API:
@@ -324,7 +324,7 @@ curl -s -X POST http://<controller>:8081/api/admin/tokens \
 ### Connector keeps restarting
 Check logs:
 ```bash
-sudo journalctl -u grpcconnector2.service -n 50 --no-pager
+sudo journalctl -u connector.service -n 50 --no-pager
 ```
 Common causes: wrong `CONTROLLER_ADDR`, expired token, missing CA cert, firewall blocking port 8443.
 about the derived policy key and POLICY_SIGNING_KEY now being optional.

@@ -41,9 +41,9 @@ case "${arch}" in
     ;;
 esac
 
-binary="grpcconnector2-rs-${os}-${arch}"
+binary="connector-${os}-${arch}"
 release_url="https://github.com/vairabarath/zero-trust/releases/latest/download/${binary}"
-unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/main/systemd/grpcconnector2.service"
+unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/main/systemd/connector.service"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -53,17 +53,17 @@ trap cleanup EXIT
 
 echo "Downloading connector binary (Rust)..."
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "${release_url}" -o "${tmpdir}/grpcconnector2"
+  curl -fsSL "${release_url}" -o "${tmpdir}/connector"
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${tmpdir}/grpcconnector2" "${release_url}"
+  wget -qO "${tmpdir}/connector" "${release_url}"
 else
   echo "ERROR: curl or wget is required for download." >&2
   exit 1
 fi
 
-install -m 0755 "${tmpdir}/grpcconnector2" /usr/bin/grpcconnector2
+install -m 0755 "${tmpdir}/connector" /usr/bin/connector
 
-config_dir="/etc/grpcconnector2"
+config_dir="/etc/connector"
 config_file="${config_dir}/connector.conf"
 bundled_ca="${config_dir}/ca.crt"
 
@@ -111,23 +111,23 @@ chmod 0644 "${bundled_ca}"
 
 chmod 0600 "${config_file}"
 
-systemd_dst="/etc/systemd/system/grpcconnector2.service"
+systemd_dst="/etc/systemd/system/connector.service"
 
 echo "Downloading systemd unit..."
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "${unit_url}" -o "${tmpdir}/grpcconnector2.service"
+  curl -fsSL "${unit_url}" -o "${tmpdir}/connector.service"
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${tmpdir}/grpcconnector2.service" "${unit_url}"
+  wget -qO "${tmpdir}/connector.service" "${unit_url}"
 else
   echo "ERROR: curl or wget is required for download." >&2
   exit 1
 fi
 
-install -m 0644 "${tmpdir}/grpcconnector2.service" "${systemd_dst}"
+install -m 0644 "${tmpdir}/connector.service" "${systemd_dst}"
 
 systemctl daemon-reload
-systemctl enable grpcconnector2.service
-systemctl start grpcconnector2.service
+systemctl enable connector.service
+systemctl start connector.service
 
 # Unset sensitive env vars.
 unset ENROLLMENT_TOKEN
