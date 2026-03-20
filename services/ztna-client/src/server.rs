@@ -12,7 +12,7 @@ use axum::{
 };
 use p256::ecdsa::SigningKey;
 use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey, LineEnding};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -22,6 +22,7 @@ use crate::auth::{
     start_device_auth, sync_device_view, DeviceResource, DeviceUserView,
 };
 use crate::config::Config;
+use crate::product::{CliResourceInfo, CliStatusResponse, CliWorkspaceStatus};
 use crate::token_store::{
     clear_workspace_state, list_workspace_states, load_workspace_state, save_workspace_state,
     StoredDevice, StoredResource, StoredSession, StoredUser, StoredWorkspace, StoredWorkspaceState,
@@ -41,9 +42,44 @@ pub struct PendingAuth {
     pub tenant_slug: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct StatusResponse {
-    pub workspaces: Vec<StoredWorkspaceState>,
+fn sanitize_workspace(state: &StoredWorkspaceState) -> CliWorkspaceStatus {
+    CliWorkspaceStatus {
+        workspace_slug: state.workspace.slug.clone(),
+        workspace_name: state.workspace.name.clone(),
+        user_email: state.user.email.clone(),
+        user_role: state.user.role.clone(),
+        device_id: state.device.id.clone(),
+        resources: state
+            .resources
+            .iter()
+            .map(|r| CliResourceInfo {
+                name: r.name.clone(),
+                address: r.address.clone(),
+                protocol: r.protocol.clone(),
+                port_from: r.port_from,
+                port_to: r.port_to,
+                remote_network_name: r.remote_network_name.clone(),
+                firewall_status: r.firewall_status.clone(),
+            })
+            .collect(),
+        session_expires_at: state.session.expires_at,
+        last_sync_at: state.last_sync_at,
+    }
+}
+
+fn sanitize_resources(resources: &[StoredResource]) -> Vec<CliResourceInfo> {
+    resources
+        .iter()
+        .map(|r| CliResourceInfo {
+            name: r.name.clone(),
+            address: r.address.clone(),
+            protocol: r.protocol.clone(),
+            port_from: r.port_from,
+            port_to: r.port_to,
+            remote_network_name: r.remote_network_name.clone(),
+            firewall_status: r.firewall_status.clone(),
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -99,13 +135,27 @@ pub async fn run_posture_reporter(config: Config) {
     }
 }
 
-pub fn router(state: AppState) -> Router {
+/// Management API router — bound to 127.0.0.1 only.
+///
+/// Exposes control-plane endpoints used by the CLI proxy.  Loopback binding
+/// is the access-control mechanism; no token auth is added here.
+pub fn management_router(state: AppState) -> Router {
     Router::new()
-        .route("/callback", get(handle_callback))
         .route("/status", get(handle_status))
         .route("/resources", get(handle_resources))
         .route("/sync", post(handle_sync))
         .route("/disconnect", post(handle_disconnect))
+        .route("/login", post(handle_login))
+        .with_state(state)
+}
+
+/// OAuth callback router — may be bound to a LAN address for testing.
+///
+/// Exposes only the `/callback` route; no management endpoints here so
+/// LAN exposure does not affect the control surface.
+pub fn callback_router(state: AppState) -> Router {
+    Router::new()
+        .route("/callback", get(handle_callback))
         .with_state(state)
 }
 
@@ -348,9 +398,6 @@ pub async fn begin_login(state: &AppState, tenant_slug: &str) -> Result<String> 
         );
     }
 
-    if let Err(err) = open::that(&auth.auth_url) {
-        error!("failed to open browser: {}", err);
-    }
     Ok(auth.auth_url)
 }
 
@@ -521,9 +568,17 @@ async fn handle_callback(
     }
 }
 
-async fn handle_status() -> Json<StatusResponse> {
-    let workspaces = list_workspace_states().unwrap_or_default();
-    Json(StatusResponse { workspaces })
+async fn handle_status(State(state): State<AppState>) -> Json<CliStatusResponse> {
+    let workspaces = list_workspace_states()
+        .unwrap_or_default()
+        .iter()
+        .map(sanitize_workspace)
+        .collect();
+    Json(CliStatusResponse {
+        mode: state.config.mode.clone(),
+        configured: state.config.is_configured(),
+        workspaces,
+    })
 }
 
 #[derive(Deserialize)]
@@ -540,7 +595,10 @@ async fn handle_resources(Query(q): Query<TenantQuery>) -> impl IntoResponse {
             .into_response();
     };
     match load_workspace_state(&tenant) {
-        Some(state) => Json(serde_json::json!({ "resources": state.resources })).into_response(),
+        Some(state) => {
+            Json(serde_json::json!({ "resources": sanitize_resources(&state.resources) }))
+                .into_response()
+        }
         None => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "workspace state not found" })),
@@ -559,7 +617,7 @@ async fn handle_sync(
     Json(body): Json<DisconnectRequest>,
 ) -> impl IntoResponse {
     match ensure_workspace_state(&state.config, &body.tenant, true).await {
-        Ok(synced) => Json(serde_json::json!({ "workspace": synced.workspace.slug, "resources": synced.resources })).into_response(),
+        Ok(synced) => Json(sanitize_workspace(&synced)).into_response(),
         Err(err) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": err.to_string() })),
@@ -574,6 +632,27 @@ async fn handle_disconnect(
 ) -> impl IntoResponse {
     match disconnect_workspace(&state.config, &body.tenant).await {
         Ok(()) => Json(serde_json::json!({ "status": "disconnected" })).into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": err.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct LoginRequest {
+    tenant: String,
+}
+
+async fn handle_login(
+    State(state): State<AppState>,
+    Json(body): Json<LoginRequest>,
+) -> impl IntoResponse {
+    match begin_login(&state, &body.tenant).await {
+        Ok(auth_url) => {
+            Json(serde_json::json!({ "auth_url": auth_url })).into_response()
+        }
         Err(err) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": err.to_string() })),

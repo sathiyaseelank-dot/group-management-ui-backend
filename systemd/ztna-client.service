@@ -1,0 +1,56 @@
+[Unit]
+Description=Zero-Trust Network Access Client
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+
+# The client reads its TOML config from /etc/ztna-client/client.conf.
+# No EnvironmentFile needed — the binary handles config loading internally.
+ExecStart=/usr/bin/ztna-client serve
+
+WorkingDirectory=/var/lib/ztna-client
+Restart=always
+RestartSec=10
+
+# TUN mode requires CAP_NET_ADMIN for creating/managing the TUN device
+# and manipulating ip route/rule entries.  Running as root is the simplest
+# valid model for now; a dedicated user + ambient capabilities can be
+# added later without changing the unit structure.
+#
+# NOTE: PrivateDevices is intentionally omitted — TUN mode needs /dev/net/tun.
+
+StateDirectory=ztna-client
+RuntimeDirectory=ztna-client
+RuntimeDirectoryMode=0755
+
+# --- Hardening (expandable) ---
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+# DevicePolicy=auto allows access to /dev/net/tun which TUN mode requires.
+# PrivateDevices is NOT set for the same reason.
+DevicePolicy=auto
+DeviceAllow=/dev/net/tun rw
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

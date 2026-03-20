@@ -5,11 +5,11 @@ use aes_gcm::{
 };
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
-use directories::ProjectDirs;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredUser {
@@ -76,17 +76,42 @@ pub struct StoredWorkspaceState {
     pub last_sync_at: i64,
 }
 
-fn state_dir() -> Option<PathBuf> {
-    ProjectDirs::from("com", "zerotrust", "ztna-client").map(|dirs| dirs.config_dir().to_path_buf())
+// ---------------------------------------------------------------------------
+// Configurable state directory
+// ---------------------------------------------------------------------------
+
+/// Global state directory, set once at startup via `init_state_dir`.
+static STATE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Initialize the state directory.  Must be called once at startup before
+/// any load/save operations.  Safe to call multiple times — second call
+/// is a no-op.
+pub fn init_state_dir(dir: PathBuf) {
+    let _ = STATE_DIR.set(dir);
 }
 
-fn state_path(tenant_slug: &str) -> Option<PathBuf> {
-    state_dir().map(|dir| dir.join(format!("{}.json", tenant_slug)))
+/// Return the active state directory.  Falls back to XDG data dir
+/// if `init_state_dir` was never called (e.g. in tests or dev one-liners).
+fn state_dir() -> PathBuf {
+    if let Some(dir) = STATE_DIR.get() {
+        return dir.clone();
+    }
+    // Fallback — uses XDG data directory (not config, since this is
+    // runtime/session state).  Only reached when init_state_dir was
+    // not called, e.g. running via `cargo run` without the full
+    // Config::load() → init_state_dir() path.
+    directories::ProjectDirs::from("com", "zerotrust", "ztna-client")
+        .map(|dirs| dirs.data_local_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("/tmp/ztna-client"))
+}
+
+fn state_path(tenant_slug: &str) -> PathBuf {
+    state_dir().join(format!("{}.json", tenant_slug))
 }
 
 /// Key file path used as fallback when the OS keychain is unavailable.
-fn key_file_path(tenant_slug: &str) -> Option<PathBuf> {
-    state_dir().map(|dir| dir.join(format!(".{}.key", tenant_slug)))
+fn key_file_path(tenant_slug: &str) -> PathBuf {
+    state_dir().join(format!(".{}.key", tenant_slug))
 }
 
 fn write_secure(path: &PathBuf, data: &str) -> Result<()> {
@@ -122,8 +147,7 @@ fn get_or_create_workspace_key(tenant_slug: &str) -> Result<[u8; 32]> {
 /// Store the key in a separate file (`.<tenant>.key`) with 0600
 /// permissions, keeping the key separate from the main JSON state file.
 fn get_or_create_keyfile_key(tenant_slug: &str) -> Result<[u8; 32]> {
-    let path = key_file_path(tenant_slug)
-        .ok_or_else(|| anyhow::anyhow!("no config dir for key file"))?;
+    let path = key_file_path(tenant_slug);
 
     if path.exists() {
         let b64 = fs::read_to_string(&path)?;
@@ -180,7 +204,7 @@ fn decrypt_private_key(key_bytes: &[u8; 32], encrypted: &str) -> Result<String> 
 // ---------------------------------------------------------------------------
 
 pub fn save_workspace_state(tenant_slug: &str, state: &StoredWorkspaceState) -> Result<()> {
-    let path = state_path(tenant_slug).ok_or_else(|| anyhow::anyhow!("no config dir"))?;
+    let path = state_path(tenant_slug);
     let mut state = state.clone();
 
     // Encrypt the private key if it is currently stored as plain text.
@@ -196,7 +220,7 @@ pub fn save_workspace_state(tenant_slug: &str, state: &StoredWorkspaceState) -> 
 }
 
 pub fn load_workspace_state(tenant_slug: &str) -> Option<StoredWorkspaceState> {
-    let path = state_path(tenant_slug)?;
+    let path = state_path(tenant_slug);
     let data = fs::read_to_string(path).ok()?;
     let mut state: StoredWorkspaceState = serde_json::from_str(&data).ok()?;
 
@@ -213,9 +237,7 @@ pub fn load_workspace_state(tenant_slug: &str) -> Option<StoredWorkspaceState> {
 
 pub fn list_workspace_states() -> Result<Vec<StoredWorkspaceState>> {
     let mut out = Vec::new();
-    let Some(dir) = state_dir() else {
-        return Ok(out);
-    };
+    let dir = state_dir();
     if !dir.exists() {
         return Ok(out);
     }
@@ -248,11 +270,7 @@ pub fn list_workspace_states() -> Result<Vec<StoredWorkspaceState>> {
 }
 
 pub fn clear_workspace_state(tenant_slug: &str) {
-    if let Some(path) = state_path(tenant_slug) {
-        let _ = fs::remove_file(path);
-    }
+    let _ = fs::remove_file(state_path(tenant_slug));
     // Also remove the fallback key file if present.
-    if let Some(path) = key_file_path(tenant_slug) {
-        let _ = fs::remove_file(path);
-    }
+    let _ = fs::remove_file(key_file_path(tenant_slug));
 }

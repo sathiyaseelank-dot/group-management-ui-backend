@@ -2,6 +2,7 @@ mod acl;
 mod auth;
 mod config;
 mod posture;
+mod product;
 mod server;
 mod socks5;
 mod token_store;
@@ -16,14 +17,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
-use clap::Parser;
 use config::{Command, Config};
+use product::{CliResourceInfo, CliWorkspaceStatus};
 use server::{
-    begin_login, disconnect_workspace, ensure_workspace_state, router, wait_for_login, AppState,
+    begin_login, callback_router, disconnect_workspace, ensure_workspace_state, management_router,
+    wait_for_login, AppState,
 };
 use sha2::{Digest, Sha256};
 use token_store::list_workspace_states;
-use tracing::info;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() {
@@ -33,7 +35,8 @@ async fn main() {
 
     tracing_subscriber::fmt::init();
 
-    let config = Config::parse();
+    let config = Config::load();
+    token_store::init_state_dir(config.state_dir.clone());
     if let Err(err) = run(config).await {
         eprintln!("error: {err:#}");
         std::process::exit(1);
@@ -47,84 +50,362 @@ async fn run(config: Config) -> Result<()> {
         .unwrap_or(Command::Ui { tenant: None })
     {
         Command::Serve => {
+            if !config.is_configured() {
+                info!("client not configured; create /etc/ztna-client/client.conf and restart the service");
+                loop {
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    info!("waiting for configuration...");
+                }
+            }
+            info!("starting ztna-client service in {} mode", config.mode);
             let app_state = AppState {
                 config: config.clone(),
                 pending: Arc::new(Mutex::new(HashMap::new())),
             };
-            run_callback_server(app_state).await
+            run_service_listeners(app_state).await
         }
         Command::Login {
             tenant,
             timeout_secs,
         } => {
-            let app_state = AppState {
-                config: config.clone(),
-                pending: Arc::new(Mutex::new(HashMap::new())),
-            };
-            let _server = tokio::spawn(run_callback_server(app_state.clone()));
-            let auth_url = begin_login(&app_state, &tenant).await?;
-            println!("Open this URL if your browser did not launch:\n{auth_url}");
-            let state = wait_for_login(&tenant, Duration::from_secs(timeout_secs)).await?;
-            println!(
-                "Connected to workspace {} as {}",
-                state.workspace.slug, state.user.email
-            );
-            Ok(())
+            let tenant = config.require_tenant(tenant.as_deref())?;
+            if config.should_proxy_to_service() {
+                run_proxied_login(&config, &tenant, timeout_secs).await
+            } else {
+                run_direct_login(config, &tenant, timeout_secs).await
+            }
         }
         Command::Status { tenant } => {
-            if let Some(tenant) = tenant {
-                let state = ensure_workspace_state(&config, &tenant, false).await?;
-                print_workspace_status(&state);
+            if config.should_proxy_to_service() {
+                run_proxied_status(&config, tenant.as_deref()).await
             } else {
-                for state in list_workspace_states()? {
-                    print_workspace_status(&state);
-                }
+                run_direct_status(&config, tenant.as_deref()).await
             }
-            Ok(())
         }
         Command::Sync { tenant } => {
-            let state = ensure_workspace_state(&config, &tenant, true).await?;
-            print_workspace_status(&state);
-            println!("Resources synced: {}", state.resources.len());
-            Ok(())
+            let tenant = config.require_tenant(tenant.as_deref())?;
+            if config.should_proxy_to_service() {
+                run_proxied_sync(&config, &tenant).await
+            } else {
+                run_direct_sync(&config, &tenant).await
+            }
         }
         Command::Resources { tenant } => {
-            if let Some(tenant) = tenant {
-                let state = ensure_workspace_state(&config, &tenant, false).await?;
-                print_resources(&state);
+            if config.should_proxy_to_service() {
+                run_proxied_resources(&config, tenant.as_deref()).await
             } else {
-                for state in list_workspace_states()? {
-                    print_resources(&state);
-                }
+                run_direct_resources(&config, tenant.as_deref()).await
             }
-            Ok(())
         }
         Command::Disconnect { tenant } => {
-            disconnect_workspace(&config, &tenant).await?;
-            println!("Disconnected from workspace {tenant}");
-            Ok(())
+            let tenant = config.require_tenant(tenant.as_deref())?;
+            if config.should_proxy_to_service() {
+                run_proxied_disconnect(&config, &tenant, "Disconnected").await
+            } else {
+                disconnect_workspace(&config, &tenant).await?;
+                println!("Disconnected from workspace {tenant}");
+                Ok(())
+            }
         }
-        Command::Ui { tenant } => run_ui(config, tenant).await,
+        Command::Logout { tenant } => {
+            let tenant = config.require_tenant(tenant.as_deref())?;
+            if config.should_proxy_to_service() {
+                run_proxied_disconnect(&config, &tenant, "Logged out").await
+            } else {
+                disconnect_workspace(&config, &tenant).await?;
+                println!("Logged out from workspace {tenant}");
+                Ok(())
+            }
+        }
+        Command::Ui { tenant } => {
+            if config.should_proxy_to_service() && tenant.is_none() {
+                run_product_noargs(&config).await
+            } else {
+                run_ui(config, tenant).await
+            }
+        }
     }
 }
 
-async fn run_callback_server(state: AppState) -> Result<()> {
+// ---------------------------------------------------------------------------
+// Service proxy helpers
+// ---------------------------------------------------------------------------
+
+async fn ensure_service_reachable(config: &Config) -> Result<()> {
+    if product::is_service_running(config.management_port()).await {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "ztna-client service is not reachable on 127.0.0.1:{}.\n\
+         \n\
+         If the service is not running:\n\
+         \n\
+         \x20 sudo systemctl start ztna-client\n\
+         \n\
+         If the service is running but not configured:\n\
+         \n\
+         \x20 sudo nano /etc/ztna-client/client.conf\n\
+         \x20 sudo systemctl restart ztna-client",
+        config.management_port()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Proxied command handlers — CLI → service HTTP API
+// ---------------------------------------------------------------------------
+
+async fn run_proxied_login(config: &Config, tenant: &str, timeout_secs: u64) -> Result<()> {
+    ensure_service_reachable(config).await?;
+    let base_url = config.service_url();
+
+    let auth_url = product::proxy_login(&base_url, tenant).await?;
+    if let Err(err) = open::that(&auth_url) {
+        tracing::error!("failed to open browser: {}", err);
+    }
+    println!("Open this URL if your browser did not launch:\n{auth_url}");
+
+    let ws = product::poll_login_complete(&base_url, tenant, Duration::from_secs(timeout_secs))
+        .await?;
+    println!(
+        "Connected to workspace {} as {}",
+        ws.workspace_slug, ws.user_email
+    );
+    Ok(())
+}
+
+async fn run_proxied_status(config: &Config, tenant: Option<&str>) -> Result<()> {
+    ensure_service_reachable(config).await?;
+    let base_url = config.service_url();
+    let resp = product::proxy_status(&base_url).await?;
+
+    if !resp.configured {
+        eprintln!(
+            "Service is running but not configured.\n\
+             Edit /etc/ztna-client/client.conf and restart:\n\
+             \n\
+             \x20 sudo systemctl restart ztna-client"
+        );
+        return Ok(());
+    }
+
+    if let Some(tenant) = tenant {
+        match resp
+            .workspaces
+            .iter()
+            .find(|w| w.workspace_slug == tenant)
+        {
+            Some(ws) => print_cli_status(ws, &resp.mode),
+            None => println!("No session for workspace {tenant}. Run: ztna-client login"),
+        }
+    } else if resp.workspaces.is_empty() {
+        println!(
+            "Service running ({} mode), no active sessions.\nRun: ztna-client login",
+            resp.mode
+        );
+    } else {
+        for ws in &resp.workspaces {
+            print_cli_status(ws, &resp.mode);
+        }
+    }
+    Ok(())
+}
+
+async fn run_proxied_resources(config: &Config, tenant: Option<&str>) -> Result<()> {
+    ensure_service_reachable(config).await?;
+    let base_url = config.service_url();
+
+    if let Some(tenant) = tenant {
+        let resources = product::proxy_resources(&base_url, tenant).await?;
+        print_cli_resources(tenant, &resources);
+    } else {
+        let resp = product::proxy_status(&base_url).await?;
+        if resp.workspaces.is_empty() {
+            println!("No active sessions. Run: ztna-client login");
+        } else {
+            for ws in &resp.workspaces {
+                print_cli_resources(&ws.workspace_slug, &ws.resources);
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn run_proxied_sync(config: &Config, tenant: &str) -> Result<()> {
+    ensure_service_reachable(config).await?;
+    let base_url = config.service_url();
+    let ws = product::proxy_sync(&base_url, tenant).await?;
+    print_cli_status(&ws, "");
+    println!("Resources synced: {}", ws.resources.len());
+    Ok(())
+}
+
+async fn run_proxied_disconnect(config: &Config, tenant: &str, verb: &str) -> Result<()> {
+    ensure_service_reachable(config).await?;
+    let base_url = config.service_url();
+    product::proxy_disconnect(&base_url, tenant).await?;
+    println!("{verb} from workspace {tenant}");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Direct command handlers — state-file access (root or dev mode)
+// ---------------------------------------------------------------------------
+
+async fn run_direct_login(config: Config, tenant: &str, timeout_secs: u64) -> Result<()> {
+    let app_state = AppState {
+        config: config.clone(),
+        pending: Arc::new(Mutex::new(HashMap::new())),
+    };
+    let _server = tokio::spawn(run_direct_callback_server(app_state.clone()));
+    let auth_url = begin_login(&app_state, tenant).await?;
+    if let Err(err) = open::that(&auth_url) {
+        tracing::error!("failed to open browser: {}", err);
+    }
+    println!("Open this URL if your browser did not launch:\n{auth_url}");
+    let state = wait_for_login(tenant, Duration::from_secs(timeout_secs)).await?;
+    println!(
+        "Connected to workspace {} as {}",
+        state.workspace.slug, state.user.email
+    );
+    Ok(())
+}
+
+async fn run_direct_status(config: &Config, tenant: Option<&str>) -> Result<()> {
+    if let Some(tenant) = tenant {
+        let state = ensure_workspace_state(config, tenant, false).await?;
+        print_stored_status(&state);
+    } else {
+        let states = list_workspace_states()?;
+        if states.is_empty() {
+            println!("No active sessions.");
+        } else {
+            for state in states {
+                print_stored_status(&state);
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn run_direct_resources(config: &Config, tenant: Option<&str>) -> Result<()> {
+    if let Some(tenant) = tenant {
+        let state = ensure_workspace_state(config, tenant, false).await?;
+        print_stored_resources(&state);
+    } else {
+        for state in list_workspace_states()? {
+            print_stored_resources(&state);
+        }
+    }
+    Ok(())
+}
+
+async fn run_direct_sync(config: &Config, tenant: &str) -> Result<()> {
+    let state = ensure_workspace_state(config, tenant, true).await?;
+    print_stored_status(&state);
+    println!("Resources synced: {}", state.resources.len());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Service listeners (systemd mode) and direct callback (dev/root mode)
+// ---------------------------------------------------------------------------
+
+/// Start both the management listener and the OAuth callback listener.
+///
+/// Used by `Command::Serve` only.  The management API binds exclusively to
+/// 127.0.0.1 so control-plane endpoints are never reachable from the LAN.
+/// The callback listener uses `callback_bind_addr` and may be LAN-exposed
+/// for testing — only the `/callback` route is served there.
+async fn run_service_listeners(state: AppState) -> Result<()> {
     match state.config.mode.as_str() {
         "socks5" => start_socks_listener(&state.config),
         _ => start_tun_listener(&state.config),
     }
-    let app = router(state.clone());
+    tokio::spawn(server::run_posture_reporter(state.config.clone()));
+
+    // Management API — always localhost-only.
+    let mgmt_addr = format!("127.0.0.1:{}", state.config.management_port());
+    info!("management API listening on http://{} (localhost only)", mgmt_addr);
+    let mgmt_listener = tokio::net::TcpListener::bind(&mgmt_addr)
+        .await
+        .expect("failed to bind management listener");
+
+    // OAuth callback listener — may bind to LAN for testing.
+    let cb_addr = format!("{}:{}", state.config.callback_bind_addr, state.config.port);
+    let cb_host = state.config.effective_callback_host();
+    if !is_loopback_bind(&state.config.callback_bind_addr) {
+        warn!(
+            "callback listener bound to {} — non-loopback address intended for testing only",
+            state.config.callback_bind_addr
+        );
+    }
+    info!(
+        "OAuth callback listening on http://{} (redirect host: {})",
+        cb_addr, cb_host
+    );
+    let cb_listener = tokio::net::TcpListener::bind(&cb_addr)
+        .await
+        .expect("failed to bind callback listener");
+
+    let mgmt_app = management_router(state.clone());
+    let cb_app = callback_router(state.clone());
+
+    tokio::join!(
+        async { axum::serve(mgmt_listener, mgmt_app).await.expect("management server failed") },
+        async { axum::serve(cb_listener, cb_app).await.expect("callback server failed") },
+    );
+    Ok(())
+}
+
+/// Start only the OAuth callback listener (no management API).
+///
+/// Used by direct-access paths (`run_direct_login`, `run_ui`) where the CLI
+/// talks to state files directly and does not need the management API.
+async fn run_direct_callback_server(state: AppState) -> Result<()> {
     let addr = format!("{}:{}", state.config.callback_bind_addr, state.config.port);
     let callback_host = state.config.effective_callback_host();
+    if !is_loopback_bind(&state.config.callback_bind_addr) {
+        warn!(
+            "callback listener bound to {} — non-loopback address intended for testing only",
+            state.config.callback_bind_addr
+        );
+    }
     info!(
-        "ztna-client listening on http://{} (redirect host: {})",
+        "OAuth callback listening on http://{} (redirect host: {})",
         addr, callback_host
     );
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .expect("failed to bind");
-    tokio::spawn(server::run_posture_reporter(state.config.clone()));
-    axum::serve(listener, app).await.expect("server failed");
+        .expect("failed to bind callback listener");
+    let app = callback_router(state);
+    axum::serve(listener, app).await.expect("callback server failed");
+    Ok(())
+}
+
+fn is_loopback_bind(addr: &str) -> bool {
+    addr == "127.0.0.1" || addr == "::1" || addr == "localhost"
+}
+
+/// Default no-args behavior in product mode (config file loaded, non-root).
+///
+/// Shows current service status if reachable, then a concise usage hint.
+/// Does not launch the interactive terminal UI.
+async fn run_product_noargs(config: &Config) -> Result<()> {
+    if product::is_service_running(config.management_port()).await {
+        run_proxied_status(config, None).await?;
+    } else {
+        eprintln!("ztna-client service is not running.");
+        eprintln!("  sudo systemctl start ztna-client");
+    }
+    println!();
+    println!("Usage: ztna-client <command>");
+    println!("  login        Start browser login for a workspace");
+    println!("  status       Show active sessions");
+    println!("  resources    List authorized resources");
+    println!("  sync         Refresh resources from the controller");
+    println!("  disconnect   Revoke session and clear local state");
+    println!();
+    println!("Run 'ztna-client <command> --help' for details.");
     Ok(())
 }
 
@@ -133,19 +414,22 @@ async fn run_ui(config: Config, initial_tenant: Option<String>) -> Result<()> {
         config: config.clone(),
         pending: Arc::new(Mutex::new(HashMap::new())),
     };
-    let _server = tokio::spawn(run_callback_server(app_state.clone()));
+    let _server = tokio::spawn(run_direct_callback_server(app_state.clone()));
 
     println!("ZTNA Client");
     println!("Commands: login <tenant>, status [tenant], resources [tenant], sync <tenant>, disconnect <tenant>, quit");
 
     if let Some(tenant) = initial_tenant.or_else(|| {
-        if stateful_default_tenant(&config).is_empty() {
+        if config.tenant.is_empty() {
             None
         } else {
-            Some(stateful_default_tenant(&config))
+            Some(config.tenant.clone())
         }
     }) {
         let auth_url = begin_login(&app_state, &tenant).await?;
+        if let Err(err) = open::that(&auth_url) {
+            tracing::error!("failed to open browser: {}", err);
+        }
         println!("Starting login for {tenant}");
         println!("Open this URL if needed:\n{auth_url}");
     }
@@ -167,31 +451,34 @@ async fn run_ui(config: Config, initial_tenant: Option<String>) -> Result<()> {
             ["quit"] | ["exit"] => break,
             ["login", tenant] => {
                 let auth_url = begin_login(&app_state, tenant).await?;
+                if let Err(err) = open::that(&auth_url) {
+                    tracing::error!("failed to open browser: {}", err);
+                }
                 println!("Login started for {tenant}");
                 println!("Open this URL if needed:\n{auth_url}");
             }
             ["status"] => {
                 for state in list_workspace_states()? {
-                    print_workspace_status(&state);
+                    print_stored_status(&state);
                 }
             }
             ["status", tenant] => {
                 let state = ensure_workspace_state(&config, tenant, false).await?;
-                print_workspace_status(&state);
+                print_stored_status(&state);
             }
             ["resources"] => {
                 for state in list_workspace_states()? {
-                    print_resources(&state);
+                    print_stored_resources(&state);
                 }
             }
             ["resources", tenant] => {
                 let state = ensure_workspace_state(&config, tenant, false).await?;
-                print_resources(&state);
+                print_stored_resources(&state);
             }
             ["sync", tenant] => {
                 let state = ensure_workspace_state(&config, tenant, true).await?;
                 println!("Synced {}", state.workspace.slug);
-                print_resources(&state);
+                print_stored_resources(&state);
             }
             ["disconnect", tenant] => {
                 disconnect_workspace(&config, tenant).await?;
@@ -209,35 +496,80 @@ async fn run_ui(config: Config, initial_tenant: Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn stateful_default_tenant(config: &Config) -> String {
-    config.tenant.clone()
+// ---------------------------------------------------------------------------
+// Display helpers
+// ---------------------------------------------------------------------------
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
-fn print_workspace_status(state: &token_store::StoredWorkspaceState) {
+fn format_session_expiry(expires_at: i64) -> String {
+    let remaining = expires_at - now_unix();
+    if remaining <= 0 {
+        return "expired".to_string();
+    }
+    let mins = remaining / 60;
+    if mins >= 60 {
+        format!("active (expires in {}h {}m)", mins / 60, mins % 60)
+    } else {
+        format!("active (expires in {}m)", mins)
+    }
+}
+
+/// Print status from a sanitized CliWorkspaceStatus (proxy path).
+fn print_cli_status(ws: &CliWorkspaceStatus, mode: &str) {
+    let session = format_session_expiry(ws.session_expires_at);
+    if mode.is_empty() {
+        println!(
+            "[{}] user={} role={} device={} resources={} session={}",
+            ws.workspace_slug,
+            ws.user_email,
+            ws.user_role,
+            ws.device_id,
+            ws.resources.len(),
+            session,
+        );
+    } else {
+        println!(
+            "[{}] user={} role={} device={} resources={} session={} mode={}",
+            ws.workspace_slug,
+            ws.user_email,
+            ws.user_role,
+            ws.device_id,
+            ws.resources.len(),
+            session,
+            mode,
+        );
+    }
+}
+
+/// Print status from a StoredWorkspaceState (direct path).
+fn print_stored_status(state: &token_store::StoredWorkspaceState) {
+    let session = format_session_expiry(state.session.expires_at);
     println!(
-        "[{}] user={} role={} device={} resources={} token_expiry={}",
+        "[{}] user={} role={} device={} resources={} session={}",
         state.workspace.slug,
         state.user.email,
         state.user.role,
         state.device.id,
         state.resources.len(),
-        state.session.expires_at
+        session,
     );
 }
 
-fn print_resources(state: &token_store::StoredWorkspaceState) {
-    println!("Workspace: {}", state.workspace.slug);
-    if state.resources.is_empty() {
+/// Print resources from sanitized CliResourceInfo (proxy path).
+fn print_cli_resources(slug: &str, resources: &[CliResourceInfo]) {
+    println!("Workspace: {slug}");
+    if resources.is_empty() {
         println!("  no authorized resources");
         return;
     }
-    for resource in &state.resources {
-        let ports = match (resource.port_from, resource.port_to) {
-            (Some(from), Some(to)) if from == to => from.to_string(),
-            (Some(from), Some(to)) => format!("{from}-{to}"),
-            (Some(from), None) => from.to_string(),
-            _ => "-".to_string(),
-        };
+    for resource in resources {
+        let ports = format_ports(resource.port_from, resource.port_to);
         println!(
             "  {} [{}] {}:{} via {} ({})",
             resource.name,
@@ -249,6 +581,40 @@ fn print_resources(state: &token_store::StoredWorkspaceState) {
         );
     }
 }
+
+/// Print resources from StoredWorkspaceState (direct path).
+fn print_stored_resources(state: &token_store::StoredWorkspaceState) {
+    println!("Workspace: {}", state.workspace.slug);
+    if state.resources.is_empty() {
+        println!("  no authorized resources");
+        return;
+    }
+    for resource in &state.resources {
+        let ports = format_ports(resource.port_from, resource.port_to);
+        println!(
+            "  {} [{}] {}:{} via {} ({})",
+            resource.name,
+            resource.firewall_status,
+            resource.address,
+            ports,
+            resource.remote_network_name,
+            resource.protocol
+        );
+    }
+}
+
+fn format_ports(port_from: Option<i32>, port_to: Option<i32>) -> String {
+    match (port_from, port_to) {
+        (Some(from), Some(to)) if from == to => from.to_string(),
+        (Some(from), Some(to)) => format!("{from}-{to}"),
+        (Some(from), None) => from.to_string(),
+        _ => "-".to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Network listeners
+// ---------------------------------------------------------------------------
 
 fn start_socks_listener(config: &Config) {
     if config.socks5_addr.trim().is_empty() {
@@ -283,6 +649,8 @@ fn start_socks_listener(config: &Config) {
                 tun_name: String::new(),
                 tun_addr: String::new(),
                 tun_mtu: 1500,
+                state_dir: std::path::PathBuf::new(),
+                config_file_loaded: false,
                 command: None,
             };
             let tenant = tenant.clone();
@@ -428,6 +796,10 @@ fn start_tun_listener(config: &Config) {
         }
     });
 }
+
+// ---------------------------------------------------------------------------
+// CA helpers
+// ---------------------------------------------------------------------------
 
 pub(crate) async fn load_ca_pem(config: &Config) -> Vec<u8> {
     if !config.internal_ca_cert.is_empty() {
