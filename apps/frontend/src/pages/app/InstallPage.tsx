@@ -45,6 +45,15 @@ function buildControllerUrl() {
   return `${window.location.protocol}//${window.location.hostname}:8081`
 }
 
+function buildControllerGrpcAddr(controllerUrl: string) {
+  try {
+    const url = new URL(controllerUrl)
+    return `${url.hostname}:8443`
+  } catch {
+    return `${window.location.hostname}:8443`
+  }
+}
+
 function CommandBlock({
   title,
   description,
@@ -113,10 +122,12 @@ export default function InstallPage() {
 
   const platform = detectPlatform()
   const controllerUrl = buildControllerUrl()
+  const controllerGrpcAddr = buildControllerGrpcAddr(controllerUrl)
   const installCommand = 'curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/client-install-release.sh | sudo bash'
   const configCommand = [
     'sudo tee /etc/ztna-client/client.conf >/dev/null <<\'CONF\'',
     `controller_url = "${controllerUrl}"`,
+    `controller_grpc_addr = "${controllerGrpcAddr}"`,
     `tenant = "${claims.wslug}"`,
     'CONF',
   ].join('\n')

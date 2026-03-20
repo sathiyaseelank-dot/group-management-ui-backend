@@ -10,13 +10,29 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-required_envs=(CONTROLLER_ADDR CONTROLLER_HTTP_ADDR CONNECTOR_ID ENROLLMENT_TOKEN)
+required_envs=(CONTROLLER_ADDR CONNECTOR_ID ENROLLMENT_TOKEN)
 for var in "${required_envs[@]}"; do
   if [[ -z "${!var:-}" ]]; then
     echo "ERROR: ${var} is required." >&2
     exit 1
   fi
 done
+
+CONTROLLER_HTTP_ADDR="${CONTROLLER_HTTP_ADDR:-}"
+CONTROLLER_HTTP_URL="${CONTROLLER_HTTP_URL:-}"
+DEVICE_TUNNEL_ADDR="${DEVICE_TUNNEL_ADDR:-}"
+CONTROLLER_CA_PATH="${CONTROLLER_CA_PATH:-}"
+
+if [[ -z "${CONTROLLER_HTTP_ADDR}" && -n "${CONTROLLER_HTTP_URL}" ]]; then
+  CONTROLLER_HTTP_ADDR="${CONTROLLER_HTTP_URL#http://}"
+  CONTROLLER_HTTP_ADDR="${CONTROLLER_HTTP_ADDR#https://}"
+  CONTROLLER_HTTP_ADDR="${CONTROLLER_HTTP_ADDR%/}"
+fi
+
+if [[ -z "${CONTROLLER_HTTP_ADDR}" && -z "${CONTROLLER_CA_PATH}" ]]; then
+  echo "ERROR: CONTROLLER_HTTP_ADDR or CONTROLLER_CA_PATH is required." >&2
+  exit 1
+fi
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
@@ -84,14 +100,19 @@ if [[ -f "${config_file}" ]]; then
   cp "${config_file}" "${config_file}.${ts}.bak"
 fi
 
-echo "Fetching controller CA from ${CONTROLLER_HTTP_ADDR}..."
-if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "http://${CONTROLLER_HTTP_ADDR}/ca.crt" -o "${bundled_ca}"
-elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${bundled_ca}" "http://${CONTROLLER_HTTP_ADDR}/ca.crt"
+if [[ -n "${CONTROLLER_CA_PATH}" ]]; then
+  echo "Using controller CA from ${CONTROLLER_CA_PATH}..."
+  install -m 0644 "${CONTROLLER_CA_PATH}" "${bundled_ca}"
 else
-  echo "ERROR: curl or wget is required." >&2
-  exit 1
+  echo "Fetching controller CA from ${CONTROLLER_HTTP_ADDR}..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "http://${CONTROLLER_HTTP_ADDR}/ca.crt" -o "${bundled_ca}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${bundled_ca}" "http://${CONTROLLER_HTTP_ADDR}/ca.crt"
+  else
+    echo "ERROR: curl or wget is required." >&2
+    exit 1
+  fi
 fi
 chmod 0644 "${bundled_ca}"
 
@@ -103,6 +124,15 @@ chmod 0644 "${bundled_ca}"
   echo "CONTROLLER_ADDR=${CONTROLLER_ADDR}"
   echo "CONNECTOR_ID=${CONNECTOR_ID}"
   echo "ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}"
+  if [[ -n "${CONTROLLER_HTTP_URL}" ]]; then
+    echo "CONTROLLER_HTTP_URL=${CONTROLLER_HTTP_URL}"
+  fi
+  if [[ -n "${DEVICE_TUNNEL_ADDR}" ]]; then
+    echo "DEVICE_TUNNEL_ADDR=${DEVICE_TUNNEL_ADDR}"
+  fi
+  if [[ -n "${CONTROLLER_CA_PATH}" ]]; then
+    echo "CONTROLLER_CA_PATH=${CONTROLLER_CA_PATH}"
+  fi
   if [[ -n "${CONNECTOR_PRIVATE_IP:-}" ]]; then
     echo "CONNECTOR_PRIVATE_IP=${CONNECTOR_PRIVATE_IP}"
   fi

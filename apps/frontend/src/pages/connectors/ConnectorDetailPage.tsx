@@ -55,10 +55,11 @@ export default function ConnectorDetailPage() {
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
   const [connectorPrivateIP, setConnectorPrivateIP] = useState(detectedHost);
+  const connectorInstallScript = 'https://raw.githubusercontent.com/vairabarath/zero-trust/feature/client-grpc-lan-auth/scripts/setup.sh';
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
     return (
-      `curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/setup.sh | sudo \\\n` +
+      `curl -fsSL ${connectorInstallScript} | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
       `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
@@ -66,7 +67,7 @@ export default function ConnectorDetailPage() {
       (connectorPrivateIP ? `  CONNECTOR_PRIVATE_IP="${connectorPrivateIP}" \\\n` : '') +
       `  bash`
     );
-  }, [enrollmentToken, controllerAddr, controllerHttpAddr, connectorId, connectorPrivateIP]);
+  }, [connectorInstallScript, enrollmentToken, controllerAddr, controllerHttpAddr, connectorId, connectorPrivateIP]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {

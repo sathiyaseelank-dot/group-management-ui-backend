@@ -298,13 +298,19 @@ impl Config {
             "default"
         };
 
+        let controller_url = cli
+            .controller_url
+            .or(file.controller_url)
+            .unwrap_or_else(|| "http://localhost:8081".to_string());
+        let controller_grpc_addr = cli
+            .controller_grpc_addr
+            .or(file.controller_grpc_addr)
+            .or_else(|| derive_grpc_addr_from_url(&controller_url))
+            .unwrap_or_else(|| "localhost:8443".to_string());
+
         let config = Config {
-            controller_url: cli.controller_url
-                .or(file.controller_url)
-                .unwrap_or_else(|| "http://localhost:8081".to_string()),
-            controller_grpc_addr: cli.controller_grpc_addr
-                .or(file.controller_grpc_addr)
-                .unwrap_or_else(|| "localhost:8443".to_string()),
+            controller_url,
+            controller_grpc_addr,
             port: cli.port
                 .or(file.port)
                 .unwrap_or(19515),
@@ -372,6 +378,7 @@ impl Config {
 
         // Log final resolved values
         info!("config: controller_url={}", config.controller_url);
+        info!("config: controller_grpc_addr={}", config.controller_grpc_addr);
         info!(
             "config: tenant={} (from {})",
             if config.tenant.is_empty() { "(none)" } else { &config.tenant },
@@ -465,6 +472,17 @@ impl Config {
         }
         detect_lan_ip().unwrap_or_else(|| "localhost".to_string())
     }
+}
+
+fn derive_grpc_addr_from_url(controller_url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(controller_url).ok()?;
+    let host = parsed.host_str()?;
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    Some(format!("{host}:8443"))
 }
 
 /// Product state directory.  When a product install is detected (config file
