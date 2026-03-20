@@ -25,9 +25,10 @@ type oauthStateEntry struct {
 }
 
 var (
-	oauthStateMu       sync.Mutex
-	oauthStateStore    = map[string]oauthStateEntry{}
-	oauthReturnToStore = map[string]string{}
+	oauthStateMu        sync.Mutex
+	oauthStateStore     = map[string]oauthStateEntry{}
+	oauthReturnToStore  = map[string]string{}
+	oauthWorkspaceStore = map[string]string{}
 )
 
 // storeOAuthReturnTo associates a frontend origin URL with an OAuth state key.
@@ -43,6 +44,20 @@ func consumeOAuthReturnTo(state string) string {
 	defer oauthStateMu.Unlock()
 	val := oauthReturnToStore[state]
 	delete(oauthReturnToStore, state)
+	return val
+}
+
+func storeOAuthWorkspaceSlug(state, slug string) {
+	oauthStateMu.Lock()
+	defer oauthStateMu.Unlock()
+	oauthWorkspaceStore[state] = slug
+}
+
+func consumeOAuthWorkspaceSlug(state string) string {
+	oauthStateMu.Lock()
+	defer oauthStateMu.Unlock()
+	val := oauthWorkspaceStore[state]
+	delete(oauthWorkspaceStore, state)
 	return val
 }
 
@@ -110,6 +125,9 @@ func (s *Server) handleProviderLogin(provider string, cfg *oauth2.Config) http.H
 		if returnTo := r.URL.Query().Get("return_to"); returnTo != "" {
 			storeOAuthReturnTo(csrfState, returnTo)
 		}
+		if wsSlug := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("workspace_slug"))); wsSlug != "" {
+			storeOAuthWorkspaceSlug(csrfState, wsSlug)
+		}
 		storeOAuthState(csrfState)
 		authURL := cfg.AuthCodeURL(csrfState, oauth2.AccessTypeOnline)
 		http.Redirect(w, r, authURL, http.StatusFound)
@@ -129,6 +147,7 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 
 		// Retrieve the frontend origin captured during the login request.
 		returnTo := consumeOAuthReturnTo(stateParam)
+		selectedWorkspaceSlug := consumeOAuthWorkspaceSlug(stateParam)
 
 		// Detect flow type from state prefix.
 		isInvite := strings.HasPrefix(stateParam, "invite:")
@@ -178,6 +197,7 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 		email := strings.ToLower(emailAddr)
 
 		db := s.db()
+		var userID, wsID, wsSlug, wsRole string
 
 		if isInvite {
 			if db == nil {
@@ -323,21 +343,45 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 				s.writeAdminAudit(db, email, "signup", email, "ok")
 			}
 		} else {
-			// Regular login: verify email is in the allowed list.
-			if len(s.AdminLoginEmails) > 0 {
-				if _, ok := s.AdminLoginEmails[email]; !ok {
+			if selectedWorkspaceSlug != "" && s.Workspaces != nil {
+				ws, wsErr := s.Workspaces.GetWorkspaceBySlug(selectedWorkspaceSlug)
+				if wsErr != nil || ws == nil || strings.ToLower(strings.TrimSpace(ws.Status)) != "active" {
+					http.Error(w, "workspace not found", http.StatusForbidden)
+					return
+				}
+				u, lookupErr := s.Workspaces.GetUserByEmail(email)
+				if lookupErr != nil {
 					http.Error(w, "email not authorised", http.StatusForbidden)
 					return
 				}
-			}
-			if db != nil {
-				s.writeAdminAudit(db, email, "admin_login", email, "ok")
+				member, memberErr := s.Workspaces.GetMember(ws.ID, u.ID)
+				if memberErr != nil {
+					http.Error(w, "email not authorised", http.StatusForbidden)
+					return
+				}
+				userID = u.ID
+				wsID = ws.ID
+				wsSlug = ws.Slug
+				wsRole = member.Role
+				if db != nil {
+					s.writeAdminAudit(db, email, "workspace_login", email, "ok")
+				}
+			} else {
+				// Regular login without a workspace selection remains admin-only.
+				if len(s.AdminLoginEmails) > 0 {
+					if _, ok := s.AdminLoginEmails[email]; !ok {
+						http.Error(w, "email not authorised", http.StatusForbidden)
+						return
+					}
+				}
+				if db != nil {
+					s.writeAdminAudit(db, email, "admin_login", email, "ok")
+				}
 			}
 		}
 
 		sessionID, _ := randomHex(16)
-		var userID, wsID, wsSlug, wsRole string
-		if s.Users != nil && s.Workspaces != nil {
+		if userID == "" && s.Users != nil && s.Workspaces != nil {
 			if u, lookupErr := s.Workspaces.GetUserByEmail(email); lookupErr == nil {
 				userID = u.ID
 			}

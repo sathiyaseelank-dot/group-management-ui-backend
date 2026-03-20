@@ -12,7 +12,7 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use reqwest::Client;
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,11 @@ pub struct CliStatusResponse {
     pub configured: bool,
     /// Active workspace sessions (sanitized — no tokens or keys).
     pub workspaces: Vec<CliWorkspaceStatus>,
+    /// Semver version string of the running service binary.
+    /// `#[serde(default)]` keeps CLI compatible with older service versions
+    /// that pre-date this field.
+    #[serde(default)]
+    pub client_version: String,
 }
 
 /// Per-workspace status without secrets.
@@ -80,20 +85,32 @@ pub async fn is_service_running(port: u16) -> bool {
     .unwrap_or(false)
 }
 
-fn client() -> Client {
-    Client::builder()
+/// Build an HTTP client that injects `X-Service-Token` on every request when
+/// a token is provided.
+fn authed_client(token: Option<&str>) -> Client {
+    let mut builder = Client::builder()
         .connect_timeout(SERVICE_CONNECT_TIMEOUT)
-        .timeout(SERVICE_REQUEST_TIMEOUT)
-        .build()
-        .unwrap_or_default()
+        .timeout(SERVICE_REQUEST_TIMEOUT);
+
+    if let Some(tok) = token {
+        if !tok.is_empty() {
+            if let Ok(val) = header::HeaderValue::from_str(tok) {
+                let mut headers = header::HeaderMap::new();
+                headers.insert("X-Service-Token", val);
+                builder = builder.default_headers(headers);
+            }
+        }
+    }
+
+    builder.build().unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
 // Proxy functions
 // ---------------------------------------------------------------------------
 
-pub async fn proxy_status(base_url: &str) -> Result<CliStatusResponse> {
-    let resp = client()
+pub async fn proxy_status(base_url: &str, token: Option<&str>) -> Result<CliStatusResponse> {
+    let resp = authed_client(token)
         .get(format!("{}/status", base_url))
         .send()
         .await
@@ -107,8 +124,9 @@ pub async fn proxy_status(base_url: &str) -> Result<CliStatusResponse> {
 pub async fn proxy_resources(
     base_url: &str,
     tenant: &str,
+    token: Option<&str>,
 ) -> Result<Vec<CliResourceInfo>> {
-    let resp = client()
+    let resp = authed_client(token)
         .get(format!("{}/resources", base_url))
         .query(&[("tenant", tenant)])
         .send()
@@ -127,8 +145,12 @@ pub async fn proxy_resources(
     Ok(body.resources)
 }
 
-pub async fn proxy_sync(base_url: &str, tenant: &str) -> Result<CliWorkspaceStatus> {
-    let resp = client()
+pub async fn proxy_sync(
+    base_url: &str,
+    tenant: &str,
+    token: Option<&str>,
+) -> Result<CliWorkspaceStatus> {
+    let resp = authed_client(token)
         .post(format!("{}/sync", base_url))
         .json(&serde_json::json!({ "tenant": tenant }))
         .send()
@@ -142,8 +164,12 @@ pub async fn proxy_sync(base_url: &str, tenant: &str) -> Result<CliWorkspaceStat
     Ok(resp.json().await?)
 }
 
-pub async fn proxy_disconnect(base_url: &str, tenant: &str) -> Result<()> {
-    let resp = client()
+pub async fn proxy_disconnect(
+    base_url: &str,
+    tenant: &str,
+    token: Option<&str>,
+) -> Result<()> {
+    let resp = authed_client(token)
         .post(format!("{}/disconnect", base_url))
         .json(&serde_json::json!({ "tenant": tenant }))
         .send()
@@ -157,8 +183,8 @@ pub async fn proxy_disconnect(base_url: &str, tenant: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn proxy_login(base_url: &str, tenant: &str) -> Result<String> {
-    let resp = client()
+pub async fn proxy_login(base_url: &str, tenant: &str, token: Option<&str>) -> Result<String> {
+    let resp = authed_client(token)
         .post(format!("{}/login", base_url))
         .json(&serde_json::json!({ "tenant": tenant }))
         .send()
@@ -178,10 +204,11 @@ pub async fn poll_login_complete(
     base_url: &str,
     tenant: &str,
     timeout: Duration,
+    token: Option<&str>,
 ) -> Result<CliWorkspaceStatus> {
     let started = std::time::Instant::now();
     while started.elapsed() < timeout {
-        if let Ok(status) = proxy_status(base_url).await {
+        if let Ok(status) = proxy_status(base_url, token).await {
             if let Some(ws) = status
                 .workspaces
                 .into_iter()

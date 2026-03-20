@@ -4,6 +4,7 @@ mod config;
 mod posture;
 mod product;
 mod server;
+mod service_auth;
 mod socks5;
 mod token_store;
 mod tun;
@@ -18,6 +19,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use config::{Command, Config};
+use tracing_subscriber::EnvFilter;
 use product::{CliResourceInfo, CliWorkspaceStatus};
 use server::{
     begin_login, callback_router, disconnect_workspace, ensure_workspace_state, management_router,
@@ -27,15 +29,35 @@ use sha2::{Digest, Sha256};
 use token_store::list_workspace_states;
 use tracing::{info, warn};
 
+/// Initialize logging with a command-appropriate default level.
+///
+/// Service mode (`serve`) keeps INFO-level output — operators need to see
+/// connection events and route changes in journal logs.
+///
+/// All other CLI commands default to WARN so that routine operations like
+/// `ztna-client status` or `ztna-client doctor` don't spray internal config
+/// and routing logs at the user.  Set `RUST_LOG=info` to override.
+fn init_logging(command: &Option<Command>) {
+    let default_level = if matches!(command, Some(Command::Serve)) {
+        "info"
+    } else {
+        "warn"
+    };
+    let filter = EnvFilter::builder()
+        .with_default_directive(default_level.parse().expect("invalid log level"))
+        .from_env_lossy();
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
 #[tokio::main]
 async fn main() {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("failed to install rustls crypto provider");
 
-    tracing_subscriber::fmt::init();
-
+    // Parse config first so we know the active command before initializing logging.
     let config = Config::load();
+    init_logging(&config.command);
     token_store::init_state_dir(config.state_dir.clone());
     if let Err(err) = run(config).await {
         eprintln!("error: {err:#}");
@@ -44,11 +66,33 @@ async fn main() {
 }
 
 async fn run(config: Config) -> Result<()> {
+    // Detect a broken product install early: config file exists but is invalid.
+    // `doctor` always runs (it's the diagnostic tool).  `serve` has its own
+    // loop.  Everything else gets a clear actionable error.
+    if config.is_product_install_broken() {
+        let active_cmd = config.command.clone().unwrap_or(Command::Ui { tenant: None });
+        if !matches!(active_cmd, Command::Doctor | Command::Report | Command::Serve) {
+            eprintln!(
+                "Config file exists but failed to parse: /etc/ztna-client/client.conf\n\
+                 \n\
+                 Fix the syntax and restart the service:\n\
+                 \n\
+                 \x20 sudo nano /etc/ztna-client/client.conf\n\
+                 \x20 sudo systemctl restart ztna-client\n\
+                 \n\
+                 Run 'ztna-client doctor' for a full diagnostic."
+            );
+            std::process::exit(1);
+        }
+    }
+
     match config
         .command
         .clone()
         .unwrap_or(Command::Ui { tenant: None })
     {
+        Command::Doctor => run_doctor(&config).await,
+        Command::Report => run_report(&config).await,
         Command::Serve => {
             if !config.is_configured() {
                 info!("client not configured; create /etc/ztna-client/client.conf and restart the service");
@@ -58,9 +102,15 @@ async fn run(config: Config) -> Result<()> {
                 }
             }
             info!("starting ztna-client service in {} mode", config.mode);
+            let service_token = service_auth::init_service_token(&config.state_dir)
+                .unwrap_or_else(|e| {
+                    warn!("failed to write service token: {}; management API will be unprotected", e);
+                    String::new()
+                });
             let app_state = AppState {
                 config: config.clone(),
                 pending: Arc::new(Mutex::new(HashMap::new())),
+                service_token,
             };
             run_service_listeners(app_state).await
         }
@@ -150,6 +200,15 @@ async fn ensure_service_reachable(config: &Config) -> Result<()> {
     );
 }
 
+/// Read the service token from the product state directory.
+///
+/// Returns `None` in dev mode (state dir is XDG, no token file) or when the
+/// file is missing.  Proxy functions treat `None` as "no auth header" — the
+/// server will reject if enforcing.
+fn load_service_token(config: &Config) -> Option<String> {
+    service_auth::read_service_token(&config.state_dir)
+}
+
 // ---------------------------------------------------------------------------
 // Proxied command handlers — CLI → service HTTP API
 // ---------------------------------------------------------------------------
@@ -157,14 +216,15 @@ async fn ensure_service_reachable(config: &Config) -> Result<()> {
 async fn run_proxied_login(config: &Config, tenant: &str, timeout_secs: u64) -> Result<()> {
     ensure_service_reachable(config).await?;
     let base_url = config.service_url();
+    let token = load_service_token(config);
 
-    let auth_url = product::proxy_login(&base_url, tenant).await?;
+    let auth_url = product::proxy_login(&base_url, tenant, token.as_deref()).await?;
     if let Err(err) = open::that(&auth_url) {
         tracing::error!("failed to open browser: {}", err);
     }
     println!("Open this URL if your browser did not launch:\n{auth_url}");
 
-    let ws = product::poll_login_complete(&base_url, tenant, Duration::from_secs(timeout_secs))
+    let ws = product::poll_login_complete(&base_url, tenant, Duration::from_secs(timeout_secs), token.as_deref())
         .await?;
     println!(
         "Connected to workspace {} as {}",
@@ -176,7 +236,8 @@ async fn run_proxied_login(config: &Config, tenant: &str, timeout_secs: u64) -> 
 async fn run_proxied_status(config: &Config, tenant: Option<&str>) -> Result<()> {
     ensure_service_reachable(config).await?;
     let base_url = config.service_url();
-    let resp = product::proxy_status(&base_url).await?;
+    let token = load_service_token(config);
+    let resp = product::proxy_status(&base_url, token.as_deref()).await?;
 
     if !resp.configured {
         eprintln!(
@@ -213,12 +274,13 @@ async fn run_proxied_status(config: &Config, tenant: Option<&str>) -> Result<()>
 async fn run_proxied_resources(config: &Config, tenant: Option<&str>) -> Result<()> {
     ensure_service_reachable(config).await?;
     let base_url = config.service_url();
+    let token = load_service_token(config);
 
     if let Some(tenant) = tenant {
-        let resources = product::proxy_resources(&base_url, tenant).await?;
+        let resources = product::proxy_resources(&base_url, tenant, token.as_deref()).await?;
         print_cli_resources(tenant, &resources);
     } else {
-        let resp = product::proxy_status(&base_url).await?;
+        let resp = product::proxy_status(&base_url, token.as_deref()).await?;
         if resp.workspaces.is_empty() {
             println!("No active sessions. Run: ztna-client login");
         } else {
@@ -233,7 +295,8 @@ async fn run_proxied_resources(config: &Config, tenant: Option<&str>) -> Result<
 async fn run_proxied_sync(config: &Config, tenant: &str) -> Result<()> {
     ensure_service_reachable(config).await?;
     let base_url = config.service_url();
-    let ws = product::proxy_sync(&base_url, tenant).await?;
+    let token = load_service_token(config);
+    let ws = product::proxy_sync(&base_url, tenant, token.as_deref()).await?;
     print_cli_status(&ws, "");
     println!("Resources synced: {}", ws.resources.len());
     Ok(())
@@ -242,7 +305,8 @@ async fn run_proxied_sync(config: &Config, tenant: &str) -> Result<()> {
 async fn run_proxied_disconnect(config: &Config, tenant: &str, verb: &str) -> Result<()> {
     ensure_service_reachable(config).await?;
     let base_url = config.service_url();
-    product::proxy_disconnect(&base_url, tenant).await?;
+    let token = load_service_token(config);
+    product::proxy_disconnect(&base_url, tenant, token.as_deref()).await?;
     println!("{verb} from workspace {tenant}");
     Ok(())
 }
@@ -255,6 +319,7 @@ async fn run_direct_login(config: Config, tenant: &str, timeout_secs: u64) -> Re
     let app_state = AppState {
         config: config.clone(),
         pending: Arc::new(Mutex::new(HashMap::new())),
+        service_token: String::new(),
     };
     let _server = tokio::spawn(run_direct_callback_server(app_state.clone()));
     let auth_url = begin_login(&app_state, tenant).await?;
@@ -292,8 +357,13 @@ async fn run_direct_resources(config: &Config, tenant: Option<&str>) -> Result<(
         let state = ensure_workspace_state(config, tenant, false).await?;
         print_stored_resources(&state);
     } else {
-        for state in list_workspace_states()? {
-            print_stored_resources(&state);
+        let states = list_workspace_states()?;
+        if states.is_empty() {
+            println!("No active sessions. Run: ztna-client login");
+        } else {
+            for state in states {
+                print_stored_resources(&state);
+            }
         }
     }
     Ok(())
@@ -350,11 +420,42 @@ async fn run_service_listeners(state: AppState) -> Result<()> {
     let mgmt_app = management_router(state.clone());
     let cb_app = callback_router(state.clone());
 
-    tokio::join!(
-        async { axum::serve(mgmt_listener, mgmt_app).await.expect("management server failed") },
-        async { axum::serve(cb_listener, cb_app).await.expect("callback server failed") },
-    );
+    // Run both listeners until a shutdown signal is received.
+    //
+    // Catching SIGTERM/SIGINT here triggers a graceful tokio runtime shutdown:
+    // when this function returns, the runtime drops all spawned tasks (TUN
+    // listener, posture reporter, etc.) and their Drop impls run — which
+    // includes RouteManager::cleanup() that removes kernel routing rules.
+    tokio::select! {
+        _ = shutdown_signal() => {
+            info!("shutdown signal received; stopping service");
+        }
+        result = axum::serve(mgmt_listener, mgmt_app) => {
+            if let Err(e) = result { warn!("management server exited: {}", e); }
+        }
+        result = axum::serve(cb_listener, cb_app) => {
+            if let Err(e) = result { warn!("callback server exited: {}", e); }
+        }
+    }
     Ok(())
+}
+
+/// Returns a future that resolves on SIGTERM (Unix) or Ctrl-C.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm = signal(SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = sigterm.recv() => { info!("received SIGTERM"); }
+            _ = tokio::signal::ctrl_c() => { info!("received SIGINT"); }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.ok();
+    }
 }
 
 /// Start only the OAuth callback listener (no management API).
@@ -386,6 +487,195 @@ fn is_loopback_bind(addr: &str) -> bool {
     addr == "127.0.0.1" || addr == "::1" || addr == "localhost"
 }
 
+// ---------------------------------------------------------------------------
+// doctor — product diagnostics
+// ---------------------------------------------------------------------------
+
+async fn run_doctor(config: &Config) -> Result<()> {
+    println!("ztna-client diagnostics");
+    println!("{}", "-".repeat(40));
+
+    // ── Install mode ──────────────────────────────────────────────────────
+    let config_path = "/etc/ztna-client/client.conf";
+    if config.config_file_loaded {
+        println!("[OK]   install:  product ({config_path})");
+    } else if config.config_file_exists {
+        println!("[ERR]  install:  product config exists but FAILED TO PARSE");
+        println!("       file:     {config_path}");
+        println!("       action:   sudo nano {config_path}");
+        println!("                 sudo systemctl restart ztna-client");
+    } else if config.running_as_root() {
+        println!("[OK]   install:  running as root (dev/direct mode)");
+    } else {
+        println!("[INFO] install:  dev mode (no product config file)");
+    }
+
+    // ── Config values ────────────────────────────────────────────────────
+    if config.config_file_loaded {
+        let configured = config.is_configured();
+        let controller = &config.controller_url;
+        let tenant = if config.tenant.is_empty() { "(none)" } else { &config.tenant };
+        if configured {
+            println!("[OK]   config:   controller={controller}  tenant={tenant}  mode={}", config.mode);
+        } else {
+            println!("[WARN] config:   loaded but incomplete — set controller_url and tenant");
+            println!("       controller: {controller}");
+            println!("       tenant:     {tenant}");
+        }
+        let cb_bind = &config.callback_bind_addr;
+        let cb_port = config.port;
+        if is_loopback_bind(cb_bind) {
+            println!("[OK]   callback:  {cb_bind}:{cb_port} (localhost)");
+        } else {
+            println!("[WARN] callback:  {cb_bind}:{cb_port} — LAN-exposed (for testing only)");
+        }
+    } else if config.config_file_exists {
+        println!("[ERR]  config:   cannot check — config file is invalid");
+    } else {
+        println!("[INFO] config:   no product config (dev mode defaults)");
+        println!("       controller: {}  mode: {}", config.controller_url, config.mode);
+    }
+
+    // ── Service reachability ──────────────────────────────────────────────
+    if config.config_file_loaded || config.config_file_exists {
+        let mgmt_port = config.management_port();
+        if product::is_service_running(mgmt_port).await {
+            // Fetch live status from the service
+            let base_url = config.service_url();
+            let token = load_service_token(config);
+            match product::proxy_status(&base_url, token.as_deref()).await {
+                Ok(status) => {
+                    if status.configured {
+                        println!("[OK]   service:  running (mode={})", status.mode);
+                    } else {
+                        println!("[WARN] service:  running but not configured");
+                        println!("       action:   edit {config_path} and restart");
+                    }
+                    // Sessions
+                    if status.workspaces.is_empty() {
+                        println!("[WARN] sessions: none — run: ztna-client login");
+                    } else {
+                        println!("[OK]   sessions: {} active", status.workspaces.len());
+                        for ws in &status.workspaces {
+                            let expiry = format_session_expiry(ws.session_expires_at);
+                            println!(
+                                "         [{}]  user={}  resources={}  session={}",
+                                ws.workspace_slug,
+                                ws.user_email,
+                                ws.resources.len(),
+                                expiry
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("[WARN] service:  reachable but status failed: {e}");
+                }
+            }
+        } else if config.config_file_loaded {
+            println!("[ERR]  service:  not running on 127.0.0.1:{mgmt_port}");
+            println!("       action:   sudo systemctl start ztna-client");
+            println!("       logs:     sudo journalctl -u ztna-client -f");
+        } else {
+            // Broken config: service may or may not be running — we don't know the port
+            println!("[WARN] service:  status unknown (config invalid, using default port)");
+        }
+    } else {
+        // Dev mode — check direct session state
+        match token_store::list_workspace_states() {
+            Ok(states) if states.is_empty() => {
+                println!("[INFO] sessions: none — run: ztna-client login");
+            }
+            Ok(states) => {
+                println!("[OK]   sessions: {} active (dev mode)", states.len());
+                for ws in &states {
+                    let expiry = format_session_expiry(ws.session.expires_at);
+                    println!(
+                        "         [{}]  user={}  resources={}  session={}",
+                        ws.workspace.slug,
+                        ws.user.email,
+                        ws.resources.len(),
+                        expiry
+                    );
+                }
+            }
+            Err(e) => {
+                println!("[WARN] sessions: could not read state: {e}");
+            }
+        }
+    }
+
+    println!("{}", "-".repeat(40));
+    Ok(())
+}
+
+/// Machine-readable JSON support report — no secrets included.
+///
+/// Emits a JSON object to stdout with install mode, config status, service
+/// reachability, and sanitized session info.  Intended for diagnostics,
+/// support, and automated health checks.
+async fn run_report(config: &Config) -> Result<()> {
+    let mut report = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "install": {
+            "product": config.config_file_loaded,
+            "config_file_exists": config.config_file_exists,
+            "config_file_parsed": config.config_file_loaded,
+            "running_as_root": config.running_as_root(),
+        },
+        "config": {
+            "configured": config.is_configured(),
+            "controller_url": config.controller_url,
+            "mode": config.mode,
+            "tenant": config.tenant,
+        },
+    });
+
+    // Service reachability and sessions
+    if config.config_file_loaded || config.config_file_exists {
+        let port = config.management_port();
+        let running = product::is_service_running(port).await;
+        report["service"] = serde_json::json!({ "running": running });
+        if running {
+            let token = load_service_token(config);
+            match product::proxy_status(&config.service_url(), token.as_deref()).await {
+                Ok(status) => {
+                    report["service"]["configured"] = status.configured.into();
+                    report["service"]["mode"] = status.mode.clone().into();
+                    let sessions: Vec<_> = status.workspaces.iter().map(|w| {
+                        serde_json::json!({
+                            "workspace_slug": w.workspace_slug,
+                            "user_email": w.user_email,
+                            "resource_count": w.resources.len(),
+                            "session_expires_at": w.session_expires_at,
+                        })
+                    }).collect();
+                    report["sessions"] = sessions.into();
+                }
+                Err(e) => {
+                    report["service"]["error"] = e.to_string().into();
+                }
+            }
+        }
+    } else {
+        // Dev mode — read state files directly
+        if let Ok(states) = token_store::list_workspace_states() {
+            let sessions: Vec<_> = states.iter().map(|w| {
+                serde_json::json!({
+                    "workspace_slug": w.workspace.slug,
+                    "user_email": w.user.email,
+                    "resource_count": w.resources.len(),
+                    "session_expires_at": w.session.expires_at,
+                })
+            }).collect();
+            report["sessions"] = sessions.into();
+        }
+    }
+
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
 /// Default no-args behavior in product mode (config file loaded, non-root).
 ///
 /// Shows current service status if reachable, then a concise usage hint.
@@ -413,6 +703,7 @@ async fn run_ui(config: Config, initial_tenant: Option<String>) -> Result<()> {
     let app_state = AppState {
         config: config.clone(),
         pending: Arc::new(Mutex::new(HashMap::new())),
+        service_token: String::new(),
     };
     let _server = tokio::spawn(run_direct_callback_server(app_state.clone()));
 
@@ -514,36 +805,24 @@ fn format_session_expiry(expires_at: i64) -> String {
     }
     let mins = remaining / 60;
     if mins >= 60 {
-        format!("active (expires in {}h {}m)", mins / 60, mins % 60)
+        format!("expires in {}h {}m", mins / 60, mins % 60)
     } else {
-        format!("active (expires in {}m)", mins)
+        format!("expires in {}m", mins)
     }
 }
 
 /// Print status from a sanitized CliWorkspaceStatus (proxy path).
 fn print_cli_status(ws: &CliWorkspaceStatus, mode: &str) {
     let session = format_session_expiry(ws.session_expires_at);
-    if mode.is_empty() {
-        println!(
-            "[{}] user={} role={} device={} resources={} session={}",
-            ws.workspace_slug,
-            ws.user_email,
-            ws.user_role,
-            ws.device_id,
-            ws.resources.len(),
-            session,
-        );
-    } else {
-        println!(
-            "[{}] user={} role={} device={} resources={} session={} mode={}",
-            ws.workspace_slug,
-            ws.user_email,
-            ws.user_role,
-            ws.device_id,
-            ws.resources.len(),
-            session,
-            mode,
-        );
+    println!("\n{}", "─".repeat(50));
+    println!("Workspace: {} ({})", ws.workspace_name, ws.workspace_slug);
+    println!("──────────────────────────────────────────────────");
+    println!("  User:            {} ({})", ws.user_email, ws.user_role);
+    println!("  Device ID:       {}", ws.device_id);
+    println!("  Resources:       {}", ws.resources.len());
+    println!("  Session:         {}", session);
+    if !mode.is_empty() {
+        println!("  Mode:            {}", mode);
     }
 }
 
@@ -563,44 +842,62 @@ fn print_stored_status(state: &token_store::StoredWorkspaceState) {
 
 /// Print resources from sanitized CliResourceInfo (proxy path).
 fn print_cli_resources(slug: &str, resources: &[CliResourceInfo]) {
-    println!("Workspace: {slug}");
+    println!("\n{}", "─".repeat(60));
+    println!("Workspace: {}", slug);
+    println!("────────────────────────────────────────────────────────────");
+    
     if resources.is_empty() {
-        println!("  no authorized resources");
+        println!("  No authorized resources");
+        println!();
+        println!("  Resources will appear here after your administrator grants");
+        println!("  access to networks and applications.");
         return;
     }
+    
+    println!("  {:<25} {:<12} {:<20}", "Name", "Status", "Address");
+    println!("  {:<25} {:<12} {:<20}", "─".repeat(25), "─".repeat(12), "─".repeat(20));
+    
     for resource in resources {
         let ports = format_ports(resource.port_from, resource.port_to);
-        println!(
-            "  {} [{}] {}:{} via {} ({})",
-            resource.name,
-            resource.firewall_status,
-            resource.address,
-            ports,
-            resource.remote_network_name,
-            resource.protocol
-        );
+        let address = format!("{}:{}", resource.address, ports);
+        let status_indicator = match resource.firewall_status.as_str() {
+            "allowed" => "✓ allowed",
+            "denied" => "✗ denied",
+            other => other,
+        };
+        println!("  {:<25} {:<12} {:<20}", resource.name, status_indicator, address);
     }
+    println!();
 }
 
 /// Print resources from StoredWorkspaceState (direct path).
 fn print_stored_resources(state: &token_store::StoredWorkspaceState) {
+    println!("\n{}", "─".repeat(60));
     println!("Workspace: {}", state.workspace.slug);
+    println!("────────────────────────────────────────────────────────────");
+    
     if state.resources.is_empty() {
-        println!("  no authorized resources");
+        println!("  No authorized resources");
+        println!();
+        println!("  Resources will appear here after your administrator grants");
+        println!("  access to networks and applications.");
         return;
     }
+    
+    println!("  {:<25} {:<12} {:<20}", "Name", "Status", "Address");
+    println!("  {:<25} {:<12} {:<20}", "─".repeat(25), "─".repeat(12), "─".repeat(20));
+    
     for resource in &state.resources {
         let ports = format_ports(resource.port_from, resource.port_to);
-        println!(
-            "  {} [{}] {}:{} via {} ({})",
-            resource.name,
-            resource.firewall_status,
-            resource.address,
-            ports,
-            resource.remote_network_name,
-            resource.protocol
-        );
+        let address = format!("{}:{}", resource.address, ports);
+        let status_indicator = match resource.firewall_status.as_str() {
+            "allowed" => "✓ allowed",
+            "denied" => "✗ denied",
+            other => other,
+        };
+        println!("  {:<25} {:<12} {:<20}", resource.name, status_indicator, address);
     }
+    println!();
 }
 
 fn format_ports(port_from: Option<i32>, port_to: Option<i32>) -> String {
@@ -651,6 +948,7 @@ fn start_socks_listener(config: &Config) {
                 tun_mtu: 1500,
                 state_dir: std::path::PathBuf::new(),
                 config_file_loaded: false,
+                config_file_exists: false,
                 command: None,
             };
             let tenant = tenant.clone();

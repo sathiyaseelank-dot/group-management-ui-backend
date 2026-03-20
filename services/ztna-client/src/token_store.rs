@@ -11,68 +11,113 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Current schema version written on every save.
+///
+/// Increment this when making breaking changes to `StoredWorkspaceState` or
+/// its nested types.  Old state files that predate this field will deserialize
+/// `schema_version` as 0 (via `#[serde(default)]`) and can be migrated.
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
+/// `#[serde(default)]` on sub-structs lets new optional fields be added to
+/// any nested type without breaking deserialization of existing state files.
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StoredUser {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub email: String,
+    #[serde(default)]
     pub role: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StoredWorkspace {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub slug: String,
+    #[serde(default)]
     pub trust_domain: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StoredDevice {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub spiffe_id: String,
+    #[serde(default)]
     pub certificate_pem: String,
     /// Private key PEM, encrypted at rest.  Value is either:
     ///   - `"enc1:<base64(12-byte-nonce || AES-256-GCM-ciphertext)>"` (current), or
     ///   - a raw PEM string (legacy, auto-migrated to enc1 on next save).
+    #[serde(default)]
     pub private_key_pem: String,
+    #[serde(default)]
     pub ca_cert_pem: String,
+    #[serde(default)]
     pub cert_expires_at: i64,
+    #[serde(default)]
     pub hostname: String,
+    #[serde(default)]
     pub os: String,
+    #[serde(default)]
     pub client_version: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StoredSession {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub access_token: String,
+    #[serde(default)]
     pub refresh_token: String,
+    #[serde(default)]
     pub expires_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StoredResource {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub r#type: String,
+    #[serde(default)]
     pub address: String,
+    #[serde(default)]
     pub protocol: String,
     pub port_from: Option<i32>,
     pub port_to: Option<i32>,
     pub alias: Option<String>,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub remote_network_id: String,
+    #[serde(default)]
     pub remote_network_name: String,
+    #[serde(default)]
     pub firewall_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredWorkspaceState {
+    /// Incremented when the persisted format changes in a breaking way.
+    /// Files written before this field was introduced deserialize as 0.
+    #[serde(default)]
+    pub schema_version: u32,
     pub workspace: StoredWorkspace,
     pub user: StoredUser,
     pub device: StoredDevice,
     pub session: StoredSession,
+    #[serde(default)]
     pub resources: Vec<StoredResource>,
+    #[serde(default)]
     pub last_sync_at: i64,
 }
 
@@ -206,6 +251,10 @@ fn decrypt_private_key(key_bytes: &[u8; 32], encrypted: &str) -> Result<String> 
 pub fn save_workspace_state(tenant_slug: &str, state: &StoredWorkspaceState) -> Result<()> {
     let path = state_path(tenant_slug);
     let mut state = state.clone();
+
+    // Always stamp the current schema version on save so we can detect
+    // future migration needs on load.
+    state.schema_version = CURRENT_SCHEMA_VERSION;
 
     // Encrypt the private key if it is currently stored as plain text.
     if !state.device.private_key_pem.is_empty()

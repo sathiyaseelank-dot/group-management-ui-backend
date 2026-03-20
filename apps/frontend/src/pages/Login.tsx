@@ -9,6 +9,14 @@ import { getWorkspaceClaims } from '@/lib/jwt'
 const CONTROLLER_URL = import.meta.env.VITE_CONTROLLER_URL || `${window.location.protocol}//${window.location.hostname}:8081`
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
+function buildWorkspaceLoginUrl(workspaceSlug: string) {
+  const params = new URLSearchParams({
+    return_to: window.location.origin,
+    workspace_slug: workspaceSlug,
+  })
+  return `${CONTROLLER_URL}/oauth/google/login?${params.toString()}`
+}
+
 export default function LoginPage() {
   const navigate = useNavigate()
   const [mode, setMode] = useState<'slug' | 'email'>('slug')
@@ -46,7 +54,7 @@ export default function LoginPage() {
       const data = await res.json()
       if (data.exists) {
         // Redirect to the provider login for this workspace
-        window.location.href = `${CONTROLLER_URL}/oauth/google/login?return_to=${encodeURIComponent(window.location.origin)}`
+        window.location.href = buildWorkspaceLoginUrl(slug.trim().toLowerCase())
       } else {
         setError('Network not found. Check the URL and try again.')
       }
@@ -80,7 +88,7 @@ export default function LoginPage() {
   }
 
   const handleNetworkSelect = (networkSlug: string) => {
-    window.location.href = `${CONTROLLER_URL}/oauth/google/login?return_to=${encodeURIComponent(window.location.origin)}`
+    window.location.href = buildWorkspaceLoginUrl(networkSlug)
   }
 
   return (

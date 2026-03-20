@@ -59,7 +59,7 @@ fn load_config_file(path: &str) -> (FileConfig, bool) {
 // ---------------------------------------------------------------------------
 
 #[derive(Parser, Debug)]
-#[command(name = "ztna-client", about = "ZTNA native client")]
+#[command(name = "ztna-client", about = "ZTNA native client", version)]
 struct CliArgs {
     /// Path to TOML configuration file
     #[arg(long, default_value = "/etc/ztna-client/client.conf")]
@@ -135,13 +135,21 @@ struct CliArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Run the interactive terminal client
+    /// Run the interactive terminal client (legacy mode).
+    ///
+    /// Starts an interactive CLI session where you can type commands like
+    /// `login`, `status`, `resources`, etc. For most use cases, prefer the
+    /// direct subcommands (e.g., `ztna-client login`) instead.
     Ui {
         /// Workspace slug to prefill for login
         #[arg(long)]
         tenant: Option<String>,
     },
-    /// Start browser login for a workspace
+    /// Start browser login for a workspace.
+    ///
+    /// Opens your default browser to authenticate with the specified
+    /// workspace. After successful authentication, the client will be
+    /// connected and ready to route traffic.
     Login {
         /// Workspace slug (defaults to tenant in config)
         #[arg(long)]
@@ -150,36 +158,67 @@ pub enum Command {
         #[arg(long, default_value_t = 180)]
         timeout_secs: u64,
     },
-    /// Show saved workspace sessions
+    /// Show active workspace sessions.
+    ///
+    /// Displays currently authenticated workspace sessions, including user
+    /// info, device ID, resource count, and session expiry time.
     Status {
+        /// Show status for a specific workspace only
         #[arg(long)]
         tenant: Option<String>,
     },
-    /// Sync resources for a workspace
+    /// Sync resources for a workspace.
+    ///
+    /// Refreshes the list of authorized resources from the controller.
+    /// Use this after your administrator has granted new access.
     Sync {
         /// Workspace slug (defaults to tenant in config)
         #[arg(long)]
         tenant: Option<String>,
     },
-    /// List authorized resources
+    /// List authorized resources for a workspace.
+    ///
+    /// Shows all resources (servers, applications, networks) you have
+    /// been granted access to, including their addresses and firewall status.
     Resources {
+        /// Show resources for a specific workspace only
         #[arg(long)]
         tenant: Option<String>,
     },
-    /// Revoke and clear a workspace session
+    /// Revoke and clear a workspace session.
+    ///
+    /// Disconnects from the specified workspace and removes local session
+    /// state. You will need to log in again to access resources.
     Disconnect {
         /// Workspace slug (defaults to tenant in config)
         #[arg(long)]
         tenant: Option<String>,
     },
-    /// Revoke and clear a workspace session (alias for disconnect)
+    /// Revoke and clear a workspace session (alias for disconnect).
     Logout {
         /// Workspace slug (defaults to tenant in config)
         #[arg(long)]
         tenant: Option<String>,
     },
-    /// Run the background service (for systemd)
+    /// Run the background service (for systemd).
+    ///
+    /// This command is intended to be run by systemd as a background service.
+    /// It starts the management API and OAuth callback listeners, and handles
+    /// all client connections and traffic routing.
     Serve,
+    /// Show product diagnostics.
+    ///
+    /// Displays comprehensive diagnostic information including install mode,
+    /// configuration status, service reachability, and active sessions.
+    /// Useful for troubleshooting installation and connectivity issues.
+    Doctor,
+    /// Emit a machine-readable JSON support report.
+    ///
+    /// Outputs a JSON object with install mode, configuration status, service
+    /// reachability, and sanitized session information. No secrets (tokens,
+    /// keys, certificates) are included. Useful for automated health checks
+    /// and support diagnostics.
+    Report,
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +263,9 @@ pub struct Config {
     /// Whether a TOML config file was successfully loaded at startup.
     /// When true, indicates a product install (as opposed to dev mode).
     pub config_file_loaded: bool,
+    /// Whether the config file path exists on disk (even if it failed to parse).
+    /// Used to distinguish a product install with a broken config from dev mode.
+    pub config_file_exists: bool,
     /// Active subcommand
     pub command: Option<Command>,
 }
@@ -235,12 +277,13 @@ impl Config {
     /// the TOML config file is consulted before falling back to defaults.
     pub fn load() -> Self {
         let cli = CliArgs::parse();
+        let config_file_exists = Path::new(&cli.config_file).exists();
         let (file, file_loaded) = load_config_file(&cli.config_file);
 
         // Log config file status
         if file_loaded {
             info!("config: loaded {}", cli.config_file);
-        } else if Path::new(&cli.config_file).exists() {
+        } else if config_file_exists {
             info!("config: {} exists but failed to parse", cli.config_file);
         } else {
             info!("config: no config file at {}", cli.config_file);
@@ -304,6 +347,7 @@ impl Config {
                 file_loaded,
             ),
             config_file_loaded: file_loaded,
+            config_file_exists,
             command: cli.command,
         };
 
@@ -382,6 +426,20 @@ impl Config {
     /// directly accessing state files.
     pub fn should_proxy_to_service(&self) -> bool {
         self.config_file_loaded && !is_running_as_root()
+    }
+
+    /// Returns true when the config file exists on disk but failed to parse.
+    ///
+    /// This signals a broken product install: the user has tried to set up the
+    /// client but left the config in an invalid state.  CLI commands should
+    /// surface a clear error rather than silently falling back to dev mode.
+    pub fn is_product_install_broken(&self) -> bool {
+        self.config_file_exists && !self.config_file_loaded
+    }
+
+    /// Returns true when running as root.
+    pub fn running_as_root(&self) -> bool {
+        is_running_as_root()
     }
 
     /// Port for the management API (always localhost-only).

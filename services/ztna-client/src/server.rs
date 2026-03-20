@@ -4,9 +4,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use axum::{
-    extract::{Query, State},
+    extract::{Query, Request, State},
     http::StatusCode,
-    response::{Html, IntoResponse},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -34,6 +35,9 @@ const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct AppState {
     pub config: Config,
     pub pending: Arc<Mutex<HashMap<String, PendingAuth>>>,
+    /// Token the CLI must supply in `X-Service-Token` to reach management
+    /// endpoints.  Empty string disables auth (dev mode / token-init failure).
+    pub service_token: String,
 }
 
 #[derive(Debug, Clone)]
@@ -135,10 +139,36 @@ pub async fn run_posture_reporter(config: Config) {
     }
 }
 
+/// Axum middleware that validates the `X-Service-Token` header.
+///
+/// Rejected requests receive `401 Unauthorized` with no body.  If the service
+/// token is empty (dev mode or token initialisation failure) all requests are
+/// allowed through so that development workflows are unaffected.
+async fn require_service_token(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if state.service_token.is_empty() {
+        return next.run(request).await;
+    }
+    let provided = request
+        .headers()
+        .get("X-Service-Token")
+        .and_then(|v| v.to_str().ok());
+    if provided == Some(state.service_token.as_str()) {
+        next.run(request).await
+    } else {
+        StatusCode::UNAUTHORIZED.into_response()
+    }
+}
+
 /// Management API router — bound to 127.0.0.1 only.
 ///
-/// Exposes control-plane endpoints used by the CLI proxy.  Loopback binding
-/// is the access-control mechanism; no token auth is added here.
+/// All routes require a valid `X-Service-Token` header (written at service
+/// startup to `<state_dir>/.service.token`, mode 0644).  The loopback binding
+/// provides network-level isolation; the token provides process-level isolation
+/// so that other local processes cannot call management endpoints.
 pub fn management_router(state: AppState) -> Router {
     Router::new()
         .route("/status", get(handle_status))
@@ -146,6 +176,10 @@ pub fn management_router(state: AppState) -> Router {
         .route("/sync", post(handle_sync))
         .route("/disconnect", post(handle_disconnect))
         .route("/login", post(handle_login))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_service_token,
+        ))
         .with_state(state)
 }
 
@@ -268,6 +302,7 @@ fn build_workspace_state(
     device: StoredDevice,
 ) -> StoredWorkspaceState {
     StoredWorkspaceState {
+        schema_version: crate::token_store::CURRENT_SCHEMA_VERSION,
         workspace: StoredWorkspace {
             id: view.workspace.id,
             name: view.workspace.name,
@@ -577,6 +612,7 @@ async fn handle_status(State(state): State<AppState>) -> Json<CliStatusResponse>
     Json(CliStatusResponse {
         mode: state.config.mode.clone(),
         configured: state.config.is_configured(),
+        client_version: CLIENT_VERSION.to_string(),
         workspaces,
     })
 }

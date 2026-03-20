@@ -1,7 +1,96 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Shield, Monitor, CheckCircle, ArrowLeft, Settings } from 'lucide-react'
+import {
+  ArrowLeft,
+  CheckCircle,
+  Copy,
+  Download,
+  Monitor,
+  Settings,
+  Shield,
+  Terminal,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getWorkspaceClaims } from '@/lib/jwt'
+
+function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text)
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+  return Promise.resolve()
+}
+
+function detectPlatform(): string {
+  const ua = navigator.userAgent.toLowerCase()
+  if (ua.includes('linux')) return 'Linux'
+  if (ua.includes('mac')) return 'macOS'
+  if (ua.includes('win')) return 'Windows'
+  return 'Unknown'
+}
+
+function buildControllerUrl() {
+  const configured = import.meta.env.VITE_CONTROLLER_URL
+  if (configured) {
+    return configured
+  }
+  return `${window.location.protocol}//${window.location.hostname}:8081`
+}
+
+function CommandBlock({
+  title,
+  description,
+  command,
+}: {
+  title: string
+  description: string
+  command: string
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await copyToClipboard(command)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div className="space-y-1">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+
+      <div className="rounded-md border bg-muted/50">
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <Terminal className="h-3.5 w-3.5" />
+            Command
+          </div>
+          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={handleCopy}>
+            <Copy className="h-3.5 w-3.5" />
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+        </div>
+        <pre className="overflow-x-auto px-3 py-3 text-xs leading-6 text-foreground">
+          <code>{command}</code>
+        </pre>
+      </div>
+    </div>
+  )
+}
 
 export default function InstallPage() {
   const navigate = useNavigate()
@@ -12,7 +101,7 @@ export default function InstallPage() {
   if (!token || !claims) {
     return (
       <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center bg-background p-4">
-        <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-8 shadow-sm text-center">
+        <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-8 text-center shadow-sm">
           <p className="text-sm text-muted-foreground">Invalid or expired session.</p>
           <Button variant="outline" onClick={() => navigate('/login', { replace: true })}>
             Go to Login
@@ -23,78 +112,101 @@ export default function InstallPage() {
   }
 
   const platform = detectPlatform()
+  const controllerUrl = buildControllerUrl()
+  const installCommand = 'curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/client-install-release.sh | sudo bash'
+  const configCommand = [
+    'sudo tee /etc/ztna-client/client.conf >/dev/null <<\'CONF\'',
+    `controller_url = "${controllerUrl}"`,
+    `tenant = "${claims.wslug}"`,
+    'CONF',
+  ].join('\n')
+  const finishCommand = ['sudo systemctl restart ztna-client', 'ztna-client login', 'ztna-client status'].join('\n')
 
   return (
-    <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center bg-background p-4">
-      <div className="w-full max-w-lg space-y-6 rounded-xl border bg-card p-8 shadow-sm">
-        <div className="flex flex-col items-center space-y-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <Monitor className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Install ZTNA Client</h1>
-        </div>
+    <div className="flex min-h-[calc(100vh-3.5rem)] justify-center bg-background p-4">
+      <div className="w-full max-w-3xl space-y-6 py-8">
+        <div className="rounded-xl border bg-card p-8 shadow-sm">
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col items-center space-y-3 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <Monitor className="h-6 w-6 text-primary" />
+              </div>
+              <div className="space-y-2">
+                <h1 className="text-2xl font-semibold tracking-tight">Install ZTNA Client</h1>
+                <p className="text-sm text-muted-foreground">
+                  Install the Linux client, point it at your controller, then sign in to{' '}
+                  <span className="font-medium text-foreground">{claims.wslug}</span>.
+                </p>
+              </div>
+            </div>
 
-        <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
-          <div className="flex items-start gap-3">
-            <Shield className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Platform: {platform}</p>
-              <p className="text-sm text-muted-foreground">
-                The ZTNA client for {platform} is coming soon. You'll be able to securely access
-                your workspace resources directly from your terminal.
-              </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-lg border bg-muted/40 p-4">
+                <div className="flex items-start gap-3">
+                  <Shield className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Workspace</p>
+                    <p className="text-sm text-muted-foreground">{claims.wslug}.zerotrust.com</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-muted/40 p-4">
+                <div className="flex items-start gap-3">
+                  <Download className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Detected platform</p>
+                    <p className="text-sm text-muted-foreground">{platform}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {platform !== 'Linux' && (
+              <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <CheckCircle className="h-4 w-4 shrink-0" />
+                The scripted installer is currently Linux-first. You can still use the commands below on a Linux host or VM.
+              </div>
+            )}
+
+            <CommandBlock
+              title="1. Install the client"
+              description="This downloads the latest released ztna-client binary and installs the systemd service."
+              command={installCommand}
+            />
+
+            <CommandBlock
+              title="2. Configure this workspace"
+              description="Write the controller URL and workspace slug into the local client config."
+              command={configCommand}
+            />
+
+            <CommandBlock
+              title="3. Start and sign in"
+              description="Restart the service, complete login, then confirm the client is connected."
+              command={finishCommand}
+            />
+
+            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+              <CheckCircle className="h-4 w-4 shrink-0" />
+              Use the copied commands in a Linux terminal on the machine where you want the client installed.
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1 gap-2" onClick={() => navigate('/app')}>
+                <ArrowLeft className="h-4 w-4" />
+                Back to Home
+              </Button>
+              {isAdmin && (
+                <Button className="flex-1 gap-2" onClick={() => navigate('/dashboard/groups', { replace: true })}>
+                  <Settings className="h-4 w-4" />
+                  Go to Dashboard
+                </Button>
+              )}
             </div>
           </div>
-        </div>
-
-        <div className="rounded-lg border p-4 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Workspace Info
-          </p>
-          <div className="space-y-1">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Workspace</span>
-              <span className="font-medium">{claims.wslug}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Trust Domain</span>
-              <span className="font-mono text-xs">{claims.wslug}.zerotrust.com</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Role</span>
-              <span className="capitalize">{claims.wrole}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-900 dark:bg-green-950">
-          <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
-          <p className="text-sm text-green-700 dark:text-green-300">
-            Your account is ready. You'll receive a notification when the client is available.
-          </p>
-        </div>
-
-        <div className="flex gap-3">
-          <Button variant="outline" className="flex-1 gap-2" onClick={() => navigate('/app')}>
-            <ArrowLeft className="h-4 w-4" />
-            Back to Home
-          </Button>
-          {isAdmin && (
-            <Button className="flex-1 gap-2" onClick={() => navigate('/dashboard/groups', { replace: true })}>
-              <Settings className="h-4 w-4" />
-              Go to Dashboard
-            </Button>
-          )}
         </div>
       </div>
     </div>
   )
-}
-
-function detectPlatform(): string {
-  const ua = navigator.userAgent.toLowerCase()
-  if (ua.includes('linux')) return 'Linux'
-  if (ua.includes('mac')) return 'macOS'
-  if (ua.includes('win')) return 'Windows'
-  return 'Unknown'
 }

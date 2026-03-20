@@ -408,6 +408,10 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
 
     info!("[tun] listener running");
 
+    // Signal handling: a one-shot future that fires on SIGTERM or Ctrl-C,
+    // allowing the loop to break cleanly so route_manager.cleanup() runs.
+    let mut shutdown = std::pin::pin!(tun_shutdown_signal());
+
     // ---- 6. Main event loop ----
     let mut buf = vec![0u8; 65536];
 
@@ -416,6 +420,12 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
         // the timers, so real I/O is never starved by periodic ticks.
         tokio::select! {
             biased;
+
+            // -- Graceful shutdown signal (SIGTERM or Ctrl-C) --
+            _ = &mut shutdown => {
+                info!("[tun] shutdown signal received, cleaning up");
+                break;
+            }
 
             // -- TUN read: raw IP packet from kernel --
             result = tun_reader.read(&mut buf) => {
@@ -641,6 +651,37 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
     info!("[tun] shutting down, cleaning up routes");
     route_manager.cleanup();
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Shutdown signal helper
+// ---------------------------------------------------------------------------
+
+/// Returns a future that resolves on SIGTERM (Unix) or Ctrl-C.
+///
+/// Used in the TUN main loop so the loop can break cleanly, allowing
+/// `route_manager.cleanup()` to remove kernel routes before the process exits.
+async fn tun_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                tokio::select! {
+                    _ = sigterm.recv() => {}
+                    _ = tokio::signal::ctrl_c() => {}
+                }
+            }
+            Err(e) => {
+                warn!("[tun] cannot install SIGTERM handler: {e}; falling back to Ctrl-C only");
+                tokio::signal::ctrl_c().await.ok();
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.ok();
+    }
 }
 
 // ---------------------------------------------------------------------------

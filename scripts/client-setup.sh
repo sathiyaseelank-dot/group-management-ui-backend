@@ -29,9 +29,9 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
-ok()   { echo -e "  ${GREEN}[OK]${NC}  $*"; }
-warn() { echo -e "  ${YELLOW}[WARN]${NC} $*"; }
-err()  { echo -e "  ${RED}[ERR]${NC} $*" >&2; }
+ok()   { echo -e "  ${GREEN}✓${NC}  $*"; }
+warn() { echo -e "  ${YELLOW}!${NC}  $*"; }
+err()  { echo -e "  ${RED}✗${NC}  $*" >&2; }
 
 # ── Root check ───────────────────────────────────────────────────────────────
 if [[ "${EUID}" -ne 0 ]]; then
@@ -46,7 +46,8 @@ echo "════════════════════════�
 echo ""
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
-echo "── Pre-flight checks ────────────────────────────────"
+echo "Pre-flight checks"
+echo "─────────────────────────────────────────────────────"
 
 if [[ ! -f "${BINARY_SRC}" ]]; then
   err "Binary not found at ${BINARY_SRC}"
@@ -55,25 +56,27 @@ if [[ ! -f "${BINARY_SRC}" ]]; then
   echo "       make build-ztna-client"
   exit 1
 fi
-ok "Binary found: ${BINARY_SRC}"
+ok "Binary found"
 
 if [[ ! -f "${SYSTEMD_SRC}" ]]; then
   err "Systemd unit not found at ${SYSTEMD_SRC}"
   exit 1
 fi
-ok "Systemd unit found: ${SYSTEMD_SRC}"
+ok "Systemd unit found"
 echo ""
 
 # ── Stop existing service if running ────────────────────────────────────────
 if systemctl is-active --quiet ztna-client.service 2>/dev/null; then
-  echo "── Stopping existing service ────────────────────────"
+  echo "Stopping existing service"
+  echo "─────────────────────────────────────────────────────"
   systemctl stop ztna-client.service
-  ok "Stopped ztna-client.service"
+  ok "Service stopped"
   echo ""
 fi
 
 # ── Install binary ──────────────────────────────────────────────────────────
-echo "── Installing ztna-client ─────────────────────────────"
+echo "Installing ztna-client"
+echo "─────────────────────────────────────────────────────"
 
 install -m 0755 "${BINARY_SRC}" "${INSTALL_BIN}"
 ok "Binary installed → ${INSTALL_BIN}"
@@ -81,98 +84,86 @@ ok "Binary installed → ${INSTALL_BIN}"
 # ── Config directory ────────────────────────────────────────────────────────
 mkdir -p "${CONFIG_DIR}"
 chmod 0755 "${CONFIG_DIR}"
-ok "Config directory → ${CONFIG_DIR}"
+ok "Config directory created → ${CONFIG_DIR}"
 
 # Write default config only if it does not already exist (upgrade-safe).
 if [[ -f "${CONFIG_FILE}" ]]; then
-  warn "Existing config preserved: ${CONFIG_FILE}"
+  warn "Existing config preserved → ${CONFIG_FILE}"
 else
   cat > "${CONFIG_FILE}" <<'CONF'
 # ZTNA Client Configuration
-# Docs: see CLAUDE.md in the project repository
 #
-# Required — set to your controller's URL:
+# Required settings — uncomment and configure:
+#
 # controller_url = "https://controller.example.com:8081"
-#
-# Required — workspace slug for this device:
 # tenant = "my-workspace"
 #
-# Optional — path to CA certificate for controller/connector TLS:
+# Optional settings:
+#
 # ca_cert_path = "/etc/ztna-client/ca.crt"
-#
-# Optional — transport mode: "tun" (default, requires root) or "socks5":
-# mode = "tun"
-#
-# OAuth callback listener (receives the browser redirect after login).
-# The callback is served on port (default: 19515).  The management API
-# runs on port+1 (default: 19516) and is always bound to localhost only.
-#
-# By default the callback listener binds to 0.0.0.0 so it is reachable
-# from a browser on the same LAN (useful when the client is headless).
-# Change this to "127.0.0.1" for local-only callback:
+# mode = "tun"                    # or "socks5"
 # callback_bind_addr = "127.0.0.1"
-#
-# If callback_bind_addr is not 127.0.0.1, the service will log a warning
-# that the callback endpoint is LAN-exposed.  This is intentional for
-# testing; management endpoints remain localhost-only regardless.
-#
-# The OAuth redirect URI registered at the controller must match:
-#   http://<callback_host>:<port>/callback  (default port: 19515)
-#
-# Advanced / transitional (uncomment if needed):
-# controller_grpc_addr = "controller.example.com:8443"
-# connector_tunnel_addr = "connector.example.com:9444"
-# socks5_addr = "127.0.0.1:1080"
 # port = 19515
+#
+# See 'ztna-client doctor' for diagnostics after configuration.
 CONF
   chmod 0644 "${CONFIG_FILE}"
-  ok "Default config written → ${CONFIG_FILE}"
+  ok "Default config created → ${CONFIG_FILE}"
 fi
 
 # ── State directory ─────────────────────────────────────────────────────────
 mkdir -p "${STATE_DIR}"
-chmod 0700 "${STATE_DIR}"
-ok "State directory → ${STATE_DIR}"
+# 0711: owner rwx, others --x (traverse-only).
+# The service writes a token to .service.token (mode 0644) inside this dir.
+# Non-root CLI processes need execute (traverse) permission to read it by name,
+# but must not be able to list directory contents.
+chmod 0711 "${STATE_DIR}"
+ok "State directory created → ${STATE_DIR}"
 
 # ── Systemd unit ────────────────────────────────────────────────────────────
 install -m 0644 "${SYSTEMD_SRC}" "${SYSTEMD_DST}"
-ok "Systemd unit → ${SYSTEMD_DST}"
+ok "Systemd unit installed → ${SYSTEMD_DST}"
 echo ""
 
 # ── Enable and start ────────────────────────────────────────────────────────
-echo "── Starting service ─────────────────────────────────"
+echo "Starting service"
+echo "─────────────────────────────────────────────────────"
 systemctl daemon-reload
 systemctl enable ztna-client.service
 systemctl start ztna-client.service
-ok "ztna-client.service enabled and started"
+ok "Service enabled and started"
 
 echo ""
 echo "════════════════════════════════════════════════════"
-echo "  Installation complete!"
+echo "  Installation Complete!"
 echo "════════════════════════════════════════════════════"
 echo ""
-echo "  Next steps:"
+echo "Next Steps:"
 echo ""
-echo "    1. Edit the config file:"
-echo "       sudo nano ${CONFIG_FILE}"
+echo "  1. Configure the client:"
+echo "     sudo nano ${CONFIG_FILE}"
 echo ""
-echo "    2. Restart after editing config:"
-echo "       sudo systemctl restart ztna-client"
+echo "     Set at minimum:"
+echo "       controller_url = \"https://your-controller:8081\""
+echo "       tenant = \"your-workspace\""
 echo ""
-echo "    3. Login (no sudo needed):"
-echo "       ztna-client login"
+echo "  2. Restart the service:"
+echo "     sudo systemctl restart ztna-client"
 echo ""
-echo "    4. Check status (no sudo needed):"
-echo "       ztna-client status"
-echo "       ztna-client resources"
+echo "  3. Verify the setup:"
+echo "     ztna-client doctor"
 echo ""
-echo "    5. Service logs:"
-echo "       sudo journalctl -u ztna-client -f"
+echo "  4. Log in (no sudo needed):"
+echo "     ztna-client login"
 echo ""
-echo "  Listener ports (defaults):"
-echo "    :19515  OAuth callback  — may bind to 0.0.0.0 for LAN testing"
-echo "    :19516  Management API  — always bound to 127.0.0.1 (localhost only)"
+echo "  5. Check your connection:"
+echo "     ztna-client status"
+echo "     ztna-client resources"
 echo ""
-echo "  The OAuth redirect URI registered at your controller must use port 19515:"
-echo "    http://<host>:19515/callback"
+echo "Help:"
+echo "  ztna-client --help     Show all commands"
+echo "  ztna-client login --help"
+echo ""
+echo "Service logs:"
+echo "  sudo journalctl -u ztna-client -f"
 echo ""

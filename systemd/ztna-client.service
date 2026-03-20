@@ -2,7 +2,11 @@
 Description=Zero-Trust Network Access Client
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=0
+# Allow up to 5 restart attempts within 60 seconds; after that systemd will
+# stop retrying and the operator must intervene.  This prevents endless
+# restart loops when the config is broken or the controller is unreachable.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -12,8 +16,13 @@ Type=simple
 ExecStart=/usr/bin/ztna-client serve
 
 WorkingDirectory=/var/lib/ztna-client
-Restart=always
+# Restart only on non-zero exit (crash/error).  A clean exit via
+# `systemctl stop` returns 0 and will NOT trigger a restart.
+Restart=on-failure
 RestartSec=10
+# Give the service 15 seconds to handle SIGTERM and clean up kernel routes
+# before systemd sends SIGKILL.
+TimeoutStopSec=15
 
 # TUN mode requires CAP_NET_ADMIN for creating/managing the TUN device
 # and manipulating ip route/rule entries.  Running as root is the simplest
