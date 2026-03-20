@@ -14,7 +14,7 @@ git push origin v1.0.0
 
 ### Step 2: GitHub Actions Triggers Automatically
 
-When GitHub sees a tag starting with `v*`, it triggers **two workflows**:
+When GitHub sees a tag starting with `v*`, it triggers **three workflows**:
 
 #### Workflow 1: Connector Release
 **File:** `.github/workflows/release-connector-rs.yml`
@@ -28,14 +28,14 @@ Build Job (Parallel):
     │   ├─ Install Rust
     │   ├─ Install protoc
     │   ├─ Build: cargo build --release
-    │   └─ Output: grpcconnector2-rs-linux-amd64
+    │   └─ Output: connector-linux-amd64
     │
     └─ Build for aarch64 (arm64)
         ├─ Checkout code
         ├─ Install Rust + cross-compile tools
         ├─ Install protoc
         ├─ Build: cargo build --release
-        └─ Output: grpcconnector2-rs-linux-arm64
+        └─ Output: connector-linux-arm64
     ↓
 Release Job:
     ├─ Download both artifacts
@@ -60,15 +60,35 @@ Release Job:
     └─ Upload to GitHub Release
 ```
 
+#### Workflow 3: Client Release
+**File:** `.github/workflows/release-client-rs.yml`
+
+```
+Trigger: Tag pushed (v*)
+    ↓
+Build Job (Parallel):
+    ├─ Build for x86_64 (amd64)
+    │   └─ Output: ztna-client-linux-amd64
+    │
+    └─ Build for aarch64 (arm64)
+        └─ Output: ztna-client-linux-arm64
+    ↓
+Release Job:
+    ├─ Download both artifacts
+    └─ Upload to GitHub Release
+```
+
 ### Step 3: GitHub Creates Release
 
 GitHub automatically:
 1. Creates a new release page for tag `v1.0.0`
-2. Uploads 4 binaries:
-   - `grpcconnector2-rs-linux-amd64`
-   - `grpcconnector2-rs-linux-arm64`
+2. Uploads 6 binaries:
+   - `connector-linux-amd64`
+   - `connector-linux-arm64`
    - `agent-linux-amd64`
    - `agent-linux-arm64`
+   - `ztna-client-linux-amd64`
+   - `ztna-client-linux-arm64`
 
 ### Step 4: Deployment Scripts Download Binaries
 
@@ -89,7 +109,7 @@ setup.sh:
     ↓
 2. Build Download URL
     https://github.com/vairabarath/zero-trust/
-    releases/latest/download/grpcconnector2-linux-amd64
+    releases/latest/download/connector-linux-amd64
     ↓
 3. Download Binary
     curl/wget → /tmp/grpcconnector2
@@ -120,7 +140,7 @@ Developer                GitHub Actions              GitHub Release           Us
     │                           │ (connector + agent)       │                      │
     │                           │                           │                      │
     │                           │ Build amd64 + arm64       │                      │
-    │                           │ (4 binaries total)        │                      │
+    │                           │ (6 binaries total)        │                      │
     │                           │                           │                      │
     │                           │ Upload binaries           │                      │
     │                           ├──────────────────────────>│                      │
@@ -148,20 +168,23 @@ Developer                GitHub Actions              GitHub Release           Us
 ### Binary Naming Convention
 
 **In GitHub Release:**
-- `grpcconnector2-rs-linux-amd64` (Rust connector, x86_64)
-- `grpcconnector2-rs-linux-arm64` (Rust connector, ARM64)
+- `connector-linux-amd64` (Rust connector, x86_64)
+- `connector-linux-arm64` (Rust connector, ARM64)
 - `agent-linux-amd64` (Rust agent, x86_64)
 - `agent-linux-arm64` (Rust agent, ARM64)
+- `ztna-client-linux-amd64` (Rust client, x86_64)
+- `ztna-client-linux-arm64` (Rust client, ARM64)
 
 **After Installation:**
-- `/usr/bin/grpcconnector2` (renamed, no `-rs` suffix)
+- `/usr/bin/connector`
 - `/usr/bin/agent` (renamed)
+- `/usr/bin/ztna-client`
 
 ### Why "latest" Works
 
 ```bash
 # Deployment script uses:
-releases/latest/download/grpcconnector2-linux-amd64
+releases/latest/download/connector-linux-amd64
 
 # GitHub automatically redirects "latest" to the newest release
 # So v1.0.0 → v1.0.1 → v1.0.2 automatically
@@ -234,7 +257,7 @@ https://github.com/vairabarath/zero-trust/actions
 ### Test Download
 ```bash
 # Test if binary is downloadable
-curl -I https://github.com/vairabarath/zero-trust/releases/latest/download/grpcconnector2-linux-amd64
+curl -I https://github.com/vairabarath/zero-trust/releases/latest/download/connector-linux-amd64
 # Should return: HTTP/2 302 (redirect to actual file)
 ```
 
