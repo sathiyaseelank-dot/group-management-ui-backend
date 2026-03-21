@@ -45,6 +45,7 @@ type deviceCodeEntry struct {
 	wsID          string
 	wsSlug        string
 	state         string
+	nonce         string
 	codeChallenge string
 	googleSub     string
 	platform      string
@@ -201,19 +202,32 @@ func (s *Server) handleDeviceAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Generate state
+	// Generate state and nonce
 	csrfState, err := randomHex(16)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	deviceState := "device:" + csrfState
+	
+	// Generate nonce for injection attack prevention
+	nonce, err := randomHex(16)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Detect platform from redirect URI
+	platform := "desktop"
+	if strings.HasPrefix(req.RedirectURI, "ztna://") {
+		platform = "mobile"
+	}
 
 	// Store PKCE state in DB
 	_, err = db.Exec(
-		state.Rebind(`INSERT INTO device_auth_requests (state, workspace_id, code_challenge, redirect_uri, idp_id, created_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`),
-		deviceState, ws.ID, req.CodeChallenge, req.RedirectURI, idpID,
+		state.Rebind(`INSERT INTO device_auth_requests (state, workspace_id, code_challenge, redirect_uri, idp_id, platform, nonce, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+		deviceState, ws.ID, req.CodeChallenge, req.RedirectURI, idpID, platform, nonce,
 		time.Now().Unix(), time.Now().Add(10*time.Minute).Unix(),
 	)
 	if err != nil {
@@ -368,18 +382,25 @@ func (s *Server) handleDeviceAuthStart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Generate CSRF state (stored server-side; not returned to client)
+	// Generate CSRF state and nonce (stored server-side; not returned to client)
 	csrfState, err := randomHex(16)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	deviceState := "device:" + csrfState
+	
+	// Generate nonce for injection attack prevention
+	nonce, err := randomHex(16)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	_, err = db.Exec(
-		state.Rebind(`INSERT INTO device_auth_requests (state, workspace_id, code_challenge, redirect_uri, idp_id, platform, created_at, expires_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
-		deviceState, ws.ID, req.CodeChallenge, redirectURI, idpID, req.Platform,
+		state.Rebind(`INSERT INTO device_auth_requests (state, workspace_id, code_challenge, redirect_uri, idp_id, platform, nonce, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+		deviceState, ws.ID, req.CodeChallenge, redirectURI, idpID, req.Platform, nonce,
 		time.Now().Unix(), time.Now().Add(10*time.Minute).Unix(),
 	)
 	if err != nil {
@@ -401,6 +422,10 @@ func (s *Server) handleDeviceAuthStart(w http.ResponseWriter, r *http.Request) {
 			secret, _ := s.IdPs.DecryptSecret(idp)
 			cfg := buildIdPOAuthConfig(idp, secret, callbackURI)
 			authURL = cfg.AuthCodeURL(deviceState, oauth2.AccessTypeOnline)
+			// Append nonce for Google OIDC
+			if idpType == "google" && nonce != "" {
+				authURL += "&nonce=" + nonce
+			}
 		}
 	}
 
@@ -428,6 +453,10 @@ func (s *Server) handleDeviceAuthStart(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg != nil {
 			authURL = cfg.AuthCodeURL(deviceState, oauth2.AccessTypeOnline)
+			// Append nonce for Google OIDC
+			if idpType == "google" && nonce != "" {
+				authURL += "&nonce=" + nonce
+			}
 		}
 	}
 
@@ -537,6 +566,24 @@ func (s *Server) handleDeviceAuthComplete(w http.ResponseWriter, r *http.Request
 	refreshTokenHash := hex.EncodeToString(hashBytes[:])
 
 	if s.Sessions != nil {
+		// Enforce concurrent session limit
+		maxSessions := s.MaxSessionsPerUser
+		if maxSessions <= 0 {
+			maxSessions = 5 // Default limit
+		}
+		activeCount, countErr := s.Sessions.CountActiveForUser(userID)
+		if countErr != nil {
+			log.Printf("device auth complete: failed to count sessions: %v", countErr)
+		} else if activeCount >= maxSessions {
+			// Revoke oldest sessions to make room
+			if revokeErr := s.Sessions.RevokeOldestSessionsForUser(userID, maxSessions-1); revokeErr != nil {
+				log.Printf("device auth complete: failed to revoke old sessions: %v", revokeErr)
+			}
+			// Audit log the session limit enforcement
+			s.audit(r, "session_limit_enforced", email, "revoked oldest sessions")
+		}
+		
+		now := time.Now().Unix()
 		sess := &state.Session{
 			ID:               sessionID,
 			UserID:           userID,
@@ -545,8 +592,11 @@ func (s *Server) handleDeviceAuthComplete(w http.ResponseWriter, r *http.Request
 			IPAddress:        r.RemoteAddr,
 			UserAgent:        r.Header.Get("User-Agent"),
 			RefreshTokenHash: refreshTokenHash,
-			CreatedAt:        time.Now().Unix(),
-			ExpiresAt:        time.Now().Add(30 * 24 * time.Hour).Unix(),
+			CreatedAt:        now,
+			ExpiresAt:        now + 30*24*60*60, // 30 days
+			AbsoluteExpiresAt: now + 30*24*60*60, // 30 days max lifetime
+			IPSubnet:         state.ExtractIPSubnet(r.RemoteAddr),
+			UAHash:           state.HashUserAgent(r.Header.Get("User-Agent")),
 		}
 		if createErr := s.Sessions.Create(sess); createErr != nil {
 			log.Printf("device auth complete: failed to create session: %v", createErr)
@@ -597,12 +647,12 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Retrieve PKCE state from DB before deleting the row
-	var wsID, codeChallenge, redirectURI, idpID, platform string
+	var wsID, codeChallenge, redirectURI, idpID, platform, nonce string
 	var expiresAt int64
 	err := db.QueryRow(
-		state.Rebind(`SELECT workspace_id, code_challenge, redirect_uri, idp_id, platform, expires_at FROM device_auth_requests WHERE state = ?`),
+		state.Rebind(`SELECT workspace_id, code_challenge, redirect_uri, idp_id, platform, nonce, expires_at FROM device_auth_requests WHERE state = ?`),
 		stateParam,
-	).Scan(&wsID, &codeChallenge, &redirectURI, &idpID, &platform, &expiresAt)
+	).Scan(&wsID, &codeChallenge, &redirectURI, &idpID, &platform, &nonce, &expiresAt)
 	if err == sql.ErrNoRows {
 		http.Error(w, "auth request not found", http.StatusBadRequest)
 		return
@@ -706,6 +756,12 @@ func (s *Server) handleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 					} else {
 						emailAddr = strings.ToLower(claims.Email)
 						googleSubFromIDToken = claims.Sub
+						// Validate nonce matches the one we generated
+						if claims.Nonce != "" && claims.Nonce != nonce {
+							log.Printf("device callback: nonce mismatch - expected=%s got=%s", nonce, claims.Nonce)
+							http.Error(w, "identity verification failed (nonce mismatch)", http.StatusUnauthorized)
+							return
+						}
 					}
 				}
 			}
@@ -848,6 +904,24 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	refreshTokenHash := hex.EncodeToString(hashBytes[:])
 
 	if s.Sessions != nil {
+		// Enforce concurrent session limit
+		maxSessions := s.MaxSessionsPerUser
+		if maxSessions <= 0 {
+			maxSessions = 5 // Default limit
+		}
+		activeCount, countErr := s.Sessions.CountActiveForUser(userID)
+		if countErr != nil {
+			log.Printf("device token: failed to count sessions: %v", countErr)
+		} else if activeCount >= maxSessions {
+			// Revoke oldest sessions to make room
+			if revokeErr := s.Sessions.RevokeOldestSessionsForUser(userID, maxSessions-1); revokeErr != nil {
+				log.Printf("device token: failed to revoke old sessions: %v", revokeErr)
+			}
+			// Audit log the session limit enforcement
+			s.audit(r, "session_limit_enforced", email, "revoked oldest sessions")
+		}
+		
+		now := time.Now().Unix()
 		sess := &state.Session{
 			ID:               sessionID,
 			UserID:           userID,
@@ -856,8 +930,11 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 			IPAddress:        r.RemoteAddr,
 			UserAgent:        r.Header.Get("User-Agent"),
 			RefreshTokenHash: refreshTokenHash,
-			CreatedAt:        time.Now().Unix(),
-			ExpiresAt:        time.Now().Add(30 * 24 * time.Hour).Unix(),
+			CreatedAt:        now,
+			ExpiresAt:        now + 30*24*60*60, // 30 days
+			AbsoluteExpiresAt: now + 30*24*60*60, // 30 days max lifetime
+			IPSubnet:         state.ExtractIPSubnet(r.RemoteAddr),
+			UAHash:           state.HashUserAgent(r.Header.Get("User-Agent")),
 		}
 		if createErr := s.Sessions.Create(sess); createErr != nil {
 			log.Printf("device token: failed to create session: %v", createErr)
@@ -880,6 +957,7 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		aclSnapshot = map[string]interface{}{}
 	}
 
+	s.audit(r, "device.token_issued", email, "ok")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"access_token":  accessToken,
 		"refresh_token": refreshTokenRaw,
@@ -950,11 +1028,24 @@ func (s *Server) handleDeviceRefresh(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := s.Sessions.GetByRefreshTokenHash(tokenHash)
 	if err != nil {
+		// Check if this is a replay of the previous refresh token.
+		// Look up session by prev_refresh_token_hash to detect replay.
+		replaySess, replayErr := s.Sessions.GetByPrevRefreshTokenHash(tokenHash)
+		if replayErr == nil && replaySess != nil {
+			log.Printf("refresh token replay detected (prev token): session=%s user=%s", replaySess.ID, replaySess.UserID)
+			_ = s.Sessions.Revoke(replaySess.ID)
+			s.audit(r, "device.refresh_replay_detected", replaySess.UserID, "session revoked")
+		}
 		http.Error(w, "invalid refresh token", http.StatusUnauthorized)
 		return
 	}
 	if sess.Revoked || time.Now().Unix() > sess.ExpiresAt {
 		http.Error(w, "refresh token expired or revoked", http.StatusUnauthorized)
+		return
+	}
+	// Check absolute expiration
+	if sess.AbsoluteExpiresAt > 0 && time.Now().Unix() > sess.AbsoluteExpiresAt {
+		http.Error(w, "session expired", http.StatusUnauthorized)
 		return
 	}
 
@@ -966,7 +1057,7 @@ func (s *Server) handleDeviceRefresh(w http.ResponseWriter, r *http.Request) {
 		_ = db.QueryRow(state.Rebind(`SELECT slug FROM workspaces WHERE id = ?`), sess.WorkspaceID).Scan(&wsSlug)
 	}
 
-	// Rotate refresh token
+	// Atomic refresh token rotation (compare-and-swap)
 	newRefreshRaw, err := randomHex(32)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -974,8 +1065,18 @@ func (s *Server) handleDeviceRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	newHashBytes := sha256.Sum256([]byte(newRefreshRaw))
 	newHash := hex.EncodeToString(newHashBytes[:])
-	if err := s.Sessions.UpdateRefreshToken(sess.ID, newHash); err != nil {
+
+	rotated, err := s.Sessions.RotateRefreshToken(sess.ID, tokenHash, newHash, sess.TokenVersion+1)
+	if err != nil {
 		http.Error(w, "failed to rotate refresh token", http.StatusInternalServerError)
+		return
+	}
+	if !rotated {
+		// CAS failed: token was already rotated by a concurrent request → replay detected.
+		log.Printf("refresh token replay detected (CAS failure): session=%s user=%s", sess.ID, sess.UserID)
+		_ = s.Sessions.Revoke(sess.ID)
+		s.audit(r, "device.refresh_replay_detected", email, "session revoked")
+		http.Error(w, "refresh token reuse detected, session revoked", http.StatusUnauthorized)
 		return
 	}
 
@@ -996,11 +1097,19 @@ func (s *Server) handleDeviceRefresh(w http.ResponseWriter, r *http.Request) {
 
 // handleDeviceRevoke handles POST /api/device/revoke
 // Input: { refresh_token }
+// Requires deviceAuth middleware — only the session owner can revoke.
 func (s *Server) handleDeviceRevoke(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	claims, err := deviceClaimsFromRequest(s, r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
@@ -1019,9 +1128,15 @@ func (s *Server) handleDeviceRevoke(w http.ResponseWriter, r *http.Request) {
 		tokenHash := hex.EncodeToString(hashBytes[:])
 		sess, err := s.Sessions.GetByRefreshTokenHash(tokenHash)
 		if err == nil {
+			// Verify the authenticated user owns this session.
+			if sess.UserID != claims.userID {
+				http.Error(w, "forbidden: cannot revoke another user's session", http.StatusForbidden)
+				return
+			}
 			_ = s.Sessions.Revoke(sess.ID)
 		}
 	}
 
+	s.audit(r, "device.session_revoked", "", "ok")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }

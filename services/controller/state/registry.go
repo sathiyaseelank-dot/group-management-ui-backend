@@ -64,6 +64,19 @@ func (r *Registry) List() []ConnectorRecord {
 	return out
 }
 
+// ListByWorkspace returns only connectors belonging to the given workspace.
+func (r *Registry) ListByWorkspace(wsID string) []ConnectorRecord {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ConnectorRecord, 0)
+	for _, rec := range r.records {
+		if rec.WorkspaceID == wsID {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
 func (r *Registry) Delete(id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

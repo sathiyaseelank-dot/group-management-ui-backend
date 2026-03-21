@@ -275,6 +275,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			user_agent TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL DEFAULT 0,
 			expires_at INTEGER NOT NULL DEFAULT 0,
+			absolute_expires_at INTEGER NOT NULL DEFAULT 0,
 			revoked INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS device_auth_requests (
@@ -284,6 +285,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			redirect_uri TEXT NOT NULL,
 			idp_id TEXT NOT NULL DEFAULT '',
 			platform TEXT NOT NULL DEFAULT 'mobile',
+			nonce TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL DEFAULT 0,
 			expires_at INTEGER NOT NULL DEFAULT 0
 		)`,
@@ -306,6 +308,31 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			created_at     INTEGER NOT NULL DEFAULT 0,
 			expires_at     INTEGER NOT NULL DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS access_requests (
+			id TEXT PRIMARY KEY,
+			workspace_id TEXT NOT NULL DEFAULT '',
+			requester_id TEXT NOT NULL,
+			requester_email TEXT NOT NULL DEFAULT '',
+			resource_id TEXT NOT NULL,
+			reason TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending',
+			duration_hours INTEGER NOT NULL DEFAULT 1,
+			created_at INTEGER NOT NULL DEFAULT 0,
+			expires_at INTEGER NOT NULL DEFAULT 0,
+			decided_at INTEGER NOT NULL DEFAULT 0,
+			decided_by TEXT NOT NULL DEFAULT '',
+			decision_reason TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS access_request_grants (
+			id TEXT PRIMARY KEY,
+			request_id TEXT NOT NULL,
+			workspace_id TEXT NOT NULL DEFAULT '',
+			resource_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			granted_at INTEGER NOT NULL DEFAULT 0,
+			expires_at INTEGER NOT NULL DEFAULT 0,
+			revoked INTEGER NOT NULL DEFAULT 0
+		)`,
 		`CREATE TABLE IF NOT EXISTS device_posture (
 			device_id           TEXT NOT NULL,
 			workspace_id        TEXT NOT NULL DEFAULT '',
@@ -324,7 +351,13 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			device_model        TEXT NOT NULL DEFAULT '',
 			device_make         TEXT NOT NULL DEFAULT '',
 			serial_number       TEXT NOT NULL DEFAULT '',
+			suspicious          INTEGER NOT NULL DEFAULT 0,
+			suspicious_reasons  TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (device_id, workspace_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS revoked_certificates (
+			serial_number TEXT PRIMARY KEY,
+			revoked_at    INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS device_trusted_profiles (
 			id                      TEXT PRIMARY KEY,
@@ -354,6 +387,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		_, _ = db.Exec(`ALTER TABLE agent_discovered_services ADD COLUMN IF NOT EXISTS service_name TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE agent_discovered_services ADD COLUMN IF NOT EXISTS process_name TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE device_auth_requests ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'mobile'`)
+		_, _ = db.Exec(`ALTER TABLE device_auth_requests ADD COLUMN IF NOT EXISTS nonce TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
 		_, _ = db.Exec(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
@@ -366,6 +400,20 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS device_model TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS device_make TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS serial_number TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS suspicious INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE device_posture ADD COLUMN IF NOT EXISTS suspicious_reasons TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE admin_audit_logs ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE admin_audit_logs ADD COLUMN IF NOT EXISTS ip_address TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE admin_audit_logs ADD COLUMN IF NOT EXISTS signature TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip_subnet TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ua_hash TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS absolute_expires_at INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1`)
+		_, _ = db.Exec(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS prev_refresh_token_hash TEXT NOT NULL DEFAULT ''`)
+		// Policy audit logging columns for audit_logs table
+		_, _ = db.Exec(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS policy_rule_id TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS policy_decision TEXT NOT NULL DEFAULT ''`)
+		_, _ = db.Exec(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS policy_reason TEXT NOT NULL DEFAULT ''`)
 	}
 
 	// Phase 2 migration: add workspace_id columns to existing tables.
@@ -382,7 +430,30 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		}
 	}
 
-	// Phase 4 migration: backfill workspace_id on rows created before tenant scoping was
+	// Phase 4: Enable Row-Level Security on tenant-scoped tables (defense-in-depth).
+	if dialect == "postgres" {
+		rlsTables := []string{
+			"connectors", "agents", "resources", "remote_networks",
+			"user_groups", "access_rules", "access_rule_groups",
+			"identity_providers", "sessions", "device_posture",
+			"device_trusted_profiles", "device_auth_requests",
+		}
+		for _, t := range rlsTables {
+			_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", t))
+			_, _ = db.Exec(fmt.Sprintf(
+				"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='%s' AND policyname='ws_isolation') THEN "+
+					"CREATE POLICY ws_isolation ON %s USING (workspace_id = current_setting('app.workspace_id', true)) "+
+					"WITH CHECK (workspace_id = current_setting('app.workspace_id', true)); END IF; END $$", t, t))
+		}
+
+		// Warn if running as superuser — RLS is bypassed for superusers.
+		var isSuperuser string
+		if err := db.QueryRow("SELECT current_setting('is_superuser')").Scan(&isSuperuser); err == nil && isSuperuser == "on" {
+			log.Println("WARNING: Running as PostgreSQL superuser — RLS policies will be bypassed")
+		}
+	}
+
+	// Phase 5 migration: backfill workspace_id on rows created before tenant scoping was
 	// enforced (those rows have workspace_id = '').  Assign them to the first workspace so
 	// they remain visible after the withWorkspaceContext middleware started requiring a JWT.
 	backfillTables := []string{

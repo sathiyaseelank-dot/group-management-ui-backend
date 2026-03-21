@@ -57,6 +57,7 @@ func (s *Server) handleUIAgents(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to create agent", http.StatusBadRequest)
 			return
 		}
+		s.audit(r, "agent.create", id, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -76,9 +77,19 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 	}
 	parts := strings.Split(path, "/")
 	agentID := parts[0]
+	wsID := workspaceIDFromContext(r.Context())
+	wsClauseT, wsArgsT := wsWhere(wsID, "t")
 	if len(parts) == 1 {
 		if r.Method == http.MethodDelete {
+			// Verify agent belongs to workspace before deleting
+			delArgs := append([]interface{}{agentID}, wsArgsT...)
+			var exists string
+			if err := db.QueryRow(state.Rebind(`SELECT id FROM agents t WHERE t.id = ?`+wsClauseT), delArgs...).Scan(&exists); err != nil {
+				http.Error(w, "agent not found", http.StatusNotFound)
+				return
+			}
 			_ = state.DeleteAgentFromDB(db, agentID)
+			s.audit(r, "agent.delete", agentID, "ok")
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		}
@@ -86,7 +97,8 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		row := db.QueryRow(state.Rebind(`SELECT t.id, t.name, t.status, t.version, t.hostname, t.remote_network_id, t.connector_id, COALESCE(c.name, '') as connector_name, t.revoked, t.installed, CAST(t.last_seen AS TEXT) as last_seen, t.last_seen_at, t.ip FROM agents t LEFT JOIN connectors c ON t.connector_id = c.id WHERE t.id = ?`), agentID)
+		getArgs := append([]interface{}{agentID}, wsArgsT...)
+		row := db.QueryRow(state.Rebind(`SELECT t.id, t.name, t.status, t.version, t.hostname, t.remote_network_id, t.connector_id, COALESCE(c.name, '') as connector_name, t.revoked, t.installed, CAST(t.last_seen AS TEXT) as last_seen, t.last_seen_at, t.ip FROM agents t LEFT JOIN connectors c ON t.connector_id = c.id WHERE t.id = ?`+wsClauseT), getArgs...)
 		agent, ok := scanUIAgent(row)
 		if !ok {
 			writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -96,6 +108,8 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 			})
 			return
 		}
+		wsClauseN, wsArgsN := wsWhere(wsID, "n")
+		netArgs := append([]interface{}{agent.RemoteNetworkID}, wsArgsN...)
 		networkRow := db.QueryRow(state.Rebind(`
 			SELECT n.id, n.name, n.location,
 				CAST(n.created_at AS TEXT) as created_at,
@@ -104,7 +118,7 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id AND c.status = 'online') AS online_connector_count,
 				(SELECT COUNT(*) FROM resources r WHERE r.remote_network_id = n.id) AS resource_count
 			FROM remote_networks n
-			WHERE n.id = ?`), agent.RemoteNetworkID)
+			WHERE n.id = ?`+wsClauseN), netArgs...)
 		var network *uiRemoteNetwork
 		{
 			var id, name, location string
@@ -161,6 +175,7 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 		_ = state.RevokeAgentInDB(db, agentID)
 		nowISO := isoStringNow()
 		_, _ = db.Exec(state.Rebind(`INSERT INTO agent_logs (agent_id, timestamp, message) VALUES (?, ?, ?)`), agentID, nowISO, "agent revoked")
+		s.audit(r, "agent.revoke", agentID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
@@ -172,6 +187,7 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 		_ = state.GrantAgentInDB(db, agentID)
 		nowISO := isoStringNow()
 		_, _ = db.Exec(state.Rebind(`INSERT INTO agent_logs (agent_id, timestamp, message) VALUES (?, ?, ?)`), agentID, nowISO, "agent access granted")
+		s.audit(r, "agent.grant", agentID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}

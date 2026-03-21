@@ -19,7 +19,8 @@ func (s *Server) handleUIPolicyCompile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "connector id required", http.StatusBadRequest)
 		return
 	}
-	remoteNetworkID, err := lookupConnectorNetworkID(db, connectorID)
+	wsID := workspaceIDFromContext(r.Context())
+	remoteNetworkID, err := lookupConnectorNetworkID(db, connectorID, wsID)
 	if err != nil {
 		http.Error(w, "connector not found or not assigned to a remote network", http.StatusNotFound)
 		return
@@ -57,7 +58,8 @@ func (s *Server) handleUIPolicyACL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "connector id required", http.StatusBadRequest)
 		return
 	}
-	remoteNetworkID, err := lookupConnectorNetworkID(db, connectorID)
+	wsID := workspaceIDFromContext(r.Context())
+	remoteNetworkID, err := lookupConnectorNetworkID(db, connectorID, wsID)
 	if err != nil {
 		http.Error(w, "connector not found or not assigned to a remote network", http.StatusNotFound)
 		return

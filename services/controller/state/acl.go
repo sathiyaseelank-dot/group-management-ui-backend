@@ -144,6 +144,68 @@ func (s *ACLStore) AddResource(res Resource) {
 	s.resources[res.ID] = res
 }
 
+// AuthorizationResult holds the result of an access check.
+type AuthorizationResult struct {
+	Allowed bool
+	Filters []Filter
+	Reason  string
+	RuleID  string // resource_id + principal pair identifier
+}
+
+// CheckAuthorization verifies if a principal is authorized to access a resource.
+// Returns (allowed, ruleID, decision, reason) where:
+//   - allowed: true if explicitly authorized, false otherwise (default-deny)
+//   - ruleID: the ID of the matching rule (empty if no rule matched)
+//   - decision: 'allowed' or 'denied'
+//   - reason: explanation of the decision
+//
+// This implements default-deny: if no matching authorization is found,
+// access is denied.
+func (s *ACLStore) CheckAuthorization(principalSPIFFE, resourceID string) (bool, string, string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Check if resource exists
+	if _, exists := s.resources[resourceID]; !exists {
+		return false, "", "denied", "resource not found"
+	}
+
+	// Look for explicit authorization
+	for _, auth := range s.authorizations {
+		if auth.ResourceID == resourceID && auth.PrincipalSPIFFE == principalSPIFFE {
+			ruleID := fmt.Sprintf("%s:%s", auth.ResourceID, auth.PrincipalSPIFFE)
+			return true, ruleID, "allowed", "explicitly authorized"
+		}
+	}
+
+	// Default-deny: no matching authorization found
+	return false, "", "denied", "no authorization found (default-deny)"
+}
+
+// CheckAuthorizationDetailed verifies if a principal is authorized to access a resource
+// and returns a detailed AuthorizationResult including filters and rule ID.
+func (s *ACLStore) CheckAuthorizationDetailed(principalSPIFFE, resourceID string) AuthorizationResult {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if _, exists := s.resources[resourceID]; !exists {
+		return AuthorizationResult{Allowed: false, Reason: "resource not found"}
+	}
+
+	for _, auth := range s.authorizations {
+		if auth.ResourceID == resourceID && auth.PrincipalSPIFFE == principalSPIFFE {
+			return AuthorizationResult{
+				Allowed: true,
+				Filters: auth.Filters,
+				Reason:  "explicitly authorized",
+				RuleID:  fmt.Sprintf("%s:%s", auth.ResourceID, auth.PrincipalSPIFFE),
+			}
+		}
+	}
+
+	return AuthorizationResult{Allowed: false, Reason: "no authorization found (default-deny)"}
+}
+
 // marshalFilters encodes filters to JSON for DB storage.
 func marshalFilters(filters []Filter) string {
 	if len(filters) == 0 {

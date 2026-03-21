@@ -11,18 +11,19 @@ import (
 	"controller/state"
 )
 
-func resolveResourceNetworkID(db *sql.DB, networkID, connectorID string) (string, error) {
+func resolveResourceNetworkID(db *sql.DB, networkID, connectorID, wsID string) (string, error) {
 	networkID = strings.TrimSpace(networkID)
 	if networkID != "" {
 		return networkID, nil
 	}
 	if connectorID != "" {
-		if resolved, err := lookupConnectorNetworkID(db, connectorID); err == nil && resolved != "" {
+		if resolved, err := lookupConnectorNetworkID(db, connectorID, wsID); err == nil && resolved != "" {
 			return resolved, nil
 		}
 	}
-	// Fallback: if there's exactly one remote network, use it.
-	rows, err := db.Query(`SELECT id FROM remote_networks ORDER BY id ASC LIMIT 2`)
+	// Fallback: if there's exactly one remote network in this workspace, use it.
+	wsClause, wsArgs := wsWhereOnly(wsID, "")
+	rows, err := db.Query(state.Rebind(`SELECT id FROM remote_networks`+wsClause+` ORDER BY id ASC LIMIT 2`), wsArgs...)
 	if err != nil {
 		return "", err
 	}
@@ -85,14 +86,14 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "name, type, address, and protocol are required", http.StatusBadRequest)
 			return
 		}
-		networkID, err := resolveResourceNetworkID(db, req.NetworkID, req.ConnectorID)
+		wsID := workspaceIDFromContext(r.Context())
+		networkID, err := resolveResourceNetworkID(db, req.NetworkID, req.ConnectorID, wsID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		ports := buildPorts(req.PortFrom, req.PortTo)
 		id := fmt.Sprintf("res_%d", time.Now().UTC().UnixMilli())
-		wsID := workspaceIDFromContext(r.Context())
 		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), networkID, wsID); err != nil {
 			http.Error(w, "failed to create resource", http.StatusBadRequest)
@@ -101,6 +102,7 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 		if s.ACLNotify != nil {
 			s.ACLNotify.NotifyPolicyChange()
 		}
+		s.audit(r, "resource.create", id, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -146,7 +148,7 @@ func (s *Server) handleUIResourcesBatch(w http.ResponseWriter, r *http.Request) 
 			errors = append(errors, fmt.Sprintf("skipping resource with missing fields: %s", res.Name))
 			continue
 		}
-		networkID, err := resolveResourceNetworkID(db, res.NetworkID, "")
+		networkID, err := resolveResourceNetworkID(db, res.NetworkID, "", wsID)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("network error for %s: %v", res.Name, err))
 			continue
@@ -182,9 +184,12 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	resourceID := strings.Split(path, "/")[0]
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhere(wsID, "")
 	switch r.Method {
 	case http.MethodGet:
-		row := db.QueryRow(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources WHERE id = ?`), resourceID)
+		args := append([]interface{}{resourceID}, wsArgs...)
+		row := db.QueryRow(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources WHERE id = ?`+wsClause), args...)
 		res, ok := scanUIResource(row)
 		if !ok {
 			writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -193,7 +198,8 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 			})
 			return
 		}
-		accessRows, _ := db.Query(state.Rebind(`SELECT id, name, resource_id, enabled, created_at, updated_at FROM access_rules WHERE resource_id = ? ORDER BY created_at ASC`), resourceID)
+		arArgs := append([]interface{}{resourceID}, wsArgs...)
+		accessRows, _ := db.Query(state.Rebind(`SELECT id, name, resource_id, enabled, created_at, updated_at FROM access_rules WHERE resource_id = ?`+wsClause+` ORDER BY created_at ASC`), arArgs...)
 		accessRules := []uiAccessRule{}
 		if accessRows != nil {
 			groupStmt, _ := db.Prepare(state.Rebind(`SELECT group_id FROM access_rule_groups WHERE rule_id = ? ORDER BY group_id ASC`))
@@ -247,10 +253,11 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "name, type, address, and protocol are required", http.StatusBadRequest)
 			return
 		}
-		resolvedNetworkID, err := resolveResourceNetworkID(db, req.NetworkID, req.ConnectorID)
+		resolvedNetworkID, err := resolveResourceNetworkID(db, req.NetworkID, req.ConnectorID, wsID)
 		if err != nil {
 			var current string
-			if scanErr := db.QueryRow(state.Rebind(`SELECT remote_network_id FROM resources WHERE id = ?`), resourceID).Scan(&current); scanErr == nil && strings.TrimSpace(current) != "" {
+			fallbackArgs := append([]interface{}{resourceID}, wsArgs...)
+			if scanErr := db.QueryRow(state.Rebind(`SELECT remote_network_id FROM resources WHERE id = ?`+wsClause), fallbackArgs...).Scan(&current); scanErr == nil && strings.TrimSpace(current) != "" {
 				resolvedNetworkID = current
 			} else {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -258,8 +265,9 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 			}
 		}
 		ports := buildPorts(req.PortFrom, req.PortTo)
-		_, err = db.Exec(state.Rebind(`UPDATE resources SET name = ?, type = ?, address = ?, ports = ?, protocol = ?, port_from = ?, port_to = ?, alias = ?, remote_network_id = ? WHERE id = ?`),
-			req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, resolvedNetworkID, resourceID)
+		updateArgs := append([]interface{}{req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, resolvedNetworkID, resourceID}, wsArgs...)
+		_, err = db.Exec(state.Rebind(`UPDATE resources SET name = ?, type = ?, address = ?, ports = ?, protocol = ?, port_from = ?, port_to = ?, alias = ?, remote_network_id = ? WHERE id = ?`+wsClause),
+			updateArgs...)
 		if err != nil {
 			http.Error(w, "failed to update resource", http.StatusBadRequest)
 			return
@@ -267,6 +275,7 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 		if s.ACLNotify != nil {
 			s.ACLNotify.NotifyPolicyChange()
 		}
+		s.audit(r, "resource.update", resourceID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	case http.MethodPatch:
 		var req struct {
@@ -280,7 +289,8 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "firewall_status must be 'protected' or 'unprotected'", http.StatusBadRequest)
 			return
 		}
-		_, err := db.Exec(state.Rebind(`UPDATE resources SET firewall_status = ? WHERE id = ?`), req.FirewallStatus, resourceID)
+		patchArgs := append([]interface{}{req.FirewallStatus, resourceID}, wsArgs...)
+		_, err := db.Exec(state.Rebind(`UPDATE resources SET firewall_status = ? WHERE id = ?`+wsClause), patchArgs...)
 		if err != nil {
 			http.Error(w, "failed to update firewall status", http.StatusInternalServerError)
 			return
@@ -288,23 +298,28 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 		if s.ACLNotify != nil {
 			s.ACLNotify.NotifyPolicyChange()
 		}
+		s.audit(r, "resource.update_firewall", resourceID, "ok")
 		writeJSON(w, http.StatusOK, map[string]string{"firewall_status": req.FirewallStatus})
 	case http.MethodDelete:
-		if _, err := db.Exec(state.Rebind(`DELETE FROM access_rule_groups WHERE rule_id IN (SELECT id FROM access_rules WHERE resource_id = ?)`), resourceID); err != nil {
+		// Scope access rule cleanup by workspace
+		delRuleArgs := append([]interface{}{resourceID}, wsArgs...)
+		if _, err := db.Exec(state.Rebind(`DELETE FROM access_rule_groups WHERE rule_id IN (SELECT id FROM access_rules WHERE resource_id = ?`+wsClause+`)`), delRuleArgs...); err != nil {
 			http.Error(w, "failed to delete resource access rules", http.StatusInternalServerError)
 			return
 		}
-		if _, err := db.Exec(state.Rebind(`DELETE FROM access_rules WHERE resource_id = ?`), resourceID); err != nil {
+		if _, err := db.Exec(state.Rebind(`DELETE FROM access_rules WHERE resource_id = ?`+wsClause), delRuleArgs...); err != nil {
 			http.Error(w, "failed to delete resource access rules", http.StatusInternalServerError)
 			return
 		}
-		if _, err := db.Exec(state.Rebind(`DELETE FROM resources WHERE id = ?`), resourceID); err != nil {
+		delResArgs := append([]interface{}{resourceID}, wsArgs...)
+		if _, err := db.Exec(state.Rebind(`DELETE FROM resources WHERE id = ?`+wsClause), delResArgs...); err != nil {
 			http.Error(w, "failed to delete resource", http.StatusInternalServerError)
 			return
 		}
 		if s.ACLNotify != nil {
 			s.ACLNotify.NotifyPolicyChange()
 		}
+		s.audit(r, "resource.delete", resourceID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

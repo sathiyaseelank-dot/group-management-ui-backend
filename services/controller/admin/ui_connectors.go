@@ -56,6 +56,7 @@ func (s *Server) handleUIConnectors(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to create connector", http.StatusBadRequest)
 			return
 		}
+		s.audit(r, "connector.create", id, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -75,11 +76,14 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 	}
 	parts := strings.Split(path, "/")
 	connectorID := parts[0]
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhere(wsID, "")
 	if len(parts) == 1 {
 		if r.Method == http.MethodDelete {
 			// Cascade-delete agents (tunnelers) bound to this connector.
 			var agentIDs []string
-			aRows, _ := db.Query(state.Rebind(`SELECT id FROM agents WHERE connector_id = ?`), connectorID)
+			delArgs := append([]interface{}{connectorID}, wsArgs...)
+			aRows, _ := db.Query(state.Rebind(`SELECT id FROM agents WHERE connector_id = ?`+wsClause), delArgs...)
 			if aRows != nil {
 				for aRows.Next() {
 					var aid string
@@ -114,8 +118,10 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 				// SaveConnectorToDB checks revoked=1 and skips the upsert - never hard-delete.
 				_ = state.RevokeConnectorInDB(s.ACLs.DB(), connectorID)
 			}
-			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET revoked = 1, status = 'offline' WHERE id = ?`), connectorID)
+			revokeArgs := append([]interface{}{connectorID}, wsArgs...)
+		_, _ = db.Exec(state.Rebind(`UPDATE connectors SET revoked = 1, status = 'offline' WHERE id = ?`+wsClause), revokeArgs...)
 
+			s.audit(r, "connector.delete", connectorID, "ok")
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		}
@@ -123,7 +129,8 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		row := db.QueryRow(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, revoked, last_seen FROM connectors WHERE id = ?`), connectorID)
+		getArgs := append([]interface{}{connectorID}, wsArgs...)
+		row := db.QueryRow(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, revoked, last_seen FROM connectors WHERE id = ?`+wsClause), getArgs...)
 		connector, ok := scanUIConnector(row)
 		if !ok {
 			writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -133,6 +140,8 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 			})
 			return
 		}
+		wsClauseN, wsArgsN := wsWhere(wsID, "n")
+		netArgs := append([]interface{}{connector.RemoteNetworkID}, wsArgsN...)
 		networkRow := db.QueryRow(state.Rebind(`
 			SELECT n.id, n.name, n.location,
 				CAST(n.created_at AS TEXT) as created_at,
@@ -141,7 +150,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 				(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id AND c.status = 'online') AS online_connector_count,
 				(SELECT COUNT(*) FROM resources r WHERE r.remote_network_id = n.id) AS resource_count
 			FROM remote_networks n
-			WHERE n.id = ?`), connector.RemoteNetworkID)
+			WHERE n.id = ?`+wsClauseN), netArgs...)
 		var network *uiRemoteNetwork
 		{
 			var id, name, location string
@@ -206,6 +215,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 		}
 		nowISO := isoStringNow()
 		_, _ = db.Exec(state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`), connectorID, nowISO, "connector revoked")
+		s.audit(r, "connector.revoke", connectorID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
@@ -219,6 +229,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 		}
 		nowISO := isoStringNow()
 		_, _ = db.Exec(state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`), connectorID, nowISO, "connector access granted")
+		s.audit(r, "connector.grant", connectorID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}

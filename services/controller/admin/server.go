@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -67,6 +68,14 @@ type Server struct {
 	Sessions       *state.SessionStore
 	SecureCookies  bool
 	AllowedOrigins []string
+	MaxSessionsPerUser     int  // 0 = unlimited (default: 5)
+	StrictSessionBinding   bool // true = reject fingerprint mismatches; false = log only
+
+	// JIT access requests
+	AccessRequests *state.AccessRequestStore
+
+	// Audit logging
+	AuditKey []byte
 }
 
 // effectiveClientOAuthConfig returns ClientOAuthConfig if set, else falls back to OAuthConfig.
@@ -83,6 +92,28 @@ func (s *Server) db() *sql.DB {
 		return s.ACLs.DB()
 	}
 	return nil
+}
+
+// audit logs an admin audit event.
+func (s *Server) audit(r *http.Request, action, target, result string) {
+	db := s.db()
+	if db == nil {
+		return
+	}
+	actor := sessionEmailFromContext(r.Context())
+	wsID := workspaceIDFromContext(r.Context())
+	ip := r.RemoteAddr
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		ip = strings.Split(fwd, ",")[0]
+	}
+	state.WriteAudit(db, s.AuditKey, state.AuditEntry{
+		Actor:       actor,
+		Action:      action,
+		Target:      target,
+		WorkspaceID: wsID,
+		IPAddress:   strings.TrimSpace(ip),
+		Result:      result,
+	})
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
@@ -208,6 +239,16 @@ func (s *Server) deviceAuth(next http.Handler) http.Handler {
 			if valid, err := s.Sessions.IsValid(claims.jti); err == nil && !valid {
 				http.Error(w, "session revoked or expired", http.StatusUnauthorized)
 				return
+			}
+			// Session fingerprint binding.
+			if sess, err := s.Sessions.Get(claims.jti); err == nil {
+				if ok, reason := sess.ValidateFingerprint(r.RemoteAddr, r.Header.Get("User-Agent")); !ok {
+					log.Printf("session binding: session=%s user=%s reason=%s ip=%s", claims.jti, claims.email, reason, r.RemoteAddr)
+					if s.StrictSessionBinding {
+						http.Error(w, "session binding failed: "+reason, http.StatusUnauthorized)
+						return
+					}
+				}
 			}
 		}
 		ctx := withSessionEmail(r.Context(), claims.email)
@@ -344,7 +385,13 @@ func (s *Server) handleListConnectors(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	records := s.Reg.List()
+	wsID := workspaceIDFromContext(r.Context())
+	var records []state.ConnectorRecord
+	if wsID != "" {
+		records = s.Reg.ListByWorkspace(wsID)
+	} else {
+		records = s.Reg.List()
+	}
 	now := time.Now().UTC()
 	type respConnector struct {
 		ID        string `json:"id"`
@@ -380,6 +427,14 @@ func (s *Server) handleConnectorSubroutes(w http.ResponseWriter, r *http.Request
 		http.Error(w, "connector id required", http.StatusBadRequest)
 		return
 	}
+	// Verify connector belongs to this workspace before deleting.
+	wsID := workspaceIDFromContext(r.Context())
+	if wsID != "" {
+		if rec, ok := s.Reg.Get(id); ok && rec.WorkspaceID != "" && rec.WorkspaceID != wsID {
+			http.Error(w, "connector not found in this workspace", http.StatusNotFound)
+			return
+		}
+	}
 	s.Reg.Delete(id)
 	if s.ACLs != nil && s.ACLs.DB() != nil {
 		_ = state.DeleteConnectorFromDB(s.ACLs.DB(), id)
@@ -399,7 +454,10 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	rows, err := s.ACLs.DB().Query(`SELECT principal_spiffe, agent_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 200`)
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhereOnly(wsID, "")
+	query := `SELECT principal_spiffe, agent_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at FROM audit_logs` + wsClause + ` ORDER BY created_at DESC LIMIT 200`
+	rows, err := s.ACLs.DB().Query(state.Rebind(query), wsArgs...)
 	if err != nil {
 		http.Error(w, "failed to query audit logs", http.StatusInternalServerError)
 		return
@@ -439,7 +497,9 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	db := s.ACLs.DB()
-	rows, err := db.Query(`SELECT id, version, hostname, connector_id, remote_network_id, last_seen FROM agents`)
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhereOnly(wsID, "")
+	rows, err := db.Query(state.Rebind(`SELECT id, version, hostname, connector_id, remote_network_id, last_seen FROM agents`+wsClause), wsArgs...)
 	if err != nil {
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
@@ -489,14 +549,17 @@ func (s *Server) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "agent id required", http.StatusBadRequest)
 		return
 	}
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhere(wsID, "")
 	if s.Agents != nil {
 		s.Agents.Delete(id)
 	}
 	if s.ACLs != nil && s.ACLs.DB() != nil {
 		db := s.ACLs.DB()
-		_, _ = db.Exec(`DELETE FROM agents WHERE id = ?`, id)
+		delArgs := append([]interface{}{id}, wsArgs...)
+		_, _ = db.Exec(state.Rebind(`DELETE FROM agents WHERE id = ?`+wsClause), delArgs...)
 		// Revoke the enrollment token so the agent cannot re-enroll after deletion.
-		_, _ = db.Exec(`DELETE FROM tokens WHERE connector_id = ?`, id)
+		_, _ = db.Exec(state.Rebind(`DELETE FROM tokens WHERE connector_id = ?`), id)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -508,8 +571,65 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		stateSnap := s.ACLs.Snapshot()
-		writeJSON(w, http.StatusOK, stateSnap)
+		wsID := workspaceIDFromContext(r.Context())
+		if wsID != "" && s.ACLs.DB() != nil {
+			wsClause, wsArgs := wsWhereOnly(wsID, "")
+			rows, err := s.ACLs.DB().Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources`+wsClause), wsArgs...)
+			if err != nil {
+				http.Error(w, "failed to query resources", http.StatusInternalServerError)
+				return
+			}
+			defer rows.Close()
+			type resRow struct {
+				ID              string  `json:"id"`
+				Name            string  `json:"name"`
+				Type            string  `json:"type"`
+				Address         string  `json:"address"`
+				Protocol        string  `json:"protocol"`
+				PortFrom        *int    `json:"port_from,omitempty"`
+				PortTo          *int    `json:"port_to,omitempty"`
+				Alias           *string `json:"alias,omitempty"`
+				Description     string  `json:"description"`
+				RemoteNetworkID string  `json:"remote_network_id"`
+				FirewallStatus  string  `json:"firewall_status"`
+			}
+			out := []resRow{}
+			for rows.Next() {
+				var rr resRow
+				var protocol, alias, remoteNet, fwStatus sql.NullString
+				var portFrom, portTo sql.NullInt64
+				if err := rows.Scan(&rr.ID, &rr.Name, &rr.Type, &rr.Address, &protocol, &portFrom, &portTo, &alias, &rr.Description, &remoteNet, &fwStatus); err != nil {
+					continue
+				}
+				rr.Protocol = "TCP"
+				if protocol.Valid {
+					rr.Protocol = protocol.String
+				}
+				if portFrom.Valid {
+					v := int(portFrom.Int64)
+					rr.PortFrom = &v
+				}
+				if portTo.Valid {
+					v := int(portTo.Int64)
+					rr.PortTo = &v
+				}
+				if alias.Valid && alias.String != "" {
+					rr.Alias = &alias.String
+				}
+				if remoteNet.Valid {
+					rr.RemoteNetworkID = remoteNet.String
+				}
+				rr.FirewallStatus = "unprotected"
+				if fwStatus.Valid && fwStatus.String != "" {
+					rr.FirewallStatus = fwStatus.String
+				}
+				out = append(out, rr)
+			}
+			writeJSON(w, http.StatusOK, out)
+		} else {
+			stateSnap := s.ACLs.Snapshot()
+			writeJSON(w, http.StatusOK, stateSnap)
+		}
 	case http.MethodPost:
 		var res state.Resource
 		if err := json.NewDecoder(r.Body).Decode(&res); err != nil {

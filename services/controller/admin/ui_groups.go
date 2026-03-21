@@ -103,6 +103,7 @@ func (s *Server) handleUIGroups(w http.ResponseWriter, r *http.Request) {
 		if s.ACLNotify != nil {
 			s.ACLNotify.NotifyPolicyChange()
 		}
+		s.audit(r, "group.create", id, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -122,6 +123,8 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 	}
 	parts := strings.Split(path, "/")
 	groupID := parts[0]
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhere(wsID, "")
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodPut, http.MethodPatch:
@@ -135,13 +138,15 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			now := isoStringNow()
-			if _, err := db.Exec(state.Rebind(`UPDATE user_groups SET name = ?, description = ?, trusted_profile_id = ?, updated_at = ? WHERE id = ?`), req.Name, req.Description, req.TrustedProfileID, now, groupID); err != nil {
+			updateArgs := append([]interface{}{req.Name, req.Description, req.TrustedProfileID, now, groupID}, wsArgs...)
+			if _, err := db.Exec(state.Rebind(`UPDATE user_groups SET name = ?, description = ?, trusted_profile_id = ?, updated_at = ? WHERE id = ?`+wsClause), updateArgs...); err != nil {
 				http.Error(w, "failed to update group", http.StatusInternalServerError)
 				return
 			}
 			if s.ACLNotify != nil {
 				s.ACLNotify.NotifyPolicyChange()
 			}
+			s.audit(r, "group.update", groupID, "ok")
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		case http.MethodDelete:
@@ -158,7 +163,8 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 				LEFT JOIN access_rule_groups arg ON arg.rule_id = ar.id
 				WHERE arg.rule_id IS NULL
 			)`))
-			if _, err := tx.Exec(state.Rebind(`DELETE FROM user_groups WHERE id = ?`), groupID); err != nil {
+			delArgs := append([]interface{}{groupID}, wsArgs...)
+			if _, err := tx.Exec(state.Rebind(`DELETE FROM user_groups WHERE id = ?`+wsClause), delArgs...); err != nil {
 				_ = tx.Rollback()
 				http.Error(w, "failed to delete group", http.StatusInternalServerError)
 				return
@@ -167,6 +173,7 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			if s.ACLNotify != nil {
 				s.ACLNotify.NotifyPolicyChange()
 			}
+			s.audit(r, "group.delete", groupID, "ok")
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		case http.MethodGet:
@@ -175,11 +182,12 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		getArgs := append([]interface{}{groupID}, wsArgs...)
 		row := db.QueryRow(state.Rebind(`SELECT id, name, description,
 			CAST(created_at AS TEXT) as created_at,
 			CAST(updated_at AS TEXT) as updated_at,
 			trusted_profile_id
-			FROM user_groups WHERE id = ?`), groupID)
+			FROM user_groups WHERE id = ?`+wsClause), getArgs...)
 		var id, name, desc string
 		var created, updated sql.NullString
 		var trustedProfileID sql.NullString
@@ -282,6 +290,7 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			if s.ACLNotify != nil {
 				s.ACLNotify.NotifyPolicyChange()
 			}
+			s.audit(r, "group.update_members", groupID, "ok")
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		}
@@ -319,7 +328,8 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		var groupName string
-		_ = db.QueryRow(state.Rebind(`SELECT name FROM user_groups WHERE id = ?`), groupID).Scan(&groupName)
+		gnArgs := append([]interface{}{groupID}, wsArgs...)
+		_ = db.QueryRow(state.Rebind(`SELECT name FROM user_groups WHERE id = ?`+wsClause), gnArgs...).Scan(&groupName)
 		if groupName == "" {
 			groupName = "Unknown Group"
 		}
@@ -362,6 +372,7 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 		if s.ACLNotify != nil {
 			s.ACLNotify.NotifyPolicyChange()
 		}
+		s.audit(r, "group.add_resources", groupID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}

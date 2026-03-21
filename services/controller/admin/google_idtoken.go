@@ -95,6 +95,7 @@ type googleIDClaims struct {
 	Iss           string `json:"iss"`
 	Aud           string `json:"aud"`
 	Exp           int64  `json:"exp"`
+	Nonce         string `json:"nonce,omitempty"`
 }
 
 // validateGoogleIDToken validates a Google-issued ID token using JWKS.
