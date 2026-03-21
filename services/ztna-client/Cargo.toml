@@ -41,6 +41,7 @@ libc = "0.2"
 tun2 = { version = "4", features = ["async"] }
 smoltcp = { version = "0.11", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "socket-tcp"] }
 etherparse = "0.16"
+quinn      = { version = "0.11", default-features = false, features = ["rustls", "runtime-tokio", "ring"] }
 
 [build-dependencies]
 tonic-build = "0.12"

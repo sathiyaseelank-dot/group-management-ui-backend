@@ -4,6 +4,7 @@ mod buildinfo;
 mod config;
 mod control_plane;
 mod device_tunnel;
+mod quic_listener;
 mod discovery;
 mod enroll;
 mod net_util;
@@ -217,6 +218,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     let latest_fw_policy = LatestFirewallPolicy::new();
 
     if !cfg.device_tunnel_addr.is_empty() && !cfg.controller_http_url.is_empty() {
+        // TLS/TCP device tunnel
         let device_tunnel_addr = cfg.device_tunnel_addr.clone();
         let controller_http_url = cfg.controller_http_url.clone();
         let tunnel_store = store.clone();
@@ -234,6 +236,21 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
                 .await
             {
                 warn!("device tunnel stopped: {}", e);
+            }
+        });
+
+        // QUIC/UDP device tunnel (same port, different protocol)
+        let quic_addr = cfg.device_tunnel_addr.clone();
+        let quic_ctrl = cfg.controller_http_url.clone();
+        let quic_store = store.clone();
+        let quic_acl = acl.clone();
+        let quic_hub = agent_tunnel_hub.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                quic_listener::listen(&quic_addr, quic_ctrl, quic_store, quic_acl, quic_hub).await
+            {
+                // Non-fatal: QUIC is an optimization, TLS still works
+                warn!("QUIC device tunnel failed to start: {}", e);
             }
         });
     }

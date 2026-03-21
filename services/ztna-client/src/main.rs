@@ -1,14 +1,17 @@
 mod acl;
 mod auth;
 mod config;
+mod framing;
 mod posture;
 mod product;
 mod server;
 mod service_auth;
 mod socks5;
 mod token_store;
+mod quic_tunnel;
 mod tun;
 mod tun_dns;
+mod tun_dns_intercept;
 mod tun_routing;
 mod tunnel;
 
@@ -19,7 +22,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use auth::{compute_code_challenge, generate_code_verifier, start_device_auth};
-use config::{Command, Config};
+use config::{is_loopback_bind, validate_tenant_slug, Command, Config};
 use product::{CliResourceInfo, CliWorkspaceStatus};
 use server::{
     begin_login, callback_router, disconnect_workspace, ensure_workspace_state, management_router,
@@ -244,9 +247,7 @@ async fn run_setup(
         .filter(|value| !value.is_empty())
         .unwrap_or(prompt_line("Enter your workspace slug: ")?);
 
-    if tenant.trim().is_empty() {
-        anyhow::bail!("workspace slug cannot be empty");
-    }
+    validate_tenant_slug(tenant.trim())?;
 
     if disable_network_verification {
         println!("Accepting workspace '{}' without verification", tenant);
@@ -588,10 +589,6 @@ async fn run_direct_callback_server(state: AppState) -> Result<()> {
         .await
         .expect("callback server failed");
     Ok(())
-}
-
-fn is_loopback_bind(addr: &str) -> bool {
-    addr == "127.0.0.1" || addr == "::1" || addr == "localhost"
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,6 +1121,7 @@ fn start_socks_listener(config: &Config) {
                     &state.session.access_token,
                     &req.destination,
                     req.port,
+                    "tcp",
                 )
                 .await
                 {
@@ -1185,10 +1183,11 @@ fn start_socks_listener(config: &Config) {
                     &state.session.access_token,
                     &req.destination,
                     req.port,
+                    "tcp",
                 )
                 .await
                 {
-                    Ok(stream) => stream,
+                    Ok(result) => result.stream,
                     Err(e) => {
                         tracing::warn!(
                             "[split tunnel] tunnel open failed for {}:{}: {}",

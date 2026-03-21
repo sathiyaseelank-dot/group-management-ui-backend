@@ -1,7 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
@@ -15,10 +15,12 @@ use tracing::{debug, info, warn};
 
 use crate::acl;
 use crate::config::Config;
+use crate::framing;
 use crate::server::ensure_workspace_state;
 use crate::token_store::{
     connector_tunnel_addr_for_resource, StoredResource, StoredWorkspaceState,
 };
+use crate::tun_dns_intercept;
 use crate::tun_routing::{RouteManager, BYPASS_FWMARK};
 use crate::tunnel;
 
@@ -136,6 +138,78 @@ enum TunEvent {
     Data { key: ConnKey, data: Vec<u8> },
     /// Tunnel closed — tear down connection.
     Closed { key: ConnKey },
+    /// UDP datagram received from tunnel — build raw packet and inject into TUN.
+    UdpData { key: ConnKey, data: Vec<u8> },
+    /// UDP tunnel closed.
+    UdpClosed { key: ConnKey },
+}
+
+// ---------------------------------------------------------------------------
+// UDP connection tracking (bypasses smoltcp entirely)
+// ---------------------------------------------------------------------------
+
+const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+struct UdpConnEntry {
+    tx: mpsc::Sender<Vec<u8>>,
+    last_activity: Instant,
+}
+
+/// Parse a raw IP packet and return (dst_ip, dst_port, src_port, payload) if
+/// it is a UDP datagram.
+fn parse_udp_packet(data: &[u8]) -> Option<(Ipv4Addr, u16, u16, Vec<u8>)> {
+    use etherparse::PacketHeaders;
+
+    let headers = PacketHeaders::from_ip_slice(data).ok()?;
+    let ipv4 = match headers.net? {
+        etherparse::NetHeaders::Ipv4(h, _) => h,
+        _ => return None,
+    };
+    let udp = match headers.transport? {
+        etherparse::TransportHeader::Udp(h) => h,
+        _ => return None,
+    };
+    let payload = headers.payload.slice().to_vec();
+    Some((
+        Ipv4Addr::from(ipv4.destination),
+        udp.destination_port,
+        udp.source_port,
+        payload,
+    ))
+}
+
+/// Build a raw IPv4 + UDP response packet for injection into the TUN device.
+fn build_udp_response_packet(
+    src_ip: Ipv4Addr,
+    src_port: u16,
+    dst_ip: Ipv4Addr,
+    dst_port: u16,
+    payload: &[u8],
+) -> Vec<u8> {
+    use etherparse::{Ipv4Header, UdpHeader};
+
+    let udp_hdr_len = 8; // UDP header is always 8 bytes
+    let udp_len = udp_hdr_len + payload.len();
+
+    let mut ip = Ipv4Header::new(
+        udp_len as u16,
+        64,
+        etherparse::IpNumber::UDP,
+        src_ip.octets(),
+        dst_ip.octets(),
+    )
+    .expect("valid ipv4 header");
+    ip.header_checksum = ip.calc_header_checksum();
+
+    let udp = UdpHeader::with_ipv4_checksum(src_port, dst_port, &ip, payload)
+        .expect("valid udp header");
+
+    let total_len = ip.header_len() + udp_hdr_len + payload.len();
+    let mut buf = Vec::with_capacity(total_len);
+    buf.extend_from_slice(&ip.to_bytes());
+    buf.extend_from_slice(&udp.to_bytes());
+    buf.extend_from_slice(payload);
+    buf
 }
 
 // ---------------------------------------------------------------------------
@@ -322,17 +396,20 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
     // ---- 2. Route manager ----
     let mut route_manager = RouteManager::new(&config.tun_name);
 
-    // ---- 3. Initial workspace state + routes ----
+    // ---- 3. Initial workspace state + routes + DNS domains ----
     let mut ws_state: Option<StoredWorkspaceState> = None;
+    let mut dns_domains: HashSet<String> = HashSet::new();
     if !config.tenant.is_empty() {
         match ensure_workspace_state(config, &config.tenant, false).await {
             Ok(state) => {
                 if let Err(e) = route_manager.sync_routes(&state.resources).await {
                     warn!("[tun] initial route sync failed: {}", e);
                 }
+                dns_domains = tun_dns_intercept::resource_domains(&state.resources);
                 info!(
-                    "[tun] installed routes for {} resources",
-                    state.resources.len()
+                    "[tun] installed routes for {} resources, tracking {} DNS domains",
+                    state.resources.len(),
+                    dns_domains.len()
                 );
                 ws_state = Some(state);
             }
@@ -395,6 +472,7 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
     // ---- 5. Socket set + connection tracking ----
     let mut sockets = SocketSet::new(vec![]);
     let mut connections: HashMap<ConnKey, ConnEntry> = HashMap::new();
+    let mut udp_connections: HashMap<ConnKey, UdpConnEntry> = HashMap::new();
     let (event_tx, mut event_rx) = mpsc::channel::<TunEvent>(4096);
 
     let ca_pem: Arc<Vec<u8>> = Arc::new(if !config.internal_ca_cert.is_empty() {
@@ -404,6 +482,20 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
     } else {
         Vec::new()
     });
+
+    // ---- 5b. QUIC connection pool (Option C discovery) ----
+    let quic_addr_cache = crate::quic_tunnel::QuicAddrCache::new();
+    let quic_pool = if !ca_pem.is_empty() {
+        match crate::quic_tunnel::QuicPool::new(&ca_pem) {
+            Ok(pool) => Some(Arc::new(pool)),
+            Err(e) => {
+                warn!("[tun] failed to init QUIC pool: {} (QUIC disabled)", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let mut route_timer = tokio::time::interval(Duration::from_secs(60));
     let mut poll_timer = tokio::time::interval(Duration::from_millis(5));
@@ -446,7 +538,73 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
 
                 debug!("[tun] rx  {}", describe_packet(&pkt));
 
-                // If this is a TCP SYN, ensure we have a listener socket.
+                // --- UDP packet handling (bypasses smoltcp) ---
+                if let Some((dst_ip, dst_port, src_port, payload)) = parse_udp_packet(&pkt) {
+                    // DNS interception: intercept queries to port 53 for resource domains
+                    if dst_port == 53 && !dns_domains.is_empty() {
+                        if let Some(response) = tun_dns_intercept::handle_dns_query(&payload, &dns_domains).await {
+                            let resp_pkt = build_udp_response_packet(
+                                dst_ip, 53, tun_ip, src_port, &response,
+                            );
+                            debug!("[tun] dns-intercept response for src_port {}", src_port);
+                            if let Err(e) = tun_writer.write_all(&resp_pkt).await {
+                                warn!("[tun] write DNS response failed: {}", e);
+                            }
+                            continue; // Handled — don't forward to tunnel
+                        }
+                        // Not a resource domain — fall through to normal UDP tunnel
+                    }
+
+                    let key: ConnKey = (IpAddr::V4(dst_ip), dst_port, src_port);
+                    if let Some(conn) = udp_connections.get_mut(&key) {
+                        conn.last_activity = Instant::now();
+                        let _ = conn.tx.try_send(payload);
+                    } else {
+                        info!(
+                            "[tun] new UDP flow {}:{} ← src_port {}",
+                            dst_ip, dst_port, src_port
+                        );
+                        let (tx, rx) = mpsc::channel::<Vec<u8>>(256);
+                        let _ = tx.try_send(payload);
+                        udp_connections.insert(key, UdpConnEntry {
+                            tx,
+                            last_activity: Instant::now(),
+                        });
+
+                        let event_tx = event_tx.clone();
+                        let controller_url = config.controller_url.clone();
+                        let connector_tunnel_addr = config.connector_tunnel_addr.clone();
+                        let workspace_resources = ws_state
+                            .as_ref()
+                            .map(|s| s.resources.clone())
+                            .unwrap_or_default();
+                        let ca_pem = Arc::clone(&ca_pem);
+                        let access_token = ws_state
+                            .as_ref()
+                            .map(|s| s.session.access_token.clone())
+                            .unwrap_or_default();
+                        let destination = route_manager
+                            .lookup_domain(IpAddr::V4(dst_ip))
+                            .unwrap_or_else(|| dst_ip.to_string());
+
+                        tokio::spawn(udp_tunnel_relay_task(
+                            key,
+                            rx,
+                            event_tx,
+                            controller_url,
+                            access_token,
+                            connector_tunnel_addr,
+                            workspace_resources,
+                            ca_pem,
+                            destination,
+                            dst_port,
+                        ));
+                    }
+                    // Don't feed UDP packets to smoltcp.
+                    continue;
+                }
+
+                // --- TCP SYN handling ---
                 if let Some((dst_ip, dst_port, src_port)) = parse_tcp_syn(&pkt) {
                     let key: ConnKey = (IpAddr::V4(dst_ip), dst_port, src_port);
                     if !connections.contains_key(&key) {
@@ -511,6 +669,21 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                             socket.close();
                         }
                     }
+                    Some(TunEvent::UdpData { key, data }) => {
+                        // Build a raw UDP/IP response packet and inject into TUN.
+                        let (dst_ip, dst_port, src_port) = key;
+                        if let (IpAddr::V4(dst), IpAddr::V4(src)) = (dst_ip, IpAddr::V4(tun_ip)) {
+                            let pkt = build_udp_response_packet(dst, dst_port, src, src_port, &data);
+                            debug!("[tun] udp response {}:{} → {} {} bytes", dst, dst_port, src_port, data.len());
+                            if let Err(e) = tun_writer.write_all(&pkt).await {
+                                warn!("[tun] write UDP response to TUN failed: {}", e);
+                            }
+                        }
+                    }
+                    Some(TunEvent::UdpClosed { key }) => {
+                        info!("[tun] UDP tunnel closed {:?}", key);
+                        udp_connections.remove(&key);
+                    }
                     None => break,
                 }
             }
@@ -523,6 +696,7 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                             if let Err(e) = route_manager.sync_routes(&state.resources).await {
                                 warn!("[tun] route sync failed: {}", e);
                             }
+                            dns_domains = tun_dns_intercept::resource_domains(&state.resources);
                             ws_state = Some(state);
                         }
                         Err(e) => {
@@ -589,6 +763,8 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                 .map(|s| s.session.access_token.clone())
                 .unwrap_or_default();
 
+            let task_quic_pool = quic_pool.clone();
+            let task_quic_cache = quic_addr_cache.clone();
             tokio::spawn(tunnel_relay_task(
                 key,
                 rx,
@@ -601,6 +777,9 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                 ca_pem,
                 destination,
                 dst_port,
+                "tcp".to_string(),
+                task_quic_pool,
+                task_quic_cache,
             ));
         }
 
@@ -645,6 +824,9 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                 );
             }
         }
+
+        // ---- Reap idle UDP connections ----
+        udp_connections.retain(|_key, entry| entry.last_activity.elapsed() < UDP_IDLE_TIMEOUT);
 
         // ---- Flush smoltcp output packets → TUN ----
         while let Some(pkt) = device.tx_queue.pop_front() {
@@ -707,6 +889,9 @@ async fn tunnel_relay_task(
     ca_pem: Arc<Vec<u8>>,
     destination: String,
     dst_port: u16,
+    protocol: String,
+    quic_pool: Option<Arc<crate::quic_tunnel::QuicPool>>,
+    quic_cache: crate::quic_tunnel::QuicAddrCache,
 ) {
     info!(
         "[tun-relay] starting ACL check for {}:{}",
@@ -715,7 +900,7 @@ async fn tunnel_relay_task(
 
     // ACL check
     let acl_resp =
-        match acl::check_access(&controller_url, &access_token, &destination, dst_port).await {
+        match acl::check_access(&controller_url, &access_token, &destination, dst_port, &protocol).await {
             Ok(r) => r,
             Err(e) => {
                 warn!(
@@ -814,32 +999,109 @@ async fn tunnel_relay_task(
         crate::describe_ca_pem(&ca_pem)
     );
 
-    // Open tunnel to connector
-    let mut tunnel_stream = match tunnel::open(
-        &connector_tunnel_addr,
-        &ca_pem,
-        &access_token,
+    // Try QUIC first if a cached QUIC address is available, fall back to TLS.
+    let cached_quic = quic_cache.get(&connector_tunnel_addr).await;
+    let mut use_quic_stream: Option<crate::quic_tunnel::QuicBiStream> = None;
+
+    if let (Some(quic_addr), Some(pool)) = (&cached_quic, &quic_pool) {
+        debug!("[tun-relay] trying QUIC at {} for {}:{}", quic_addr, destination, dst_port);
+        match tokio::time::timeout(
+            Duration::from_secs(3),
+            pool.open_stream(quic_addr, &access_token, &destination, dst_port, &protocol),
+        )
+        .await
+        {
+            Ok(Ok(stream)) => {
+                info!("[tun-relay] QUIC tunnel connected {}:{}", destination, dst_port);
+                use_quic_stream = Some(stream);
+            }
+            Ok(Err(e)) => {
+                debug!("[tun-relay] QUIC failed, falling back to TLS: {}", e);
+                quic_cache.remove(&connector_tunnel_addr).await;
+            }
+            Err(_) => {
+                debug!("[tun-relay] QUIC timed out, falling back to TLS");
+                quic_cache.remove(&connector_tunnel_addr).await;
+            }
+        }
+    }
+
+    // Fall back to TLS if QUIC didn't work
+    if use_quic_stream.is_none() {
+        let tunnel_result = match tunnel::open(
+            &connector_tunnel_addr,
+            &ca_pem,
+            &access_token,
+            &destination,
+            dst_port,
+            &protocol,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "[tun-relay] tunnel open failed for {}:{}: {}",
+                    destination, dst_port, e
+                );
+                let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
+                return;
+            }
+        };
+
+        // Cache QUIC address for future connections (Option C discovery)
+        if let Some(quic) = &tunnel_result.quic_addr {
+            info!("[tun-relay] discovered QUIC at {} — caching for future connections", quic);
+            quic_cache.set(&connector_tunnel_addr, quic.clone()).await;
+        }
+
+        // Use TLS stream for relay
+        let mut tls_stream = tunnel_result.stream;
+        info!(
+            "[tun-relay] TLS tunnel connected {}:{} — relaying",
+            destination, dst_port
+        );
+
+        relay_tcp_bidirectional(
+            &mut from_smoltcp,
+            &to_smoltcp,
+            &mut tls_stream,
+            key,
+            &destination,
+            dst_port,
+        )
+        .await;
+
+        let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
+        info!("[tun-relay] closed {}:{}", destination, dst_port);
+        return;
+    }
+
+    // QUIC stream relay
+    let mut quic_stream = use_quic_stream.unwrap();
+    relay_tcp_bidirectional(
+        &mut from_smoltcp,
+        &to_smoltcp,
+        &mut quic_stream,
+        key,
         &destination,
         dst_port,
     )
-    .await
-    {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(
-                "[tun-relay] tunnel open failed for {}:{}: {}",
-                destination, dst_port, e
-            );
-            let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
-            return;
-        }
-    };
+    .await;
 
-    info!(
-        "[tun-relay] tunnel connected {}:{} — relaying",
-        destination, dst_port
-    );
+    let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
+    info!("[tun-relay] closed {}:{}", destination, dst_port);
+}
 
+/// Bidirectional relay between a smoltcp channel and an async stream.
+async fn relay_tcp_bidirectional<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    from_smoltcp: &mut mpsc::Receiver<Vec<u8>>,
+    to_smoltcp: &mpsc::Sender<TunEvent>,
+    tunnel_stream: &mut S,
+    key: ConnKey,
+    destination: &str,
+    dst_port: u16,
+) {
     // Bidirectional relay: smoltcp socket ↔ tunnel
     let mut tunnel_buf = vec![0u8; 65536];
     loop {
@@ -883,7 +1145,129 @@ async fn tunnel_relay_task(
             }
         }
     }
+}
 
-    let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
-    info!("[tun-relay] closed {}:{}", destination, dst_port);
+// ---------------------------------------------------------------------------
+// UDP tunnel relay task — runs per-flow in its own tokio task
+// ---------------------------------------------------------------------------
+
+async fn udp_tunnel_relay_task(
+    key: ConnKey,
+    mut from_tun: mpsc::Receiver<Vec<u8>>,
+    to_tun: mpsc::Sender<TunEvent>,
+    controller_url: String,
+    access_token: String,
+    fallback_connector_tunnel_addr: String,
+    workspace_resources: Vec<StoredResource>,
+    ca_pem: Arc<Vec<u8>>,
+    destination: String,
+    dst_port: u16,
+) {
+    info!(
+        "[udp-relay] starting ACL check for {}:{}",
+        destination, dst_port
+    );
+
+    // ACL check
+    let acl_resp =
+        match acl::check_access(&controller_url, &access_token, &destination, dst_port, "udp")
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "[udp-relay] ACL check failed for {}:{}: {}",
+                    destination, dst_port, e
+                );
+                let _ = to_tun.send(TunEvent::UdpClosed { key }).await;
+                return;
+            }
+        };
+
+    if !acl_resp.allowed {
+        info!(
+            "[udp-relay] ACL denied {}:{} — dropping UDP",
+            destination, dst_port
+        );
+        let _ = to_tun.send(TunEvent::UdpClosed { key }).await;
+        return;
+    }
+
+    let connector_tunnel_addr = connector_tunnel_addr_for_resource(
+        &workspace_resources,
+        &acl_resp.resource_id,
+        &fallback_connector_tunnel_addr,
+    );
+
+    if connector_tunnel_addr.trim().is_empty() || ca_pem.is_empty() {
+        warn!(
+            "[udp-relay] no connector address or CA for {}:{}",
+            destination, dst_port
+        );
+        let _ = to_tun.send(TunEvent::UdpClosed { key }).await;
+        return;
+    }
+
+    // Open tunnel with protocol "udp"
+    let mut tunnel_stream = match tunnel::open(
+        &connector_tunnel_addr,
+        &ca_pem,
+        &access_token,
+        &destination,
+        dst_port,
+        "udp",
+    )
+    .await
+    {
+        Ok(r) => r.stream,
+        Err(e) => {
+            warn!(
+                "[udp-relay] tunnel open failed for {}:{}: {}",
+                destination, dst_port, e
+            );
+            let _ = to_tun.send(TunEvent::UdpClosed { key }).await;
+            return;
+        }
+    };
+
+    info!(
+        "[udp-relay] tunnel connected {}:{} — relaying datagrams",
+        destination, dst_port
+    );
+
+    // Bidirectional relay with length-prefixed framing
+    let (mut tunnel_reader, mut tunnel_writer) = tokio::io::split(&mut tunnel_stream);
+    loop {
+        tokio::select! {
+            // Datagram from TUN → tunnel (length-prefixed)
+            data = from_tun.recv() => {
+                match data {
+                    Some(data) if !data.is_empty() => {
+                        if framing::write_frame(&mut tunnel_writer, &data).await.is_err() {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            // Datagram from tunnel → TUN
+            frame = framing::read_frame(&mut tunnel_reader) => {
+                match frame {
+                    Ok(Some(data)) => {
+                        if to_tun
+                            .send(TunEvent::UdpData { key, data })
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+        }
+    }
+
+    let _ = to_tun.send(TunEvent::UdpClosed { key }).await;
+    info!("[udp-relay] closed {}:{}", destination, dst_port);
 }

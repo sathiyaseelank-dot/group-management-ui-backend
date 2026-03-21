@@ -99,6 +99,13 @@ cargo ndk -t x86_64 build --release
 ./gradlew installDebug           # install on connected device
 ```
 
+### PostgreSQL (from repo root)
+
+```bash
+docker compose up -d              # Start PostgreSQL (postgres:16-alpine, port 5432)
+docker exec ztna-postgres psql -U ztnaadmin -d ztna -c "<query>"  # Run queries
+```
+
 ### Root Makefile (from repo root)
 
 ```bash
@@ -123,7 +130,7 @@ make clean              # Remove build artifacts
 | Service | Language | Port | Purpose |
 |---|---|---|---|
 | **Controller** | Go 1.24 | `:8081` (HTTP admin), `:8443` (gRPC enrollment), `:8080` (OAuth callbacks) | Control plane: CA, enrollment, ACLs, OAuth, device auth |
-| **Connector** | Rust | `:9443` (agent gRPC), `:9444` (device tunnel) | Gateway between agents/devices and resources |
+| **Connector** | Rust | `:9443` (agent gRPC), `:9444/tcp` (TLS tunnel), `:9444/udp` (QUIC tunnel) | Gateway between agents/devices and resources |
 | **Agent** | Rust | outbound only | Server-side agent: connects to connector, enforces nftables firewall. Runs entirely in-memory. |
 | **ztna-client** | Rust | N/A | Desktop CLI: device enrollment, OAuth PKCE, TUN/SOCKS5 split-tunnel |
 | **ztna-client-mobile** | Rust (UniFFI lib) | N/A | Shared auth/networking core for Android (and future iOS) |
@@ -134,7 +141,7 @@ make clean              # Remove build artifacts
 
 **TUN mode (default, `ZTNA_MODE=tun`):**
 ```
-App (no config) → kernel route → TUN device (ztna0) → smoltcp TCP stack → ACL check → Connector tunnel (:9444) → Agent → Protected resource
+App (no config) → kernel route → TUN device (ztna0) → smoltcp TCP / raw UDP → ACL check → Connector tunnel (:9444) → Agent → Protected resource
 ```
 
 **SOCKS5 mode (`ZTNA_MODE=socks5`):**
@@ -142,14 +149,22 @@ App (no config) → kernel route → TUN device (ztna0) → smoltcp TCP stack �
 App (must configure proxy) → SOCKS5 proxy (ztna-client:1080) → ACL check → Connector tunnel (:9444) → Agent → Protected resource
 ```
 
-**TUN mode flow:**
+**TUN mode flow (TCP):**
 1. App sends TCP to resource IP — kernel routes through TUN device `ztna0` (via `ip route add <ip>/32 dev ztna0`)
 2. smoltcp userspace TCP stack handles SYN/ACK handshake transparently
 3. Client checks ACL via `POST /api/device/check-access` on the controller
-4. If allowed, opens TLS tunnel to connector's device tunnel port (`:9444`)
+4. If allowed, tries QUIC first (if cached), falls back to TLS tunnel to connector `:9444`
 5. Bidirectional relay: smoltcp socket <-> tunnel stream
 6. Connector routes to the agent protecting the target resource
 7. Agent forwards traffic to the resource
+
+**TUN mode flow (UDP):**
+1. App sends UDP to resource IP — kernel routes through TUN device `ztna0`
+2. Raw UDP packet parsed with `etherparse` (bypasses smoltcp entirely)
+3. DNS queries (port 53) for resource domains are intercepted and resolved locally
+4. Non-DNS UDP: ACL check, then length-prefixed datagram relay over TLS/QUIC tunnel
+5. Connector relays to agent, agent forwards via `UdpSocket`
+6. Response datagrams are wrapped in raw IPv4+UDP packets and injected back into TUN
 
 **SOCKS5 mode flow:**
 1. Application connects through SOCKS5 proxy on `127.0.0.1:1080`
@@ -375,6 +390,15 @@ All tables created via `initSchemaDialect()` in `state/db.go` on startup. New co
 - **Access rule chain** — for a user to see resources via `ztna-client resources`, the full chain must exist: `user → user_group_members → user_groups → access_rule_groups → access_rules (enabled=1) → resources`. The `resourceCount` shown in the groups UI API counts all rules regardless of `enabled`, so a group can show `resourceCount > 0` while the agent sees 0 resources if the rule is disabled.
 - **ZTNA Client caches resources** at login time. Run `ztna-client sync <tenant>` or re-login after changing group membership or access rules to refresh the local cache.
 - **Agent is memory-only** — the agent does not persist any state to disk. It enrolls fresh on every start and receives firewall policy from the connector. On `initialize()` the nftables chain is flushed to prevent rule duplication across restarts.
-- **Connector has two listener ports** — `:9443` for agent gRPC (mTLS) and `:9444` for device tunnel (TLS with JWT auth). The device tunnel port is set via `DEVICE_TUNNEL_ADDR`.
+- **Connector has three listeners** — `:9443` for agent gRPC (mTLS), `:9444/tcp` for TLS device tunnel, `:9444/udp` for QUIC device tunnel. QUIC is non-fatal — if it fails to bind, only TLS is used. The device tunnel port is set via `DEVICE_TUNNEL_ADDR`.
+- **QUIC upgrade (Option C discovery)** — the TLS tunnel handshake response includes `quic_addr` when QUIC is available. The client caches this and tries QUIC first (3s timeout) on subsequent connections, falling back to TLS. The QUIC pool (`quic_tunnel.rs`) maintains one QUIC connection per connector with multiplexed streams.
+- **Tunnel wire protocol** — the handshake JSON includes a `protocol` field (`"tcp"` or `"udp"`, defaults to `"tcp"` via `#[serde(default)]` for backward compat). UDP datagrams use length-prefixed framing (`[u32 BE length][payload]`) over the TLS/QUIC byte stream. The connector↔agent hop uses gRPC `ControlMessage` frames (JSON payloads) which are naturally message-delimited.
+- **DNS interception** — `tun_dns_intercept.rs` intercepts UDP port 53 queries for known resource domains at the TUN level, resolving them locally to prevent DNS leaks. Non-resource domains pass through. The domain set is rebuilt from workspace resources every 60 seconds.
+- **UDP in TUN bypasses smoltcp** — UDP packets are parsed with `etherparse` and relayed directly (no smoltcp UDP sockets). Response datagrams are constructed as raw IPv4+UDP packets with `etherparse` and injected into the TUN writer. UDP flows have a 30-second idle timeout.
 - **PostgreSQL runs in Docker** — container name `ztna-postgres`, image `postgres:16-alpine`, port `5432`. Connect with: `docker exec ztna-postgres psql -U ztnaadmin -d ztna -c "<query>"`
 - **Systemd services** — unit files in `systemd/` directory (`agent.service`, `connector.service`). Connector config at `/etc/connector/connector.conf`, agent config at `/etc/agent/agent.conf`. Both use `LoadCredential=CONTROLLER_CA:/etc/<service>/ca.crt`.
+- **Commit messages** follow Conventional Commits with component scopes: `feat(controller): ...`, `fix(connector): ...`, `test(agent): ...`, `chore: ...`. PRs typically target `develop`.
+- **Protobuf changes** (`shared/proto/controller.proto`) affect all services — regenerate and verify across Go, Rust, and frontend after modifications.
+- **CI/CD** — GitHub Actions workflows in `.github/workflows/` build release binaries for `x86_64` and `aarch64` Linux on `v*` tag push. Binary names: `connector-linux-amd64`, `agent-linux-amd64`, `ztna-client-linux-amd64` (and `-arm64` variants).
+- **Client security** — OAuth callback binds to `127.0.0.1` by default (not `0.0.0.0`). HTML responses in the callback handler are escaped via `html_escape()`. Tenant slugs are validated (`[a-zA-Z0-9][a-zA-Z0-9_-]*`, max 63 chars) to prevent path traversal. The callback endpoint is rate-limited (10 req/60s). Service token file uses `0640` with `ztna` group when available (falls back to `0644`).
+- **`validate_tenant_slug()`** in `config.rs` is called from `persist_tenant()`, `require_tenant()`, `run_setup()`, and `begin_login()`. Any code accepting a tenant slug from user input should call this function.

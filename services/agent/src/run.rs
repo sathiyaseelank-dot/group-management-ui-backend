@@ -389,7 +389,11 @@ async fn handle_inbound_message(
         }
         "connector_tunnel_data" => {
             let data: TunnelData = serde_json::from_slice(&msg.payload)?;
-            tunnel_manager.write(data).await?;
+            if tunnel_manager.is_udp(&data.connection_id).await {
+                tunnel_manager.write_udp(data).await?;
+            } else {
+                tunnel_manager.write(data).await?;
+            }
         }
         "connector_tunnel_close" => {
             let close: TunnelClose = serde_json::from_slice(&msg.payload)?;

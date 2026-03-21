@@ -7,8 +7,12 @@
 //!
 //! Token file layout:
 //!   - path:  `<state_dir>/.service.token`
-//!   - mode:  0644  (world-readable by filename; non-root can read it)
+//!   - mode:  0640 when a `ztna` group exists (owner rw, group read),
+//!            0644 otherwise (world-readable fallback so non-root CLI works)
 //!   - state_dir mode adjusted to 0711 so users can traverse but not list
+//!
+//! To tighten permissions, create a `ztna` system group and add CLI users:
+//!   `groupadd -r ztna && usermod -aG ztna <user>`
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -40,9 +44,41 @@ pub fn init_service_token(state_dir: &Path) -> Result<String> {
 
     let path = token_path(state_dir);
     std::fs::write(&path, token.as_bytes())?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))?;
+
+    // Prefer 0640 (owner rw, group read) when a 'ztna' group exists.
+    // Fall back to 0644 so non-root users can still authenticate.
+    let mode = if try_set_group(&path, "ztna").is_ok() {
+        0o640
+    } else {
+        tracing::info!(
+            "service token using mode 0644 (no 'ztna' group found; \
+             create group 'ztna' and add users for tighter permissions)"
+        );
+        0o644
+    };
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))?;
 
     Ok(token)
+}
+
+/// Try to set the group owner of `path` to the named group.
+fn try_set_group(path: &Path, group_name: &str) -> Result<()> {
+    use std::ffi::CString;
+    let c_group = CString::new(group_name)?;
+    let grp = unsafe { libc::getgrnam(c_group.as_ptr()) };
+    if grp.is_null() {
+        anyhow::bail!("group '{}' not found", group_name);
+    }
+    let gid = unsafe { (*grp).gr_gid };
+    let c_path = CString::new(
+        path.to_str()
+            .ok_or_else(|| anyhow::anyhow!("non-UTF-8 path"))?,
+    )?;
+    let ret = unsafe { libc::chown(c_path.as_ptr(), u32::MAX, gid) };
+    if ret != 0 {
+        anyhow::bail!("chown failed: {}", std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 /// Read the service token from `<state_dir>/.service.token`.

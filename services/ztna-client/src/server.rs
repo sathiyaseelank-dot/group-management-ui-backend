@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -22,7 +22,7 @@ use crate::auth::{
     generate_code_verifier, refresh_device_token, report_device_posture, revoke_device_token,
     start_device_auth, sync_device_view, DeviceResource, DeviceUserView,
 };
-use crate::config::Config;
+use crate::config::{validate_tenant_slug, Config};
 use crate::product::{CliResourceInfo, CliStatusResponse, CliWorkspaceStatus};
 use crate::token_store::{
     clear_workspace_state, list_workspace_states, load_workspace_state, save_workspace_state,
@@ -30,6 +30,50 @@ use crate::token_store::{
 };
 
 const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Escape a string for safe insertion into HTML content.
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
+// ---------------------------------------------------------------------------
+// Global rate limiter for the callback endpoint
+// ---------------------------------------------------------------------------
+
+const RATE_LIMIT_MAX: u32 = 10;
+const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+
+#[derive(Clone)]
+struct RateLimiter {
+    state: Arc<Mutex<(u32, Instant)>>,
+}
+
+impl RateLimiter {
+    fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new((0, Instant::now()))),
+        }
+    }
+
+    /// Returns `true` if the request is within the rate limit.
+    fn check(&self) -> bool {
+        let mut guard = self.state.lock().unwrap();
+        let now = Instant::now();
+        if now.duration_since(guard.1) >= RATE_LIMIT_WINDOW {
+            *guard = (1, now);
+            true
+        } else if guard.0 < RATE_LIMIT_MAX {
+            guard.0 += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -191,10 +235,35 @@ pub fn management_router(state: AppState) -> Router {
 ///
 /// Exposes only the `/callback` route; no management endpoints here so
 /// LAN exposure does not affect the control surface.
+///
+/// Rate-limited to 10 requests per 60 seconds.
 pub fn callback_router(state: AppState) -> Router {
+    let limiter = RateLimiter::new();
     Router::new()
         .route("/callback", get(handle_callback))
+        .layer(middleware::from_fn_with_state(
+            limiter,
+            rate_limit_middleware,
+        ))
         .with_state(state)
+}
+
+async fn rate_limit_middleware(
+    State(limiter): State<RateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if limiter.check() {
+        next.run(req).await
+    } else {
+        warn!("callback rate limit exceeded");
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "60")],
+            "rate limited",
+        )
+            .into_response()
+    }
 }
 
 fn now_unix() -> i64 {
@@ -421,6 +490,7 @@ async fn enroll_and_sync(
 }
 
 pub async fn begin_login(state: &AppState, tenant_slug: &str) -> Result<String> {
+    validate_tenant_slug(tenant_slug)?;
     let code_verifier = generate_code_verifier();
     let code_challenge = compute_code_challenge(&code_verifier);
     let callback_host = state.config.effective_callback_host();
@@ -538,7 +608,7 @@ async fn handle_callback(
     if let Some(err) = q.error {
         return Html(format!(
             "<html><body><p>Authentication error: {}</p></body></html>",
-            err
+            html_escape(&err)
         ));
     }
 
@@ -595,14 +665,14 @@ async fn handle_callback(
                     info!("authenticated to workspace: {}", pending.tenant_slug);
                     Html(format!(
                         "<html><body><h2>Connected to {}.</h2><p>You can close this tab and return to the terminal.</p></body></html>",
-                        pending.tenant_slug
+                        html_escape(&pending.tenant_slug)
                     ))
                 }
                 Err(err) => {
                     error!("post-login device setup failed: {}", err);
                     Html(format!(
                         "<html><body><p>Authentication succeeded, but device setup failed: {}</p></body></html>",
-                        err
+                        html_escape(&err.to_string())
                     ))
                 }
             }
@@ -611,7 +681,7 @@ async fn handle_callback(
             error!("token exchange failed: {}", err);
             Html(format!(
                 "<html><body><p>Authentication failed: {}</p></body></html>",
-                err
+                html_escape(&err.to_string())
             ))
         }
     }

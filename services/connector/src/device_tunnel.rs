@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio_rustls::TlsAcceptor;
 use tracing::{info, warn};
 
@@ -10,11 +10,17 @@ use crate::tls::cert_store::CertStore;
 use crate::tls::server_cfg::build_device_tunnel_tls;
 use crate::{agent_tunnel::AgentTunnelHub, policy::PolicyCache};
 
+fn default_tcp() -> String {
+    "tcp".to_string()
+}
+
 #[derive(Deserialize)]
 struct TunnelRequest {
     token: String,
     destination: String,
     port: u16,
+    #[serde(default = "default_tcp")]
+    protocol: String,
 }
 
 #[derive(Serialize)]
@@ -22,6 +28,19 @@ struct TunnelResponse {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// QUIC endpoint address for the client to upgrade to on subsequent
+    /// connections (Option C discovery).  Omitted when QUIC is not available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quic_addr: Option<String>,
+}
+
+/// Global QUIC address advertised to clients.  Set once by `quic_listener`
+/// when the QUIC endpoint starts successfully.
+static QUIC_ADVERTISE_ADDR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Called by quic_listener after bind to publish the QUIC address.
+pub fn set_quic_advertise_addr(addr: String) {
+    let _ = QUIC_ADVERTISE_ADDR.set(addr);
 }
 
 #[derive(Deserialize)]
@@ -52,7 +71,7 @@ pub async fn listen(
                 tokio::spawn(async move {
                     match acc.accept(stream).await {
                         Ok(tls) => {
-                            if let Err(e) = handle(tls, &ctrl, acl, tunnel_hub).await {
+                            if let Err(e) = handle_stream(tls, &ctrl, acl, tunnel_hub).await {
                                 warn!("device tunnel client error from {}: {}", peer, e);
                             }
                         }
@@ -92,6 +111,11 @@ async fn send_response<S: AsyncWrite + Unpin>(
     let resp = TunnelResponse {
         ok,
         error: error.map(|s| s.to_string()),
+        quic_addr: if ok {
+            QUIC_ADVERTISE_ADDR.get().cloned()
+        } else {
+            None
+        },
     };
     let mut line = serde_json::to_string(&resp)?;
     line.push('\n');
@@ -99,8 +123,8 @@ async fn send_response<S: AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle(
-    mut stream: tokio_rustls::server::TlsStream<TcpStream>,
+pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+    mut stream: S,
     controller_http_url: &str,
     acl: Arc<PolicyCache>,
     tunnel_hub: AgentTunnelHub,
@@ -109,7 +133,9 @@ async fn handle(
     let req: TunnelRequest =
         serde_json::from_str(line.trim()).map_err(|e| anyhow::anyhow!("bad handshake: {}", e))?;
 
-    let allowed = check_access(controller_http_url, &req.token, &req.destination, req.port).await;
+    let allowed =
+        check_access(controller_http_url, &req.token, &req.destination, req.port, &req.protocol)
+            .await;
     match allowed {
         Err(e) => {
             let _ = send_response(&mut stream, false, Some("check-access error")).await;
@@ -139,6 +165,7 @@ async fn handle(
                     stream,
                     &req.destination,
                     req.port,
+                    &req.protocol,
                 )
                 .await;
             }
@@ -146,6 +173,11 @@ async fn handle(
     }
 
     let dest = format!("{}:{}", req.destination, req.port);
+
+    if req.protocol == "udp" {
+        return relay_udp_direct(&mut stream, &dest).await;
+    }
+
     let mut resource = match TcpStream::connect(&dest).await {
         Ok(s) => s,
         Err(e) => {
@@ -167,6 +199,7 @@ async fn check_access(
     token: &str,
     destination: &str,
     port: u16,
+    protocol: &str,
 ) -> Result<CheckAccessResponse> {
     #[derive(Serialize)]
     struct Req<'a> {
@@ -180,7 +213,7 @@ async fn check_access(
         .bearer_auth(token)
         .json(&Req {
             destination,
-            protocol: "tcp",
+            protocol,
             port,
         })
         .send()
@@ -192,4 +225,46 @@ async fn check_access(
     }
 
     Ok(resp.json::<CheckAccessResponse>().await?)
+}
+
+/// Relay length-prefixed UDP datagrams between a TLS stream and a UDP socket.
+async fn relay_udp_direct<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    dest: &str,
+) -> Result<()> {
+    let udp = UdpSocket::bind("0.0.0.0:0").await?;
+    udp.connect(dest).await?;
+
+    let mut udp_buf = [0u8; 65535];
+    let mut len_buf = [0u8; 4];
+
+    loop {
+        tokio::select! {
+            // TLS stream → UDP socket (client sending to resource)
+            result = stream.read_exact(&mut len_buf) => {
+                match result {
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+                let len = u32::from_be_bytes(len_buf) as usize;
+                if len > 65535 { break; }
+                let mut buf = vec![0u8; len];
+                if stream.read_exact(&mut buf).await.is_err() { break; }
+                if udp.send(&buf).await.is_err() { break; }
+            }
+            // UDP socket → TLS stream (resource responding to client)
+            result = udp.recv(&mut udp_buf) => {
+                match result {
+                    Ok(n) => {
+                        let len = (n as u32).to_be_bytes();
+                        if stream.write_all(&len).await.is_err() { break; }
+                        if stream.write_all(&udp_buf[..n]).await.is_err() { break; }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+    info!("UDP relay closed {}", dest);
+    Ok(())
 }

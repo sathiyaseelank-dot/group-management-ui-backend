@@ -339,7 +339,7 @@ impl Config {
             callback_bind_addr: cli
                 .callback_bind_addr
                 .or(file.callback_bind_addr)
-                .unwrap_or_else(|| "0.0.0.0".to_string()),
+                .unwrap_or_else(|| "127.0.0.1".to_string()),
             callback_host: cli.callback_host.or(file.callback_host).unwrap_or_default(),
             socks5_addr: cli
                 .socks5_addr
@@ -481,9 +481,7 @@ impl Config {
 
     pub fn persist_tenant(&self, tenant: &str) -> anyhow::Result<()> {
         let tenant = tenant.trim();
-        if tenant.is_empty() {
-            anyhow::bail!("workspace slug cannot be empty");
-        }
+        validate_tenant_slug(tenant)?;
 
         if let Some(parent) = self.config_file.parent() {
             std::fs::create_dir_all(parent)?;
@@ -530,9 +528,11 @@ impl Config {
     /// Like [`resolve_tenant`](Self::resolve_tenant) but returns an error
     /// when no tenant is available from either the command or config.
     pub fn require_tenant(&self, cmd_tenant: Option<&str>) -> anyhow::Result<String> {
-        self.resolve_tenant(cmd_tenant).ok_or_else(|| {
+        let slug = self.resolve_tenant(cmd_tenant).ok_or_else(|| {
             anyhow::anyhow!("no tenant specified; use --tenant or set tenant in config file")
-        })
+        })?;
+        validate_tenant_slug(&slug)?;
+        Ok(slug)
     }
 
     /// Returns true when this is a product install (config file loaded)
@@ -578,8 +578,42 @@ impl Config {
         if !host.is_empty() {
             return host.to_string();
         }
+        // When binding to loopback, the redirect host must also be loopback.
+        if is_loopback_bind(&self.callback_bind_addr) {
+            return "127.0.0.1".to_string();
+        }
         detect_lan_ip().unwrap_or_else(|| "localhost".to_string())
     }
+}
+
+/// Returns `true` when `addr` refers to the loopback interface.
+pub fn is_loopback_bind(addr: &str) -> bool {
+    addr == "127.0.0.1" || addr == "::1" || addr == "localhost"
+}
+
+/// Validate that a tenant slug is safe for use in file paths and API calls.
+///
+/// Allowed: ASCII letters, digits, hyphens, underscores.
+/// Must start with a letter or digit.  Length 1..=63 (DNS label limit).
+pub fn validate_tenant_slug(slug: &str) -> anyhow::Result<()> {
+    if slug.is_empty() {
+        anyhow::bail!("workspace slug cannot be empty");
+    }
+    if slug.len() > 63 {
+        anyhow::bail!("workspace slug too long (max 63 characters)");
+    }
+    if !slug
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        anyhow::bail!(
+            "invalid workspace slug (only letters, digits, hyphens, underscores allowed)"
+        );
+    }
+    if !slug.as_bytes()[0].is_ascii_alphanumeric() {
+        anyhow::bail!("workspace slug must start with a letter or digit");
+    }
+    Ok(())
 }
 
 fn derive_grpc_addr_from_url(controller_url: &str) -> Option<String> {

@@ -14,12 +14,22 @@ struct TunnelRequest<'a> {
     token: &'a str,
     destination: &'a str,
     port: u16,
+    protocol: &'a str,
 }
 
 #[derive(Deserialize)]
 struct TunnelResponse {
     ok: bool,
     error: Option<String>,
+    /// QUIC endpoint address advertised by the connector (Option C discovery).
+    quic_addr: Option<String>,
+}
+
+/// Result of opening a TLS tunnel, including any QUIC discovery info.
+pub struct TunnelResult {
+    pub stream: tokio_rustls::client::TlsStream<tokio::net::TcpStream>,
+    /// If set, the connector supports QUIC at this address.
+    pub quic_addr: Option<String>,
 }
 
 #[derive(Debug)]
@@ -84,6 +94,15 @@ fn pem_to_der(pem_bytes: &[u8]) -> Result<Vec<u8>> {
 }
 
 fn build_client_tls(ca_pem: &[u8]) -> Result<Arc<rustls::ClientConfig>> {
+    Ok(Arc::new(build_client_tls_inner(ca_pem)?))
+}
+
+/// Build a rustls ClientConfig for QUIC (needs owned config, not Arc).
+pub fn build_client_tls_for_quic(ca_pem: &[u8]) -> Result<rustls::ClientConfig> {
+    build_client_tls_inner(ca_pem)
+}
+
+fn build_client_tls_inner(ca_pem: &[u8]) -> Result<rustls::ClientConfig> {
     let ca_der = pem_to_der(ca_pem)?;
     let mut root_store = rustls::RootCertStore::empty();
     root_store
@@ -100,7 +119,7 @@ fn build_client_tls(ca_pem: &[u8]) -> Result<Arc<rustls::ClientConfig>> {
         .with_custom_certificate_verifier(Arc::new(InternalCaVerifier { inner }))
         .with_no_client_auth();
 
-    Ok(Arc::new(config))
+    Ok(config)
 }
 
 pub async fn open(
@@ -109,7 +128,8 @@ pub async fn open(
     token: &str,
     destination: &str,
     port: u16,
-) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
+    protocol: &str,
+) -> Result<TunnelResult> {
     let tls_config = build_client_tls(ca_pem)?;
     let connector = TlsConnector::from(tls_config);
 
@@ -134,6 +154,7 @@ pub async fn open(
         token,
         destination,
         port,
+        protocol,
     };
     let mut line = serde_json::to_string(&req)?;
     line.push('\n');
@@ -147,7 +168,10 @@ pub async fn open(
         );
     }
 
-    Ok(stream)
+    Ok(TunnelResult {
+        stream,
+        quic_addr: resp.quic_addr,
+    })
 }
 
 async fn read_response_line(

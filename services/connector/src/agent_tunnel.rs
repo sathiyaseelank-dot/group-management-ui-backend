@@ -30,11 +30,17 @@ pub enum TunnelEvent {
     Closed(Option<String>),
 }
 
+fn default_tcp() -> String {
+    "tcp".to_string()
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TunnelOpen {
     pub connection_id: String,
     pub destination: String,
     pub port: u16,
+    #[serde(default = "default_tcp")]
+    pub protocol: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -178,6 +184,7 @@ pub async fn relay_stream<S>(
     stream: S,
     destination: &str,
     port: u16,
+    protocol: &str,
 ) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -191,6 +198,7 @@ where
             connection_id: connection_id.clone(),
             destination: destination.to_string(),
             port,
+            protocol: protocol.to_string(),
         },
     )
     .await?;

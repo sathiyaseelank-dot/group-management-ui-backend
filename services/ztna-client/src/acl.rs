@@ -21,13 +21,14 @@ pub async fn check_access(
     access_token: &str,
     destination: &str,
     port: u16,
+    protocol: &str,
 ) -> Result<CheckAccessResponse> {
     let resp = Client::new()
         .post(format!("{}/api/device/check-access", controller_url))
         .bearer_auth(access_token)
         .json(&CheckAccessRequest {
             destination,
-            protocol: "tcp",
+            protocol,
             port,
         })
         .send()
