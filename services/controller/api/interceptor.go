@@ -17,8 +17,9 @@ import (
 type contextKey string
 
 const (
-	spiffeIDContextKey contextKey = "spiffe-id"
-	roleContextKey     contextKey = "spiffe-role"
+	spiffeIDContextKey   contextKey = "spiffe-id"
+	roleContextKey       contextKey = "spiffe-role"
+	workspaceIDContextKey contextKey = "workspace-id"
 )
 
 // UnarySPIFFEInterceptor enforces SPIFFE identity on unary RPCs.
@@ -38,6 +39,10 @@ func UnarySPIFFEInterceptor(trustDomain string, allowedRoles ...string) grpc.Una
 
 		ctx = context.WithValue(ctx, spiffeIDContextKey, spiffeID)
 		ctx = context.WithValue(ctx, roleContextKey, role)
+		// Extract workspace from SPIFFE ID (if embedded in trust domain)
+		if wsID := extractWorkspaceFromSPIFFE(spiffeID); wsID != "" {
+			ctx = context.WithValue(ctx, workspaceIDContextKey, wsID)
+		}
 
 		return handler(ctx, req)
 	}
@@ -65,6 +70,10 @@ func UnaryAuthInterceptor(trustDomain string, unauthenticatedMethods map[string]
 
 		ctx = context.WithValue(ctx, spiffeIDContextKey, spiffeID)
 		ctx = context.WithValue(ctx, roleContextKey, role)
+		// Extract workspace from SPIFFE ID (if embedded in trust domain)
+		if wsID := extractWorkspaceFromSPIFFE(spiffeID); wsID != "" {
+			ctx = context.WithValue(ctx, workspaceIDContextKey, wsID)
+		}
 
 		return handler(ctx, req)
 	}
@@ -85,13 +94,18 @@ func StreamSPIFFEInterceptor(trustDomain string, allowedRoles ...string) grpc.St
 			return err
 		}
 
+		// Build context with SPIFFE ID, role, and workspace
+		ctx := ss.Context()
+		ctx = context.WithValue(ctx, spiffeIDContextKey, spiffeID)
+		ctx = context.WithValue(ctx, roleContextKey, role)
+		// Extract workspace from SPIFFE ID (if embedded in trust domain)
+		if wsID := extractWorkspaceFromSPIFFE(spiffeID); wsID != "" {
+			ctx = context.WithValue(ctx, workspaceIDContextKey, wsID)
+		}
+
 		wrapped := &wrappedStream{
 			ServerStream: ss,
-			ctx: context.WithValue(
-				context.WithValue(ss.Context(), spiffeIDContextKey, spiffeID),
-				roleContextKey,
-				role,
-			),
+			ctx: ctx,
 		}
 
 		return handler(srv, wrapped)
@@ -126,6 +140,39 @@ func RoleFromContext(ctx context.Context) (string, bool) {
 	}
 	role, ok := v.(string)
 	return role, ok
+}
+
+// WorkspaceIDFromContext returns the workspace ID from context.
+func WorkspaceIDFromContext(ctx context.Context) (string, bool) {
+	v := ctx.Value(workspaceIDContextKey)
+	if v == nil {
+		return "", false
+	}
+	id, ok := v.(string)
+	return id, ok
+}
+
+// extractWorkspaceFromSPIFFE extracts the workspace ID from a SPIFFE URI.
+// For SPIFFE IDs like spiffe://mycorp.internal/connector/xyz or
+// spiffe://ws-abc.internal/tunneler/def, the workspace is extracted from
+// the trust domain (ws-abc) or looked up by connector/agent ID.
+func extractWorkspaceFromSPIFFE(spiffeID string) string {
+	if spiffeID == "" {
+		return ""
+	}
+	// Parse spiffe://domain/role/id
+	parts := strings.Split(strings.TrimPrefix(spiffeID, "spiffe://"), "/")
+	if len(parts) < 3 {
+		return ""
+	}
+	domain := parts[0]
+	// If domain starts with "ws-" or contains workspace identifier, extract it
+	if strings.HasPrefix(domain, "ws-") {
+		return domain
+	}
+	// Otherwise, workspace must be looked up by connector/agent ID
+	// This is done in the control plane handlers
+	return ""
 }
 
 // TrustDomainValidator checks whether a given trust domain is acceptable.

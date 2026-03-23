@@ -105,6 +105,7 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 		if s.ACLNotify != nil {
 			s.ACLNotify.NotifyPolicyChange()
 		}
+		s.audit(r, "access_rule.create", ruleID, "ok")
 		writeJSON(w, http.StatusOK, uiAccessRule{
 			ID:            ruleID,
 			Name:          req.Name,
@@ -124,6 +125,8 @@ func (s *Server) handleUIAccessRulesSubroutes(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhere(wsID, "")
 	path := strings.TrimPrefix(r.URL.Path, "/api/access-rules/")
 	path = strings.Trim(path, "/")
 	if path == "" {
@@ -137,10 +140,12 @@ func (s *Server) handleUIAccessRulesSubroutes(w http.ResponseWriter, r *http.Req
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		_, _ = db.Exec(state.Rebind(`DELETE FROM access_rules WHERE id = ?`), ruleID)
+		delArgs := append([]interface{}{ruleID}, wsArgs...)
+		_, _ = db.Exec(state.Rebind(`DELETE FROM access_rules WHERE id = ?`+wsClause), delArgs...)
 		if s.ACLNotify != nil {
 			s.ACLNotify.NotifyPolicyChange()
 		}
+		s.audit(r, "access_rule.delete", ruleID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}

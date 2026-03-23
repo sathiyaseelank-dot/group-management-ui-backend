@@ -379,15 +379,25 @@ func (s *Server) handleInviteToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.Sessions != nil {
+		// Enforce concurrent session limit
+		if s.MaxSessionsPerUser > 0 && userID != "" {
+			if count, countErr := s.Sessions.CountActiveForUser(userID); countErr == nil && count >= s.MaxSessionsPerUser {
+				_ = s.Sessions.RevokeOldestSessionsForUser(userID, s.MaxSessionsPerUser-1)
+			}
+		}
+		now := time.Now().Unix()
 		sess := &state.Session{
-			ID:          sessionID,
-			UserID:      userID,
-			WorkspaceID: entry.wsID,
-			SessionType: "admin",
-			IPAddress:   r.RemoteAddr,
-			UserAgent:   r.Header.Get("User-Agent"),
-			CreatedAt:   time.Now().Unix(),
-			ExpiresAt:   time.Now().Add(24 * time.Hour).Unix(),
+			ID:                sessionID,
+			UserID:            userID,
+			WorkspaceID:       entry.wsID,
+			SessionType:       "admin",
+			IPAddress:         r.RemoteAddr,
+			UserAgent:         r.Header.Get("User-Agent"),
+			CreatedAt:         now,
+			ExpiresAt:         now + 24*60*60,
+			AbsoluteExpiresAt: now + 30*24*60*60,
+			IPSubnet:          state.ExtractIPSubnet(r.RemoteAddr),
+			UAHash:            state.HashUserAgent(r.Header.Get("User-Agent")),
 		}
 		if createErr := s.Sessions.Create(sess); createErr != nil {
 			log.Printf("invite token: failed to create session: %v", createErr)

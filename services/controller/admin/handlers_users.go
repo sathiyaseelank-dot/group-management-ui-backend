@@ -17,12 +17,41 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		users, err := s.Users.ListUsers()
-		if err != nil {
-			http.Error(w, "failed to list users", http.StatusInternalServerError)
-			return
+		wsID := workspaceIDFromContext(r.Context())
+		db := s.db()
+		if wsID != "" && db != nil {
+			// Workspace-scoped: only return users who are members of this workspace.
+			rows, err := db.Query(
+				state.Rebind(`SELECT u.id, u.name, u.email, u.status, u.role, u.created_at, u.updated_at
+					FROM users u JOIN workspace_members wm ON u.id = wm.user_id
+					WHERE wm.workspace_id = ? ORDER BY u.name`),
+				wsID,
+			)
+			if err != nil {
+				http.Error(w, "failed to list users", http.StatusInternalServerError)
+				return
+			}
+			defer rows.Close()
+			users := []state.User{}
+			for rows.Next() {
+				var u state.User
+				var createdAt, updatedAt string
+				if err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.Role, &createdAt, &updatedAt); err != nil {
+					continue
+				}
+				u.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+				u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+				users = append(users, u)
+			}
+			writeJSON(w, http.StatusOK, users)
+		} else {
+			users, err := s.Users.ListUsers()
+			if err != nil {
+				http.Error(w, "failed to list users", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, users)
 		}
-		writeJSON(w, http.StatusOK, users)
 	case http.MethodPost:
 		var req struct {
 			Name   string `json:"name"`
@@ -142,12 +171,38 @@ func (s *Server) handleUserGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		groups, err := s.Users.ListGroups()
-		if err != nil {
-			http.Error(w, "failed to list groups", http.StatusInternalServerError)
-			return
+		wsID := workspaceIDFromContext(r.Context())
+		db := s.db()
+		if wsID != "" && db != nil {
+			rows, err := db.Query(
+				state.Rebind(`SELECT id, name, description, created_at, updated_at FROM user_groups WHERE workspace_id = ? ORDER BY name`),
+				wsID,
+			)
+			if err != nil {
+				http.Error(w, "failed to list groups", http.StatusInternalServerError)
+				return
+			}
+			defer rows.Close()
+			groups := []state.UserGroup{}
+			for rows.Next() {
+				var g state.UserGroup
+				var createdAt, updatedAt string
+				if err := rows.Scan(&g.ID, &g.Name, &g.Description, &createdAt, &updatedAt); err != nil {
+					continue
+				}
+				g.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+				g.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+				groups = append(groups, g)
+			}
+			writeJSON(w, http.StatusOK, groups)
+		} else {
+			groups, err := s.Users.ListGroups()
+			if err != nil {
+				http.Error(w, "failed to list groups", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, groups)
 		}
-		writeJSON(w, http.StatusOK, groups)
 	case http.MethodPost:
 		var req struct {
 			Name        string `json:"name"`

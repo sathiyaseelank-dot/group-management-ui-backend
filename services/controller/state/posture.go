@@ -23,17 +23,20 @@ type DevicePosture struct {
 	DeviceModel       string `json:"device_model"`
 	DeviceMake        string `json:"device_make"`
 	SerialNumber      string `json:"serial_number"`
+	Suspicious        bool   `json:"suspicious"`
+	SuspiciousReasons string `json:"suspicious_reasons"`
 }
 
 func UpsertDevicePosture(db *sql.DB, p DevicePosture) error {
 	fw, de, sl := boolToInt(p.FirewallEnabled), boolToInt(p.DiskEncrypted), boolToInt(p.ScreenLockEnabled)
+	suspicious := boolToInt(p.Suspicious)
 	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	_, err := db.Exec(Rebind(`
 		INSERT INTO device_posture
 			(device_id, workspace_id, spiffe_id, os_type, os_version, hostname,
 			 firewall_enabled, disk_encrypted, screen_lock_enabled, client_version, collected_at, reported_at,
-			 user_id, device_name, device_model, device_make, serial_number)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 user_id, device_name, device_model, device_make, serial_number, suspicious, suspicious_reasons)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(device_id, workspace_id) DO UPDATE SET
 			spiffe_id=excluded.spiffe_id, os_type=excluded.os_type, os_version=excluded.os_version,
 			hostname=excluded.hostname, firewall_enabled=excluded.firewall_enabled,
@@ -44,10 +47,12 @@ func UpsertDevicePosture(db *sql.DB, p DevicePosture) error {
 			device_name=CASE WHEN excluded.device_name != '' THEN excluded.device_name ELSE device_posture.device_name END,
 			device_model=CASE WHEN excluded.device_model != '' THEN excluded.device_model ELSE device_posture.device_model END,
 			device_make=CASE WHEN excluded.device_make != '' THEN excluded.device_make ELSE device_posture.device_make END,
-			serial_number=CASE WHEN excluded.serial_number != '' THEN excluded.serial_number ELSE device_posture.serial_number END`),
+			serial_number=CASE WHEN excluded.serial_number != '' THEN excluded.serial_number ELSE device_posture.serial_number END,
+			suspicious=excluded.suspicious,
+			suspicious_reasons=excluded.suspicious_reasons`),
 		p.DeviceID, p.WorkspaceID, p.SPIFFEID, p.OSType, p.OSVersion, p.Hostname,
 		fw, de, sl, p.ClientVersion, p.CollectedAt, now,
-		p.UserID, p.DeviceName, p.DeviceModel, p.DeviceMake, p.SerialNumber,
+		p.UserID, p.DeviceName, p.DeviceModel, p.DeviceMake, p.SerialNumber, suspicious, p.SuspiciousReasons,
 	)
 	return err
 }
@@ -60,7 +65,7 @@ func ListDevicePosture(db *sql.DB, workspaceID string) ([]DevicePosture, error) 
 	}
 	rows, err := db.Query(Rebind(`SELECT device_id, workspace_id, spiffe_id, os_type, os_version,
 		hostname, firewall_enabled, disk_encrypted, screen_lock_enabled, client_version,
-		collected_at, reported_at, user_id, device_name, device_model, device_make, serial_number
+		collected_at, reported_at, user_id, device_name, device_model, device_make, serial_number, suspicious, suspicious_reasons
 		FROM device_posture`+wsClause+` ORDER BY reported_at DESC`), wsArgs...)
 	if err != nil {
 		return nil, err
@@ -69,18 +74,29 @@ func ListDevicePosture(db *sql.DB, workspaceID string) ([]DevicePosture, error) 
 	var out []DevicePosture
 	for rows.Next() {
 		var p DevicePosture
-		var fw, de, sl int
+		var fw, de, sl, suspicious int
 		if err := rows.Scan(&p.DeviceID, &p.WorkspaceID, &p.SPIFFEID, &p.OSType, &p.OSVersion,
 			&p.Hostname, &fw, &de, &sl, &p.ClientVersion, &p.CollectedAt, &p.ReportedAt,
-			&p.UserID, &p.DeviceName, &p.DeviceModel, &p.DeviceMake, &p.SerialNumber); err != nil {
+			&p.UserID, &p.DeviceName, &p.DeviceModel, &p.DeviceMake, &p.SerialNumber, &suspicious, &p.SuspiciousReasons); err != nil {
 			continue
 		}
 		p.FirewallEnabled = fw != 0
 		p.DiskEncrypted = de != 0
 		p.ScreenLockEnabled = sl != 0
+		p.Suspicious = suspicious != 0
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// CountDevicesForUser returns the number of enrolled devices for a user in a workspace.
+func CountDevicesForUser(db *sql.DB, workspaceID, userID string) (int, error) {
+	var count int
+	err := db.QueryRow(
+		Rebind(`SELECT COUNT(*) FROM device_posture WHERE workspace_id = ? AND user_id = ?`),
+		workspaceID, userID,
+	).Scan(&count)
+	return count, err
 }
 
 func boolToInt(b bool) int {

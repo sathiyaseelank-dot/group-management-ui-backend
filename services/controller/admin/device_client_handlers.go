@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -251,6 +252,24 @@ func (s *Server) writeDeviceView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Also include resources from active JIT access grants.
+	if s.AccessRequests != nil {
+		jitResources, jitErr := loadJITGrantResources(db, claims.wsID, claims.userID)
+		if jitErr == nil {
+			// Merge JIT resources with group-based resources (deduplicate by ID)
+			seen := make(map[string]bool)
+			for _, r := range resources {
+				seen[r.ID] = true
+			}
+			for _, r := range jitResources {
+				if !seen[r.ID] {
+					resources = append(resources, r)
+					seen[r.ID] = true
+				}
+			}
+		}
+	}
+
 	workspace, err := s.Workspaces.GetWorkspace(claims.wsID)
 	if err != nil {
 		http.Error(w, "workspace not found", http.StatusNotFound)
@@ -261,6 +280,33 @@ func (s *Server) writeDeviceView(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "session not found", http.StatusUnauthorized)
 		return
+	}
+
+	// Posture compliance check: if the device has reported posture and the
+	// user's groups have trusted profiles, enforce posture requirements.
+	deviceCompliant := true
+	var postureViolations []string
+	deviceID := claims.deviceID
+	if deviceID == "" {
+		deviceID = session.DeviceID
+	}
+	if deviceID != "" {
+		posture, postureErr := getDevicePosture(db, deviceID, claims.wsID)
+		if postureErr == nil && posture != nil {
+			profiles, profErr := getTrustedProfilesForUser(db, claims.wsID, claims.userID)
+			if profErr == nil && len(profiles) > 0 {
+				compliant, violations := meetsPostureRequirements(posture, profiles)
+				deviceCompliant = compliant
+				postureViolations = violations
+				if !compliant {
+					// Non-compliant devices get an empty resource list and session is revoked.
+					resources = []deviceUserResource{}
+					if s.Sessions != nil {
+						_ = s.Sessions.Revoke(claims.jti)
+					}
+				}
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -284,8 +330,10 @@ func (s *Server) writeDeviceView(w http.ResponseWriter, r *http.Request) {
 			"expires_at":                   session.ExpiresAt,
 			"access_token_expires_at_hint": time.Now().Add(15 * time.Minute).Unix(),
 		},
-		"resources": resources,
-		"synced_at": time.Now().Unix(),
+		"resources":          resources,
+		"device_compliant":   deviceCompliant,
+		"posture_violations": postureViolations,
+		"synced_at":          time.Now().Unix(),
 	})
 }
 
@@ -331,6 +379,21 @@ func (s *Server) handleDevicePostureReport(w http.ResponseWriter, r *http.Reques
 		collectedAt = isoStringNow()
 	}
 
+	// Validate posture report for suspicious activity
+	suspicious := false
+	var validationReasons []string
+	valid, reasons := ValidatePostureReport(req.OSType, req.OSVersion, req.ClientVersion, req.Hostname, req.FirewallEnabled, req.DiskEncrypted, req.ScreenLockEnabled)
+	if !valid {
+		suspicious = true
+		validationReasons = reasons
+		log.Printf("WARNING: Suspicious posture report from device %s (user %s): reasons=%v", req.DeviceID, claims.userID, reasons)
+	}
+
+	suspiciousReasons := ""
+	if len(validationReasons) > 0 {
+		suspiciousReasons = strings.Join(validationReasons, ",")
+	}
+
 	if err := state.UpsertDevicePosture(db, state.DevicePosture{
 		DeviceID:          req.DeviceID,
 		WorkspaceID:       claims.wsID,
@@ -344,11 +407,17 @@ func (s *Server) handleDevicePostureReport(w http.ResponseWriter, r *http.Reques
 		ClientVersion:     req.ClientVersion,
 		CollectedAt:       collectedAt,
 		UserID:            claims.userID,
+		Suspicious:        suspicious,
+		SuspiciousReasons: suspiciousReasons,
 	}); err != nil {
 		http.Error(w, "failed to save posture", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":     "ok",
+		"suspicious": suspicious,
+		"reasons":    validationReasons,
+	})
 }
 
 func (s *Server) handleDeviceMe(w http.ResponseWriter, r *http.Request) {
@@ -403,6 +472,22 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 	if req.DeviceID == "" || req.PublicKeyPEM == "" {
 		http.Error(w, "device_id and public_key_pem are required", http.StatusBadRequest)
 		return
+	}
+
+	// Sanitize device_id for SPIFFE path safety.
+	if strings.Contains(req.DeviceID, "/") || strings.Contains(req.DeviceID, "\\") || len(req.DeviceID) > 255 {
+		http.Error(w, "invalid device_id", http.StatusBadRequest)
+		return
+	}
+
+	// Enforce device enrollment limit per user.
+	const maxDevicesPerUser = 10
+	if db := s.db(); db != nil {
+		count, countErr := state.CountDevicesForUser(db, claims.wsID, claims.userID)
+		if countErr == nil && count >= maxDevicesPerUser {
+			http.Error(w, "device enrollment limit reached", http.StatusForbidden)
+			return
+		}
 	}
 
 	workspace, err := s.Workspaces.GetWorkspace(claims.wsID)
@@ -466,6 +551,7 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	s.audit(r, "device.cert_enrolled", deviceID, "ok")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"device_id":       deviceID,
 		"spiffe_id":       spiffeID,
@@ -479,4 +565,54 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 			"client_version": req.ClientVersion,
 		},
 	})
+}
+
+func loadJITGrantResources(db *sql.DB, workspaceID, userID string) ([]deviceUserResource, error) {
+	rows, err := db.Query(
+		state.Rebind(`SELECT DISTINCT r.id, r.name, r.type, r.address, r.protocol, r.port_from, r.port_to, r.alias,
+            r.description, r.remote_network_id, COALESCE(rn.name, ''), r.firewall_status
+        FROM access_request_grants g
+        JOIN resources r ON r.id = g.resource_id
+        LEFT JOIN remote_networks rn ON rn.id = r.remote_network_id
+        WHERE g.workspace_id = ? AND g.user_id = ? AND g.revoked = 0 AND g.expires_at > ?
+        ORDER BY r.name ASC`),
+		workspaceID, userID, time.Now().Unix(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []deviceUserResource
+	for rows.Next() {
+		var res deviceUserResource
+		var protocol sql.NullString
+		var portFrom sql.NullInt64
+		var portTo sql.NullInt64
+		var alias sql.NullString
+		if err := rows.Scan(&res.ID, &res.Name, &res.Type, &res.Address, &protocol, &portFrom, &portTo, &alias,
+			&res.Description, &res.RemoteNetworkID, &res.RemoteNetworkName, &res.FirewallStatus); err != nil {
+			return nil, err
+		}
+		res.Protocol = "TCP"
+		if protocol.Valid && strings.TrimSpace(protocol.String) != "" {
+			res.Protocol = protocol.String
+		}
+		if portFrom.Valid {
+			v := int(portFrom.Int64)
+			res.PortFrom = &v
+		}
+		if portTo.Valid {
+			v := int(portTo.Int64)
+			res.PortTo = &v
+		}
+		if alias.Valid && strings.TrimSpace(alias.String) != "" {
+			res.Alias = &alias.String
+		}
+		if strings.TrimSpace(res.FirewallStatus) == "" {
+			res.FirewallStatus = "unprotected"
+		}
+		out = append(out, res)
+	}
+	return out, rows.Err()
 }

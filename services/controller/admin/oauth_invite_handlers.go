@@ -24,41 +24,75 @@ type oauthStateEntry struct {
 	expiresAt time.Time
 }
 
+// oauthReturnToEntry holds a return_to URL with its expiry.
+type oauthReturnToEntry struct {
+	url       string
+	expiresAt time.Time
+}
+
+type oauthWorkspaceEntry struct {
+	slug      string
+	expiresAt time.Time
+}
+
 var (
 	oauthStateMu        sync.Mutex
 	oauthStateStore     = map[string]oauthStateEntry{}
-	oauthReturnToStore  = map[string]string{}
-	oauthWorkspaceStore = map[string]string{}
+	oauthReturnToStore  = map[string]oauthReturnToEntry{}
+	oauthWorkspaceStore = map[string]oauthWorkspaceEntry{}
 )
 
 // storeOAuthReturnTo associates a frontend origin URL with an OAuth state key.
 func storeOAuthReturnTo(state, returnTo string) {
 	oauthStateMu.Lock()
 	defer oauthStateMu.Unlock()
-	oauthReturnToStore[state] = returnTo
+	oauthReturnToStore[state] = oauthReturnToEntry{
+		url:       returnTo,
+		expiresAt: time.Now().Add(10 * time.Minute),
+	}
+	// Prune expired entries
+	for k, v := range oauthReturnToStore {
+		if time.Now().After(v.expiresAt) {
+			delete(oauthReturnToStore, k)
+		}
+	}
 }
 
 // consumeOAuthReturnTo retrieves and removes the return_to URL for the given state.
 func consumeOAuthReturnTo(state string) string {
 	oauthStateMu.Lock()
 	defer oauthStateMu.Unlock()
-	val := oauthReturnToStore[state]
+	entry, ok := oauthReturnToStore[state]
 	delete(oauthReturnToStore, state)
-	return val
+	if !ok || time.Now().After(entry.expiresAt) {
+		return ""
+	}
+	return entry.url
 }
 
 func storeOAuthWorkspaceSlug(state, slug string) {
 	oauthStateMu.Lock()
 	defer oauthStateMu.Unlock()
-	oauthWorkspaceStore[state] = slug
+	oauthWorkspaceStore[state] = oauthWorkspaceEntry{
+		slug:      slug,
+		expiresAt: time.Now().Add(10 * time.Minute),
+	}
+	for k, v := range oauthWorkspaceStore {
+		if time.Now().After(v.expiresAt) {
+			delete(oauthWorkspaceStore, k)
+		}
+	}
 }
 
 func consumeOAuthWorkspaceSlug(state string) string {
 	oauthStateMu.Lock()
 	defer oauthStateMu.Unlock()
-	val := oauthWorkspaceStore[state]
+	entry, ok := oauthWorkspaceStore[state]
 	delete(oauthWorkspaceStore, state)
-	return val
+	if !ok || time.Now().After(entry.expiresAt) {
+		return ""
+	}
+	return entry.slug
 }
 
 func randomHex(n int) (string, error) {
@@ -287,15 +321,25 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 				if ws, wsErr := s.Workspaces.GetWorkspace(wsInviteID); wsErr == nil {
 					inviteSessionID, _ := randomHex(16)
 					if s.Sessions != nil {
+						// Enforce concurrent session limit
+						if s.MaxSessionsPerUser > 0 && userID != "" {
+							if count, countErr := s.Sessions.CountActiveForUser(userID); countErr == nil && count >= s.MaxSessionsPerUser {
+								_ = s.Sessions.RevokeOldestSessionsForUser(userID, s.MaxSessionsPerUser-1)
+							}
+						}
+						now := time.Now().Unix()
 						sess := &state.Session{
-							ID:          inviteSessionID,
-							UserID:      userID,
-							WorkspaceID: ws.ID,
-							SessionType: "admin",
-							IPAddress:   r.RemoteAddr,
-							UserAgent:   r.Header.Get("User-Agent"),
-							CreatedAt:   time.Now().Unix(),
-							ExpiresAt:   time.Now().Add(24 * time.Hour).Unix(),
+							ID:                inviteSessionID,
+							UserID:            userID,
+							WorkspaceID:       ws.ID,
+							SessionType:       "admin",
+							IPAddress:         r.RemoteAddr,
+							UserAgent:         r.Header.Get("User-Agent"),
+							CreatedAt:         now,
+							ExpiresAt:         now + 24*60*60,
+							AbsoluteExpiresAt: now + 30*24*60*60,
+							IPSubnet:          state.ExtractIPSubnet(r.RemoteAddr),
+							UAHash:            state.HashUserAgent(r.Header.Get("User-Agent")),
 						}
 						_ = s.Sessions.Create(sess)
 					}
@@ -387,15 +431,36 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 			}
 		}
 		if s.Sessions != nil {
+			// Enforce concurrent session limit for admin sessions
+			maxSessions := s.MaxSessionsPerUser
+			if maxSessions <= 0 {
+				maxSessions = 5 // Default limit
+			}
+			activeCount, countErr := s.Sessions.CountActiveForUser(userID)
+			if countErr != nil {
+				log.Printf("oauth callback: failed to count sessions: %v", countErr)
+			} else if activeCount >= maxSessions {
+				// Revoke oldest sessions to make room
+				if revokeErr := s.Sessions.RevokeOldestSessionsForUser(userID, maxSessions-1); revokeErr != nil {
+					log.Printf("oauth callback: failed to revoke old sessions: %v", revokeErr)
+				}
+				// Audit log the session limit enforcement
+				s.writeAdminAudit(db, email, "session_limit_enforced", "revoked oldest sessions", "ok")
+			}
+
+			now := time.Now().Unix()
 			sess := &state.Session{
-				ID:          sessionID,
-				UserID:      userID,
-				WorkspaceID: wsID,
-				SessionType: "admin",
-				IPAddress:   r.RemoteAddr,
-				UserAgent:   r.Header.Get("User-Agent"),
-				CreatedAt:   time.Now().Unix(),
-				ExpiresAt:   time.Now().Add(24 * time.Hour).Unix(),
+				ID:                sessionID,
+				UserID:            userID,
+				WorkspaceID:       wsID,
+				SessionType:       "admin",
+				IPAddress:         r.RemoteAddr,
+				UserAgent:         r.Header.Get("User-Agent"),
+				CreatedAt:         now,
+				ExpiresAt:         now + 24*60*60,    // 24 hours
+				AbsoluteExpiresAt: now + 30*24*60*60, // 30 days max lifetime
+				IPSubnet:          state.ExtractIPSubnet(r.RemoteAddr),
+				UAHash:            state.HashUserAgent(r.Header.Get("User-Agent")),
 			}
 			_ = s.Sessions.Create(sess)
 		}

@@ -29,10 +29,9 @@ import (
 
 func main() {
 	// ---- required environment variables ----
-	caCertPEM := []byte(os.Getenv("INTERNAL_CA_CERT"))
-	caKeyPEM := []byte(os.Getenv("INTERNAL_CA_KEY"))
-	if len(caCertPEM) == 0 || len(caKeyPEM) == 0 {
-		caCertPEM, caKeyPEM = loadCAFromFiles(caCertPEM, caKeyPEM)
+	caCertPEM, caKeyPEM, err := loadCA()
+	if err != nil {
+		log.Fatal(err)
 	}
 	trustDomain := os.Getenv("TRUST_DOMAIN")
 	if trustDomain == "" {
@@ -60,9 +59,6 @@ func main() {
 		tokenStorePath = "/var/lib/grpccontroller/tokens.json"
 	}
 
-	if len(caCertPEM) == 0 || len(caKeyPEM) == 0 {
-		log.Fatal("INTERNAL_CA_CERT or INTERNAL_CA_KEY is not set and ca/ca.crt+ca/ca.key not found")
-	}
 	if adminAuthToken == "" {
 		log.Fatal("ADMIN_AUTH_TOKEN is not set")
 	}
@@ -117,6 +113,8 @@ func main() {
 	if len(idpEncKey) == 0 {
 		idpEncKey = []byte(os.Getenv("JWT_SECRET"))
 	}
+	// Encrypt workspace CA private keys at rest using the same key as IdP secrets.
+	workspaceStore.SetEncryptionKey(idpEncKey)
 	idpStore := state.NewIdentityProviderStore(db, idpEncKey)
 	sessionStore := state.NewSessionStore(db)
 
@@ -212,9 +210,14 @@ func main() {
 		registry,
 		controlPlaneServer,
 	)
+	crl := ca.NewCRL()
+	if err := crl.LoadFromDB(db); err != nil {
+		log.Printf("crl: failed to load from DB: %v", err)
+	}
 	enrollServer.DB = db
 	enrollServer.Workspaces = workspaceStore
 	enrollServer.SystemDomain = systemDomain
+	enrollServer.CRL = crl
 
 	controllerpb.RegisterEnrollmentServiceServer(grpcServer, enrollServer)
 	controllerpb.RegisterControlPlaneServer(grpcServer, controlPlaneServer)
@@ -299,9 +302,23 @@ func main() {
 		Sessions:          sessionStore,
 		SecureCookies:     os.Getenv("SECURE_COOKIES") == "true",
 		AllowedOrigins:    parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		MaxSessionsPerUser:   parseIntEnv("MAX_SESSIONS_PER_USER", 5),
+		StrictSessionBinding: os.Getenv("STRICT_SESSION_BINDING") == "true",
+		AccessRequests:    state.NewAccessRequestStore(db),
+		AuditKey:          []byte(os.Getenv("JWT_SECRET")),
 	}
+	admin.SetCORSOrigins(parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")), os.Getenv("DASHBOARD_URL"))
 	adminServer.RegisterRoutes(adminMux)
 	adminServer.RegisterOAuthRoutes(adminMux)
+	adminMux.HandleFunc("/ca.crl", func(w http.ResponseWriter, r *http.Request) {
+		crlPEM, err := crl.Encode(caInst)
+		if err != nil {
+			http.Error(w, "failed to generate CRL", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		w.Write(crlPEM)
+	})
 
 	// ---- device gRPC service ----
 	deviceSvcServer := &admin.DeviceServiceServer{S: adminServer}
@@ -312,6 +329,18 @@ func main() {
 		for range ticker.C {
 			if err := sessionStore.CleanExpired(); err != nil {
 				log.Printf("session cleanup: %v", err)
+			}
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		arStore := state.NewAccessRequestStore(db)
+		for range ticker.C {
+			if n, err := arStore.CleanExpiredGrants(); err != nil {
+				log.Printf("access request grant cleanup: %v", err)
+			} else if n > 0 {
+				log.Printf("access request grant cleanup: expired %d grants", n)
 			}
 		}
 	}()
@@ -348,21 +377,49 @@ func main() {
 	}
 }
 
-func loadCAFromFiles(certPEM, keyPEM []byte) ([]byte, []byte) {
-	certPath := "ca/ca.crt"
-	keyPath := "ca/ca.pkcs8.key"
+func loadCA() ([]byte, []byte, error) {
+	certPEM := []byte(os.Getenv("INTERNAL_CA_CERT"))
+	keyPEM := []byte(os.Getenv("INTERNAL_CA_KEY"))
+	certPath := envOrDefault("INTERNAL_CA_CERT_PATH", "ca/ca.crt")
+	keyPath := envOrDefault("INTERNAL_CA_KEY_PATH", "ca/ca.pkcs8.key")
 
 	if len(certPEM) == 0 {
-		if b, err := os.ReadFile(certPath); err == nil {
-			certPEM = b
+		b, err := readOptionalFile(certPath)
+		if err != nil {
+			return nil, nil, err
 		}
+		certPEM = b
 	}
 	if len(keyPEM) == 0 {
-		if b, err := os.ReadFile(keyPath); err == nil {
-			keyPEM = b
+		b, err := readOptionalFile(keyPath)
+		if err != nil {
+			return nil, nil, err
 		}
+		keyPEM = b
 	}
-	return certPEM, keyPEM
+	if len(certPEM) == 0 || len(keyPEM) == 0 {
+		return nil, nil, errors.New("INTERNAL_CA_CERT or INTERNAL_CA_KEY is not set, and CA files were not available at " + certPath + " and " + keyPath)
+	}
+
+	return certPEM, keyPEM, nil
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func readOptionalFile(path string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err == nil {
+		return b, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return nil, errors.New("failed to read " + path + ": " + err.Error())
 }
 
 func parseAllowedOrigins(raw string) []string {
@@ -382,6 +439,15 @@ func normalizeTrustDomain(v string) string {
 	v = strings.TrimSpace(v)
 	v = strings.TrimSuffix(v, ".")
 	return v
+}
+
+func parseIntEnv(key string, defaultVal int) int {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultVal
 }
 
 func loadOrIssueControllerCert(caInst *ca.CA, trustDomain string) (tls.Certificate, error) {

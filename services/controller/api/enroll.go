@@ -38,6 +38,7 @@ type EnrollmentServer struct {
 	Notifier     AgentNotifier
 	Workspaces   *state.WorkspaceStore // nil if multi-tenant disabled
 	SystemDomain string                // e.g. "zerotrust.com"
+	CRL          *ca.CRL
 }
 
 type AgentNotifier interface {
@@ -223,6 +224,18 @@ func (s *EnrollmentServer) Renew(
 	}
 	if id != req.GetId() {
 		return nil, status.Error(codes.PermissionDenied, "id mismatch for renewal")
+	}
+
+	// Check if the connector/agent is revoked before renewing.
+	if s.CRL != nil && s.DB != nil {
+		table := "connectors"
+		if role == "agent" {
+			table = "agents"
+		}
+		var revoked int
+		if err := s.DB.QueryRow(state.Rebind(fmt.Sprintf(`SELECT revoked FROM %s WHERE id = ?`, table)), req.GetId()).Scan(&revoked); err == nil && revoked != 0 {
+			return nil, status.Error(codes.PermissionDenied, "certificate renewal denied: entity revoked")
+		}
 	}
 
 	// Use the same trust domain from the caller's existing SPIFFE ID.

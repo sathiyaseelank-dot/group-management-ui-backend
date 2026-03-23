@@ -1,8 +1,15 @@
 package state
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,11 +35,71 @@ type WorkspaceMember struct {
 }
 
 type WorkspaceStore struct {
-	db *sql.DB
+	db     *sql.DB
+	encKey []byte // AES-256 key for CA key encryption; nil = store plaintext
 }
 
 func NewWorkspaceStore(db *sql.DB) *WorkspaceStore {
 	return &WorkspaceStore{db: db}
+}
+
+// SetEncryptionKey sets the AES-256 key for encrypting workspace CA private keys.
+func (s *WorkspaceStore) SetEncryptionKey(key []byte) {
+	if len(key) == 0 {
+		return
+	}
+	if len(key) != 32 {
+		h := sha256.Sum256(key)
+		key = h[:]
+	}
+	s.encKey = key
+}
+
+func (s *WorkspaceStore) encryptCAKey(plaintext string) string {
+	if len(s.encKey) == 0 || plaintext == "" {
+		return plaintext
+	}
+	block, err := aes.NewCipher(s.encKey)
+	if err != nil {
+		return plaintext
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return plaintext
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return plaintext
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return "enc:" + base64.StdEncoding.EncodeToString(ciphertext)
+}
+
+func (s *WorkspaceStore) decryptCAKey(stored string) string {
+	if len(s.encKey) == 0 || !strings.HasPrefix(stored, "enc:") {
+		return stored // plaintext or no key configured
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(stored, "enc:"))
+	if err != nil {
+		return stored
+	}
+	block, err := aes.NewCipher(s.encKey)
+	if err != nil {
+		return stored
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return stored
+	}
+	if len(data) < gcm.NonceSize() {
+		return stored
+	}
+	nonce, ciphertext := data[:gcm.NonceSize()], data[gcm.NonceSize():]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return stored // decryption failed, return as-is (may be plaintext)
+	}
+	return string(plaintext)
 }
 
 func (s *WorkspaceStore) CreateWorkspace(w *Workspace) error {
@@ -49,10 +116,11 @@ func (s *WorkspaceStore) CreateWorkspace(w *Workspace) error {
 	if w.Status == "" {
 		w.Status = "active"
 	}
+	storedKey := s.encryptCAKey(w.CAKeyPEM)
 	_, err := s.db.Exec(
 		Rebind(`INSERT INTO workspaces (id, name, slug, trust_domain, ca_cert_pem, ca_key_pem, status, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-		w.ID, w.Name, w.Slug, w.TrustDomain, w.CACertPEM, w.CAKeyPEM, w.Status, w.CreatedAt, w.UpdatedAt,
+		w.ID, w.Name, w.Slug, w.TrustDomain, w.CACertPEM, storedKey, w.Status, w.CreatedAt, w.UpdatedAt,
 	)
 	return err
 }
@@ -65,6 +133,7 @@ func (s *WorkspaceStore) GetWorkspace(id string) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
+	w.CAKeyPEM = s.decryptCAKey(w.CAKeyPEM)
 	return &w, nil
 }
 
@@ -76,6 +145,7 @@ func (s *WorkspaceStore) GetWorkspaceBySlug(slug string) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
+	w.CAKeyPEM = s.decryptCAKey(w.CAKeyPEM)
 	return &w, nil
 }
 

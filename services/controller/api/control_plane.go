@@ -74,6 +74,11 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 			}
 		}
 	}
+	// Look up connector's workspace for RLS enforcement.
+	var connectorWsID string
+	if s.db != nil && connectorID != "" {
+		_ = s.db.QueryRow(state.Rebind(`SELECT workspace_id FROM connectors WHERE id = ?`), connectorID).Scan(&connectorWsID)
+	}
 	signingKey := derivePolicyKey(stream.Context(), connectorID)
 	if len(signingKey) == 0 {
 		log.Printf("policy key derivation failed for connector %s: no mTLS client cert, policy snapshot will not be sent", connectorID)
@@ -84,6 +89,7 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 		stream:      stream,
 		connectorID: connectorID,
 		signingKey:  signingKey,
+		workspaceID: connectorWsID,
 	}
 	s.addClient(spiffeID, client)
 	defer s.removeClient(spiffeID)
@@ -230,6 +236,7 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 					Decision        string `json:"decision"`
 					Reason          string `json:"reason"`
 					ConnectionID    string `json:"connection_id"`
+					PolicyRuleID    string `json:"policy_rule_id"`
 				}
 				if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
 					auditWsID := ""
@@ -239,8 +246,8 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 						}
 					}
 					_, _ = s.acls.DB().Exec(
-						state.Rebind(`INSERT INTO audit_logs (principal_spiffe, agent_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at, workspace_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+						state.Rebind(`INSERT INTO audit_logs (principal_spiffe, agent_id, resource_id, destination, protocol, port, decision, reason, connection_id, created_at, workspace_id, policy_rule_id, policy_decision, policy_reason)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 						payload.PrincipalSPIFFE,
 						payload.AgentID,
 						payload.ResourceID,
@@ -252,6 +259,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 						payload.ConnectionID,
 						time.Now().UTC().Unix(),
 						auditWsID,
+						payload.PolicyRuleID,
+						payload.Decision,
+						payload.Reason,
 					)
 				}
 			}
@@ -546,6 +556,7 @@ type connectorClient struct {
 	sendMu      sync.Mutex
 	connectorID string
 	signingKey  []byte
+	workspaceID string // workspace this connector belongs to
 }
 
 func (c *connectorClient) send(msg *controllerpb.ControlMessage) error {
@@ -666,6 +677,10 @@ func (s *ControlPlaneServer) sendPolicySnapshot(c *connectorClient, trigger, rea
 		log.Printf("skipping policy snapshot for %s: no policy signing key", c.connectorID)
 		return
 	}
+	// Set RLS session variable for workspace isolation on policy queries.
+	if c.workspaceID != "" {
+		_, _ = s.db.Exec("SET LOCAL app.workspace_id = $1", c.workspaceID)
+	}
 	networkID, err := lookupConnectorNetwork(s.db, c.connectorID)
 	if err != nil {
 		log.Printf("failed to resolve connector network for %s: %v", c.connectorID, err)
@@ -757,6 +772,15 @@ func parseConnectorID(spiffeID string) string {
 		return ""
 	}
 	return parts[2]
+}
+
+func (s *ControlPlaneServer) lookupConnectorWorkspace(connectorID string) string {
+	if s.db == nil || connectorID == "" {
+		return ""
+	}
+	var wsID string
+	_ = s.db.QueryRow(state.Rebind(`SELECT workspace_id FROM connectors WHERE id = ?`), connectorID).Scan(&wsID)
+	return wsID
 }
 
 const policyKeyLabel = "ztna-policy-signing-v1"

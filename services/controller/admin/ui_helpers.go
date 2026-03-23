@@ -15,9 +15,12 @@ import (
 // lookupConnectorNetworkID resolves the remote network ID for a connector.
 // It first checks connectors.remote_network_id and falls back to the
 // remote_network_connectors junction table when the column is empty.
-func lookupConnectorNetworkID(db *sql.DB, connectorID string) (string, error) {
+// wsID scopes the lookup to a single workspace (pass "" to skip filtering).
+func lookupConnectorNetworkID(db *sql.DB, connectorID, wsID string) (string, error) {
+	wsClause, wsArgs := wsWhere(wsID, "")
+	args := append([]interface{}{connectorID}, wsArgs...)
 	var remoteNet sql.NullString
-	if err := db.QueryRow(state.Rebind(`SELECT remote_network_id FROM connectors WHERE id = ?`), connectorID).Scan(&remoteNet); err != nil {
+	if err := db.QueryRow(state.Rebind(`SELECT remote_network_id FROM connectors WHERE id = ?`+wsClause), args...).Scan(&remoteNet); err != nil {
 		return "", err
 	}
 	if remoteNet.Valid && remoteNet.String != "" {

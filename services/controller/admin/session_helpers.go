@@ -21,6 +21,7 @@ const (
 )
 
 const sessionCookieName = "ztna_session"
+const jwtIssuer = "ztna-controller"
 
 // signSessionJWT creates a signed JWT containing the user's email.
 func (s *Server) signSessionJWT(email string) (string, error) {
@@ -29,6 +30,7 @@ func (s *Server) signSessionJWT(email string) (string, error) {
 	}
 	claims := jwt.MapClaims{
 		"sub": email,
+		"iss": jwtIssuer,
 		"exp": time.Now().Add(24 * time.Hour).Unix(),
 		"iat": time.Now().Unix(),
 	}
@@ -67,7 +69,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
-		MaxAge:   3600,
+		MaxAge:   86400,
 		HttpOnly: true,
 		Secure:   s.SecureCookies,
 		SameSite: http.SameSiteLaxMode,
@@ -120,6 +122,7 @@ func (s *Server) signWorkspaceJWT(email, userID, wsID, wsSlug, wsRole string) (s
 		"wid":   wsID,
 		"wslug": wsSlug,
 		"wrole": wsRole,
+		"iss":   jwtIssuer,
 		"exp":   time.Now().Add(24 * time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 	}
@@ -144,6 +147,9 @@ func workspaceClaimsFromJWT(tokenStr string, secret []byte) (email, userID, wsID
 	claims, ok := tok.Claims.(jwt.MapClaims)
 	if !ok {
 		return "", "", "", "", "", fmt.Errorf("invalid claims")
+	}
+	if iss, _ := claims["iss"].(string); iss != "" && iss != jwtIssuer {
+		return "", "", "", "", "", fmt.Errorf("invalid issuer")
 	}
 	email, _ = claims["sub"].(string)
 	userID, _ = claims["uid"].(string)
@@ -215,6 +221,9 @@ func parseAllClaims(tokenStr string, secret []byte) (allClaims, error) {
 	if !ok {
 		return c, fmt.Errorf("invalid claims")
 	}
+	if iss, _ := m["iss"].(string); iss != "" && iss != jwtIssuer {
+		return c, fmt.Errorf("invalid issuer")
+	}
 	c.email, _ = m["sub"].(string)
 	c.userID, _ = m["uid"].(string)
 	c.wsID, _ = m["wid"].(string)
@@ -256,6 +265,7 @@ func (s *Server) signAdminJWT(email, userID, wsID, wsSlug, wsRole, sessionID str
 		"wrole": wsRole,
 		"aud":   "admin",
 		"jti":   sessionID,
+		"iss":   jwtIssuer,
 		"exp":   time.Now().Add(24 * time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 	}
@@ -277,6 +287,7 @@ func (s *Server) signDeviceJWT(email, userID, wsID, wsSlug, wsRole, deviceID, se
 		"aud":   "device",
 		"did":   deviceID,
 		"jti":   sessionID,
+		"iss":   jwtIssuer,
 		"exp":   time.Now().Add(15 * time.Minute).Unix(),
 		"iat":   time.Now().Unix(),
 	}

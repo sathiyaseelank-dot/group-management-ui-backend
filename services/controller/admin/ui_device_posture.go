@@ -86,12 +86,14 @@ func (s *Server) handleUIDeviceTrustedProfilesSubroutes(w http.ResponseWriter, r
 	if !ok {
 		return
 	}
+	wsID := workspaceIDFromContext(r.Context())
 	profileID := strings.TrimPrefix(r.URL.Path, "/api/device-trusted-profiles/")
 	profileID = strings.Trim(profileID, "/")
 	if profileID == "" {
 		http.Error(w, "profile id required", http.StatusBadRequest)
 		return
 	}
+	wsClause, wsArgs := wsWhere(wsID, "")
 
 	switch r.Method {
 	case http.MethodPatch, http.MethodPut:
@@ -108,18 +110,20 @@ func (s *Server) handleUIDeviceTrustedProfilesSubroutes(w http.ResponseWriter, r
 		}
 		now := isoStringNow()
 		fw, de, sl := boolToInt(req.RequireFirewall), boolToInt(req.RequireDiskEncryption), boolToInt(req.RequireScreenLock)
+		updateArgs := append([]interface{}{req.Name, fw, de, sl, req.MinOSVersion, now, profileID}, wsArgs...)
 		if _, err := db.Exec(state.Rebind(`UPDATE device_trusted_profiles
 			SET name=?, require_firewall=?, require_disk_encryption=?, require_screen_lock=?,
 			    min_os_version=?, updated_at=?
-			WHERE id=?`),
-			req.Name, fw, de, sl, req.MinOSVersion, now, profileID); err != nil {
+			WHERE id=?`+wsClause),
+			updateArgs...); err != nil {
 			http.Error(w, "failed to update trusted profile", http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 
 	case http.MethodDelete:
-		if _, err := db.Exec(state.Rebind(`DELETE FROM device_trusted_profiles WHERE id = ?`), profileID); err != nil {
+		delArgs := append([]interface{}{profileID}, wsArgs...)
+		if _, err := db.Exec(state.Rebind(`DELETE FROM device_trusted_profiles WHERE id = ?`+wsClause), delArgs...); err != nil {
 			http.Error(w, "failed to delete trusted profile", http.StatusInternalServerError)
 			return
 		}

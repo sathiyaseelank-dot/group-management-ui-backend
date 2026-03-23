@@ -92,6 +92,7 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.audit(r, "network.create", id, "ok")
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"id":        id,
 			"name":      req.Name,
@@ -116,10 +117,13 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		return
 	}
 	networkID := strings.Split(path, "/")[0]
+	wsID := workspaceIDFromContext(r.Context())
+	wsClause, wsArgs := wsWhere(wsID, "")
 	if r.Method == http.MethodDelete {
-		// Collect connector IDs belonging to this network.
+		// Collect connector IDs belonging to this network (scoped by workspace).
+		delArgs := append([]interface{}{networkID}, wsArgs...)
 		var connectorIDs []string
-		cRows, _ := db.Query(state.Rebind(`SELECT id FROM connectors WHERE remote_network_id = ?`), networkID)
+		cRows, _ := db.Query(state.Rebind(`SELECT id FROM connectors WHERE remote_network_id = ?`+wsClause), delArgs...)
 		if cRows != nil {
 			for cRows.Next() {
 				var cid string
@@ -132,7 +136,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 
 		// Collect agent (tunneler) IDs belonging to this network.
 		var agentIDs []string
-		aRows, _ := db.Query(state.Rebind(`SELECT id FROM agents WHERE remote_network_id = ?`), networkID)
+		aRows, _ := db.Query(state.Rebind(`SELECT id FROM agents WHERE remote_network_id = ?`+wsClause), delArgs...)
 		if aRows != nil {
 			for aRows.Next() {
 				var aid string
@@ -145,7 +149,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 
 		// Collect resource IDs for access-rule cleanup.
 		var resourceIDs []string
-		rRows, _ := db.Query(state.Rebind(`SELECT id FROM resources WHERE remote_network_id = ?`), networkID)
+		rRows, _ := db.Query(state.Rebind(`SELECT id FROM resources WHERE remote_network_id = ?`+wsClause), delArgs...)
 		if rRows != nil {
 			for rRows.Next() {
 				var rid string
@@ -167,7 +171,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		}
 
 		// Delete resources in this network.
-		_, _ = db.Exec(state.Rebind(`DELETE FROM resources WHERE remote_network_id = ?`), networkID)
+		_, _ = db.Exec(state.Rebind(`DELETE FROM resources WHERE remote_network_id = ?`+wsClause), delArgs...)
 
 		// Delete tokens and logs for each connector, then remove connectors.
 		for _, cid := range connectorIDs {
@@ -181,7 +185,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 				s.Reg.Delete(cid)
 			}
 		}
-		_, _ = db.Exec(state.Rebind(`DELETE FROM connectors WHERE remote_network_id = ?`), networkID)
+		_, _ = db.Exec(state.Rebind(`DELETE FROM connectors WHERE remote_network_id = ?`+wsClause), delArgs...)
 
 		// Delete agents (tunnelers) in this network and clean in-memory registry.
 		for _, aid := range agentIDs {
@@ -189,15 +193,17 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 				s.Agents.Delete(aid)
 			}
 		}
-		_, _ = db.Exec(state.Rebind(`DELETE FROM agents WHERE remote_network_id = ?`), networkID)
+		_, _ = db.Exec(state.Rebind(`DELETE FROM agents WHERE remote_network_id = ?`+wsClause), delArgs...)
 
 		// Clean up join table and the network itself.
 		_, _ = db.Exec(state.Rebind(`DELETE FROM remote_network_connectors WHERE network_id = ?`), networkID)
-		_, err := db.Exec(state.Rebind(`DELETE FROM remote_networks WHERE id = ?`), networkID)
+		delNetArgs := append([]interface{}{networkID}, wsArgs...)
+		_, err := db.Exec(state.Rebind(`DELETE FROM remote_networks WHERE id = ?`+wsClause), delNetArgs...)
 		if err != nil {
 			http.Error(w, "failed to delete remote network", http.StatusInternalServerError)
 			return
 		}
+		s.audit(r, "network.delete", networkID, "ok")
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
@@ -205,6 +211,8 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	wsClauseN, wsArgsN := wsWhere(wsID, "n")
+	getNetArgs := append([]interface{}{networkID}, wsArgsN...)
 	row := db.QueryRow(state.Rebind(`
 		SELECT n.id, n.name, n.location,
 			CAST(n.created_at AS TEXT) as created_at,
@@ -213,7 +221,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 			(SELECT COUNT(*) FROM connectors c WHERE c.remote_network_id = n.id AND c.status = 'online') AS online_connector_count,
 			(SELECT COUNT(*) FROM resources r WHERE r.remote_network_id = n.id) AS resource_count
 		FROM remote_networks n
-		WHERE n.id = ?`), networkID)
+		WHERE n.id = ?`+wsClauseN), getNetArgs...)
 	var id, name, location string
 	var created, updated sql.NullString
 	var connCount, onlineCount, resCount int
@@ -242,7 +250,8 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		CreatedAt:            createdAt,
 		UpdatedAt:            updatedAt,
 	}
-	connectorRows, _ := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, revoked, last_seen FROM connectors WHERE remote_network_id = ? ORDER BY name ASC`), networkID)
+	connListArgs := append([]interface{}{networkID}, wsArgs...)
+	connectorRows, _ := db.Query(state.Rebind(`SELECT id, name, status, version, hostname, remote_network_id, CAST(last_seen AS TEXT) as last_seen, last_seen_at, installed, last_policy_version, private_ip, revoked, last_seen FROM connectors WHERE remote_network_id = ?`+wsClause+` ORDER BY name ASC`), connListArgs...)
 	connectors := []uiConnector{}
 	if connectorRows != nil {
 		for connectorRows.Next() {
@@ -252,7 +261,8 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		}
 		connectorRows.Close()
 	}
-	resourceRows, _ := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources WHERE remote_network_id = ? ORDER BY name ASC`), networkID)
+	resListArgs := append([]interface{}{networkID}, wsArgs...)
+	resourceRows, _ := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources WHERE remote_network_id = ?`+wsClause+` ORDER BY name ASC`), resListArgs...)
 	resources := []uiResource{}
 	if resourceRows != nil {
 		for resourceRows.Next() {
