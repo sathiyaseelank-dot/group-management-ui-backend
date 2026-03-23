@@ -100,11 +100,20 @@ func main() {
 	}
 	defer db.Close()
 
+	// Token TTL configuration - defaults to 24 hours if not set or 0
+	tokenTTLMinutes := 0
+	if v := strings.TrimSpace(os.Getenv("TOKEN_TTL_MINUTES")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			tokenTTLMinutes = n
+			log.Printf("using custom token TTL: %d minutes", n)
+		}
+	}
+
 	registry := state.NewRegistry()
 	agentRegistry := state.NewAgentRegistry()
 	agentStatus := state.NewAgentStatusRegistry()
 	aclStore := state.NewACLStoreWithDB(db)
-	tokenStore := state.NewTokenStoreWithDB(0, db)
+	tokenStore := state.NewTokenStoreWithDB(tokenTTLMinutes, db)
 	userStore := state.NewUserStore(db)
 	remoteNetStore := state.NewRemoteNetworkStore(db)
 	workspaceStore := state.NewWorkspaceStore(db)
