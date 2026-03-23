@@ -8,6 +8,7 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const token = await proxyToBackend('/api/admin/tokens', {
       method: 'POST',
+      body: JSON.stringify(req.body ?? {}),
     }, getJWTFromRequest(req))
     res.json(token)
   } catch (error) {

@@ -242,14 +242,17 @@ export async function deleteUser(userId: string): Promise<void> {
 }
 
 // API: Create enrollment token
-export async function createEnrollmentToken(): Promise<{ token: string; expires_at: string }> {
+export async function createEnrollmentToken(workspaceSlug?: string): Promise<{ token: string; expires_at: string; workspace_id?: string }> {
+  const body = workspaceSlug ? JSON.stringify({ workspace_slug: workspaceSlug }) : undefined
   if (API_BASE) {
-    return request<{ token: string; expires_at: string }>('/api/admin/tokens', {
+    return request<{ token: string; expires_at: string; workspace_id?: string }>('/api/admin/tokens', {
       method: 'POST',
+      body,
     });
   }
-  return requestLocal<{ token: string; expires_at: string }>('/api/tokens', {
+  return requestLocal<{ token: string; expires_at: string; workspace_id?: string }>('/api/tokens', {
     method: 'POST',
+    body,
   });
 }
 

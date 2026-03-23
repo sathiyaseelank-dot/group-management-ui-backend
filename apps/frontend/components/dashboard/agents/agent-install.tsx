@@ -17,6 +17,7 @@ import {
 import { createEnrollmentToken, deleteAgent, getConnectors } from '@/lib/mock-api';
 import { Connector } from '@/lib/types';
 import { toast } from 'sonner';
+import { getWorkspaceClaims } from '@/lib/jwt';
 
 function fallbackCopy(text: string) {
   const textarea = document.createElement('textarea');
@@ -40,6 +41,11 @@ export function AgentInstall({
   const [token, setToken] = useState<string>('');
   const [tokenLoading, setTokenLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Get workspace slug from JWT token for enrollment
+  const authToken = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+  const claims = authToken ? getWorkspaceClaims(authToken) : null;
+  const workspaceSlug = claims?.wslug || '';
 
   // Auto-detect controller IP from the browser's current hostname.
   const detectedHost = window.location.hostname || '127.0.0.1';
@@ -119,7 +125,7 @@ export function AgentInstall({
   const handleCreateToken = async () => {
     setTokenLoading(true);
     try {
-      const resp = await createEnrollmentToken();
+      const resp = await createEnrollmentToken(workspaceSlug || undefined);
       setToken(resp.token);
     } catch (error) {
       console.error('Failed to create enrollment token:', error);
@@ -132,15 +138,16 @@ export function AgentInstall({
   const installCommand = useMemo(() => {
     const safeToken = token || 'fetching_enrollment_token';
     return (
-      `curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts/agent-setup.sh | sudo \\\n` +
+      `curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/feature/quic-device-tunnel-control-plane-merge/scripts/agent-setup.sh | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
       `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ADDR="${connectorAddr || 'CONNECTOR_ADDR_HERE'}" \\\n` +
       `  AGENT_ID="${agentId || 'agent-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${safeToken}" \\\n` +
+      (workspaceSlug ? `  WORKSPACE_SLUG="${workspaceSlug}" \\\n` : '') +
       `  bash`
     );
-  }, [connectorAddr, controllerAddr, controllerHttpAddr, token, agentId]);
+  }, [connectorAddr, controllerAddr, controllerHttpAddr, token, agentId, workspaceSlug]);
 
   const handleCopyCommand = () => {
     if (navigator.clipboard?.writeText) {

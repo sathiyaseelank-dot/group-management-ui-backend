@@ -12,6 +12,7 @@ import { ConnectorInfoSection } from '@/components/dashboard/connectors/connecto
 import { ConnectorLogs } from '@/components/dashboard/connectors/connector-logs';
 import { toast } from 'sonner';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { getWorkspaceClaims } from '@/lib/jwt';
 
 function copyToClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
@@ -49,14 +50,18 @@ export default function ConnectorDetailPage() {
   const [tokenLoading, setTokenLoading] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
 
+  // Get workspace slug from JWT token for enrollment
+  const token = localStorage.getItem('authToken');
+  const claims = token ? getWorkspaceClaims(token) : null;
+  const workspaceSlug = claims?.wslug || '';
+
   // Auto-detect controller IP from the browser's current hostname.
   // When accessed from another machine (e.g. 192.168.1.x), this gives the correct LAN IP.
   const detectedHost = window.location.hostname || '127.0.0.1';
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
-  const [connectorPrivateIP, setConnectorPrivateIP] = useState(detectedHost);
   const [deviceTunnelAddr, setDeviceTunnelAddr] = useState('0.0.0.0:9444');
-  const connectorInstallScript = 'https://raw.githubusercontent.com/vairabarath/zero-trust/feature/client-grpc-lan-auth/scripts/setup.sh';
+  const connectorInstallScript = 'https://raw.githubusercontent.com/vairabarath/zero-trust/feature/quic-device-tunnel-control-plane-merge/scripts/setup.sh';
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
     return (
@@ -65,11 +70,11 @@ export default function ConnectorDetailPage() {
       `  CONTROLLER_HTTP_URL="http://${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${enrollmentToken}" \\\n` +
+      (workspaceSlug ? `  WORKSPACE_SLUG="${workspaceSlug}" \\\n` : '') +
       `  DEVICE_TUNNEL_ADDR="${deviceTunnelAddr || '0.0.0.0:9444'}" \\\n` +
-      (connectorPrivateIP ? `  CONNECTOR_PRIVATE_IP="${connectorPrivateIP}" \\\n` : '') +
       `  bash`
     );
-  }, [connectorInstallScript, enrollmentToken, controllerAddr, controllerHttpAddr, connectorId, deviceTunnelAddr, connectorPrivateIP]);
+  }, [connectorInstallScript, enrollmentToken, controllerAddr, controllerHttpAddr, connectorId, deviceTunnelAddr, workspaceSlug]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -101,7 +106,7 @@ export default function ConnectorDetailPage() {
     setTokenLoading(true);
     setTokenError(null);
     try {
-      const { token } = await createEnrollmentToken();
+      const { token } = await createEnrollmentToken(workspaceSlug || undefined);
       setEnrollmentToken(token);
     } catch (error) {
       console.error('Failed to create enrollment token:', error);
@@ -225,18 +230,6 @@ export default function ConnectorDetailPage() {
             />
             <p className="text-xs text-muted-foreground">
               Address the connector binds for device tunnel traffic.
-            </p>
-          </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="connectorPrivateIP">Connector LAN IP (optional)</Label>
-            <Input
-              id="connectorPrivateIP"
-              value={connectorPrivateIP}
-              onChange={(e) => setConnectorPrivateIP(e.target.value)}
-              placeholder="192.168.1.x"
-            />
-            <p className="text-xs text-muted-foreground">
-              The LAN IP of the machine running the connector. Auto-detected from your browser address — override if the connector is on a different machine.
             </p>
           </div>
         </div>

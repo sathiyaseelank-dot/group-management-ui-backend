@@ -86,6 +86,17 @@ func (s *EnrollmentServer) EnrollConnector(
 		return nil, err
 	}
 
+	// Check if this connector was previously enrolled with a different workspace
+	// This prevents workspace hopping attacks where an entity tries to switch workspaces
+	if workspaceID != "" && s.Registry != nil {
+		if rec, ok := s.Registry.Get(req.GetId()); ok && rec.WorkspaceID != "" {
+			if rec.WorkspaceID != workspaceID {
+				return nil, status.Error(codes.PermissionDenied, 
+					"connector was enrolled with a different workspace; use original workspace token")
+			}
+		}
+	}
+
 	// Determine which CA and trust domain to use.
 	issuerCA := s.CA
 	issuerCAPEM := s.CAPEM
@@ -242,23 +253,39 @@ func (s *EnrollmentServer) Renew(
 	spiffeID := callerSPIFFE
 
 	// Determine which CA to use for renewal.
+	// Primary: Look up workspace from Registry (stored during initial enrollment)
+	// Fallback: Derive workspace from SPIFFE trust domain
 	issuerCA := s.CA
 	issuerCAPEM := s.CAPEM
 
-	if role == "connector" && s.Registry != nil && s.Workspaces != nil {
+	var workspaceID string
+	// Registry lookup works for both connectors and agents
+	if (role == "connector" || role == "agent") && s.Registry != nil {
 		if rec, ok := s.Registry.Get(req.GetId()); ok && rec.WorkspaceID != "" {
-			if ws, err := s.Workspaces.GetWorkspace(rec.WorkspaceID); err == nil {
-				if wsCA, err := ca.LoadCA([]byte(ws.CACertPEM), []byte(ws.CAKeyPEM)); err == nil {
-					issuerCA = wsCA
-					issuerCAPEM = []byte(ws.CACertPEM)
-				}
+			workspaceID = rec.WorkspaceID
+		}
+	}
+
+	// Fallback to SPIFFE-based lookup if Registry doesn't have workspace
+	if workspaceID == "" && s.Workspaces != nil {
+		if wsID, ok := s.workspaceIDForSPIFFE(spiffeID); ok {
+			workspaceID = wsID
+		}
+	}
+
+	// Load workspace CA if we have a workspace ID
+	if workspaceID != "" && s.Workspaces != nil {
+		if ws, err := s.Workspaces.GetWorkspace(workspaceID); err == nil {
+			if wsCA, err := ca.LoadCA([]byte(ws.CACertPEM), []byte(ws.CAKeyPEM)); err == nil {
+				issuerCA = wsCA
+				issuerCAPEM = []byte(ws.CACertPEM)
 			}
 		}
 	}
 
 	ttl := 5 * time.Minute
 	var ipAddrs []net.IP
-	if role == "connector" && s.Registry != nil {
+	if (role == "connector" || role == "agent") && s.Registry != nil {
 		if rec, ok := s.Registry.Get(req.GetId()); ok {
 			if ip := net.ParseIP(rec.PrivateIP); ip != nil {
 				ipAddrs = []net.IP{ip}
@@ -329,6 +356,46 @@ func (s *EnrollmentServer) authorizeConnectorTokenWithWorkspace(token, connector
 		return "", status.Error(codes.PermissionDenied, "invalid enrollment token")
 	}
 	return wsID, nil
+}
+
+func (s *EnrollmentServer) workspaceIDForSPIFFE(spiffeID string) (string, bool) {
+	if s.Workspaces == nil {
+		return "", false
+	}
+
+	trimmed := strings.TrimPrefix(spiffeID, "spiffe://")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 3 {
+		return "", false
+	}
+
+	trustDomain := strings.TrimSpace(parts[0])
+	if trustDomain == "" {
+		return "", false
+	}
+
+	// Try exact trust domain match first (works for workspace-specific trust domains)
+	ws, err := s.Workspaces.GetWorkspaceByTrustDomain(trustDomain)
+	if err == nil && ws != nil && ws.ID != "" {
+		return ws.ID, true
+	}
+
+	// If trust domain matches default, try to find workspace that uses it
+	// This handles the case where a workspace has the same trust domain as the global default
+	if trustDomain == s.TrustDomain && s.Workspaces != nil {
+		// List workspaces and find one with matching trust domain
+		// Note: This is a fallback path; primary lookup should be via Registry
+		workspaces, err := s.Workspaces.ListWorkspacesForUser("")
+		if err == nil {
+			for _, ws := range workspaces {
+				if ws.TrustDomain == trustDomain {
+					return ws.ID, true
+				}
+			}
+		}
+	}
+
+	return "", false
 }
 
 func (s *EnrollmentServer) identityFromContext(ctx context.Context) (string, string, error) {

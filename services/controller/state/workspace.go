@@ -149,6 +149,18 @@ func (s *WorkspaceStore) GetWorkspaceBySlug(slug string) (*Workspace, error) {
 	return &w, nil
 }
 
+func (s *WorkspaceStore) GetWorkspaceByTrustDomain(trustDomain string) (*Workspace, error) {
+	var w Workspace
+	err := s.db.QueryRow(
+		Rebind(`SELECT id, name, slug, trust_domain, ca_cert_pem, ca_key_pem, status, created_at, updated_at FROM workspaces WHERE trust_domain = ?`), trustDomain,
+	).Scan(&w.ID, &w.Name, &w.Slug, &w.TrustDomain, &w.CACertPEM, &w.CAKeyPEM, &w.Status, &w.CreatedAt, &w.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	w.CAKeyPEM = s.decryptCAKey(w.CAKeyPEM)
+	return &w, nil
+}
+
 func (s *WorkspaceStore) ListWorkspacesForUser(userID string) ([]Workspace, error) {
 	rows, err := s.db.Query(
 		Rebind(`SELECT w.id, w.name, w.slug, w.trust_domain, w.ca_cert_pem, w.status, w.created_at, w.updated_at

@@ -44,14 +44,14 @@ type Server struct {
 	CACertPEM         []byte
 
 	// OAuth + JWT session
-	OAuthConfig       *oauth2.Config // Google admin app (backward compat)
-	ClientOAuthConfig *oauth2.Config // Google client app for PKCE flows (device + invite)
-	GitHubOAuthConfig *oauth2.Config
-	JWTSecret         []byte
-	AdminLoginEmails      map[string]struct{}
-	SignupAllowedDomains  map[string]struct{} // empty = open signup; set = restrict to these domains
-	DashboardURL          string
-	InviteBaseURL         string
+	OAuthConfig          *oauth2.Config // Google admin app (backward compat)
+	ClientOAuthConfig    *oauth2.Config // Google client app for PKCE flows (device + invite)
+	GitHubOAuthConfig    *oauth2.Config
+	JWTSecret            []byte
+	AdminLoginEmails     map[string]struct{}
+	SignupAllowedDomains map[string]struct{} // empty = open signup; set = restrict to these domains
+	DashboardURL         string
+	InviteBaseURL        string
 
 	// SMTP mailer (nil = disabled)
 	Mailer *mailer.Mailer
@@ -65,11 +65,11 @@ type Server struct {
 	IdPs *state.IdentityProviderStore
 
 	// Phase 2: Session management
-	Sessions       *state.SessionStore
-	SecureCookies  bool
-	AllowedOrigins []string
-	MaxSessionsPerUser     int  // 0 = unlimited (default: 5)
-	StrictSessionBinding   bool // true = reject fingerprint mismatches; false = log only
+	Sessions             *state.SessionStore
+	SecureCookies        bool
+	AllowedOrigins       []string
+	MaxSessionsPerUser   int  // 0 = unlimited (default: 5)
+	StrictSessionBinding bool // true = reject fingerprint mismatches; false = log only
 
 	// JIT access requests
 	AccessRequests *state.AccessRequestStore
@@ -342,16 +342,81 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	wsID := s.workspaceIDFromRequest(r)
+
+	var req struct {
+		WorkspaceID   string `json:"workspace_id"`
+		WorkspaceSlug string `json:"workspace_slug"`
+		TokenType     string `json:"token_type"` // "enrollment" or "api" (optional)
+	}
+	if r.Body != nil {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Determine workspace ID with explicit priority
+	var wsID string
+	var wsErr error
+
+	// Priority 1: Explicit workspace_id
+	explicitWSID := strings.TrimSpace(req.WorkspaceID)
+	if explicitWSID != "" {
+		wsID = explicitWSID
+		// Validate workspace exists
+		if s.Workspaces != nil {
+			_, wsErr = s.Workspaces.GetWorkspace(wsID)
+		}
+	}
+
+	// Priority 2: Explicit workspace_slug
+	if wsID == "" {
+		explicitWSSlug := strings.TrimSpace(req.WorkspaceSlug)
+		if explicitWSSlug != "" {
+			if s.Workspaces == nil {
+				http.Error(w, "workspace store not configured", http.StatusServiceUnavailable)
+				return
+			}
+			ws, err := s.Workspaces.GetWorkspaceBySlug(explicitWSSlug)
+			if err != nil || ws == nil {
+				http.Error(w, "workspace not found", http.StatusNotFound)
+				return
+			}
+			wsID = ws.ID
+		}
+	}
+
+	// Priority 3: Workspace from auth context (for backward compat)
+	if wsID == "" {
+		wsID = s.workspaceIDFromRequest(r)
+	}
+
+	// Validate workspace if we tried to look it up
+	if wsErr != nil {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+
+	// Create token with workspace binding
 	token, expires, err := s.Tokens.CreateTokenForWorkspace(wsID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to create token: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	resp := map[string]string{
-		"token":      token,
-		"expires_at": expires.UTC().Format(time.RFC3339),
+	// Log workspace binding for audit
+	if wsID != "" {
+		log.Printf("token created: workspace_id=%s expires=%s", wsID, expires.Format(time.RFC3339))
+	} else {
+		log.Printf("WARNING: token created without workspace binding")
+	}
+
+	// Return workspace info to caller
+	resp := map[string]any{
+		"token":        token,
+		"expires_at":   expires.UTC().Format(time.RFC3339),
+		"workspace_id": wsID,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

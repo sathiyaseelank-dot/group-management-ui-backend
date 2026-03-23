@@ -23,36 +23,36 @@ import (
 // ControlPlaneServer implements the controller.v1.ControlPlane service.
 type ControlPlaneServer struct {
 	controllerpb.UnimplementedControlPlaneServer
-	registry       *state.Registry
+	registry    *state.Registry
 	agents      *state.AgentRegistry
 	agentStatus *state.AgentStatusRegistry
-	acls           *state.ACLStore
-	db             *sql.DB
-	signingKey     []byte
-	snapshotTTL    time.Duration
-	scanStore      *state.ScanStore
-	mu             sync.Mutex
-	clients        map[string]*connectorClient
-	seqMu     sync.Mutex
-	agentSeqs map[string]uint64
-	batcher   *DiscoveryBatcher
+	acls        *state.ACLStore
+	db          *sql.DB
+	signingKey  []byte
+	snapshotTTL time.Duration
+	scanStore   *state.ScanStore
+	mu          sync.Mutex
+	clients     map[string]*connectorClient
+	seqMu       sync.Mutex
+	agentSeqs   map[string]uint64
+	batcher     *DiscoveryBatcher
 }
 
 // NewControlPlaneServer creates a new control plane server.
 func NewControlPlaneServer(trustDomain string, registry *state.Registry, agents *state.AgentRegistry, agentStatus *state.AgentStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration, scanStore *state.ScanStore) *ControlPlaneServer {
 	_ = trustDomain
 	return &ControlPlaneServer{
-		registry:       registry,
+		registry:    registry,
 		agents:      agents,
 		agentStatus: agentStatus,
-		acls:           acls,
-		db:             db,
-		signingKey:     signingKey,
-		snapshotTTL:    snapshotTTL,
-		scanStore:      scanStore,
-		clients:        make(map[string]*connectorClient),
-		agentSeqs: make(map[string]uint64),
-		batcher:   NewDiscoveryBatcher(db),
+		acls:        acls,
+		db:          db,
+		signingKey:  signingKey,
+		snapshotTTL: snapshotTTL,
+		scanStore:   scanStore,
+		clients:     make(map[string]*connectorClient),
+		agentSeqs:   make(map[string]uint64),
+		batcher:     NewDiscoveryBatcher(db),
 	}
 }
 
@@ -340,9 +340,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 			log.Printf("agent_discovery_full_sync: received payload=%s", string(msg.GetPayload()))
 			if s.db != nil {
 				var sync struct {
-					AgentID     string `json:"agent_id"`
-					Seq         uint64 `json:"seq"`
-					Services    []struct {
+					AgentID  string `json:"agent_id"`
+					Seq      uint64 `json:"seq"`
+					Services []struct {
 						Protocol    string `json:"protocol"`
 						Port        int    `json:"port"`
 						BoundIP     string `json:"bound_ip"`
@@ -533,11 +533,29 @@ func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, host
 	}
 	// Persist to DB so LoadAgentRegistryFromDB restores the allowlist on restart.
 	if s.db != nil {
+		workspaceID := ""
+		trimmed := strings.TrimPrefix(spiffeID, "spiffe://")
+		parts := strings.Split(trimmed, "/")
+		if len(parts) >= 3 {
+			trustDomain := strings.TrimSpace(parts[0])
+			if trustDomain != "" {
+				_ = s.db.QueryRow(
+					state.Rebind(`SELECT id FROM workspaces WHERE trust_domain = ? LIMIT 1`),
+					trustDomain,
+				).Scan(&workspaceID)
+			}
+		}
 		_, _ = s.db.Exec(
-			state.Rebind(`INSERT INTO agents (id, spiffe_id, connector_id, version, hostname, last_seen, ip)
-			VALUES (?, ?, '', ?, ?, ?, ?)
-			ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, version=excluded.version, hostname=excluded.hostname, last_seen=excluded.last_seen, ip=excluded.ip`),
-			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(), ip,
+			state.Rebind(`INSERT INTO agents (id, spiffe_id, connector_id, version, hostname, last_seen, ip, workspace_id)
+			VALUES (?, ?, '', ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				spiffe_id=excluded.spiffe_id,
+				version=excluded.version,
+				hostname=excluded.hostname,
+				last_seen=excluded.last_seen,
+				ip=excluded.ip,
+				workspace_id=CASE WHEN excluded.workspace_id = '' THEN agents.workspace_id ELSE excluded.workspace_id END`),
+			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(), ip, workspaceID,
 		)
 	}
 	info := state.AgentInfo{ID: agentID, SPIFFEID: spiffeID}
