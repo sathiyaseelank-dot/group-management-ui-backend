@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"errors"
 	"log"
 	"net"
@@ -78,18 +79,18 @@ func main() {
 		log.Fatalf("failed to prepare controller TLS cert: %v", err)
 	}
 
-	// ---- build CA pool ----
-	caPool := x509.NewCertPool()
-	if !caPool.AppendCertsFromPEM(caCertPEM) {
-		log.Fatal("failed to append internal CA cert to pool")
-	}
-
-	// ---- TLS config (mTLS enforced) ----
+	// ---- TLS config (mTLS with workspace-CA-aware client cert verification) ----
+	// ClientCAs is intentionally not set: workspace-enrolled connectors present a chain
+	// [leaf, workspace-CA] where the workspace CA is a sub-CA signed by the global CA.
+	// Go's built-in ClientCAs check only knows the global CA and would reject these certs
+	// before reaching the gRPC interceptor. Instead we use RequestClientCert + a custom
+	// VerifyPeerCertificate that reconstructs the full chain against the global CA root,
+	// automatically enforcing name constraints on any intermediate workspace CA.
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{controllerTLSCert},
-		ClientCAs:    caPool,
-		ClientAuth:   tls.VerifyClientCertIfGiven,
-		MinVersion:   tls.VersionTLS13,
+		Certificates:          []tls.Certificate{controllerTLSCert},
+		ClientAuth:            tls.RequestClientCert,
+		MinVersion:            tls.VersionTLS13,
+		VerifyPeerCertificate: buildWorkspaceAwarePeerVerifier(caCertPEM),
 	}
 
 	creds := credentials.NewTLS(tlsConfig)
@@ -206,6 +207,9 @@ func main() {
 			_, _ = db.Exec(state.Rebind(`UPDATE agents     SET status='offline' WHERE status='online' AND last_seen < ?`), cutoff)
 		}
 	}()
+
+	// ---- rotate any workspace CAs minted with the old broken URI constraint ----
+	rotateWorkspaceCAsIfNeeded(workspaceStore, caInst)
 
 	// ---- trust domain validator (multi-tenant) ----
 	api.SetTrustDomainValidator(api.NewTrustDomainValidator(trustDomain, systemDomain))
@@ -457,6 +461,81 @@ func parseIntEnv(key string, defaultVal int) int {
 		}
 	}
 	return defaultVal
+}
+
+// buildWorkspaceAwarePeerVerifier returns a VerifyPeerCertificate callback that
+// accepts client certs from both global-enrolled and workspace-enrolled connectors/agents.
+//
+// Global connector:   rawCerts = [leaf]              chain: leaf → global CA (root)
+// Workspace connector: rawCerts = [leaf, workspace-CA] chain: leaf → workspace-CA → global CA
+//
+// Name constraints on any intermediate are enforced by Go's x509 library, so
+// workspace CAs minted with the old broken PermittedURIDomains are still rejected.
+//
+// If rawCerts is empty (initial enrollment — no cert yet) the callback returns nil;
+// the gRPC interceptor handles auth via the enrollment token in the request body.
+func buildWorkspaceAwarePeerVerifier(globalCAPEM []byte) func([][]byte, [][]*x509.Certificate) error {
+	globalPool := x509.NewCertPool()
+	if !globalPool.AppendCertsFromPEM(globalCAPEM) {
+		log.Fatal("buildWorkspaceAwarePeerVerifier: failed to parse global CA PEM")
+	}
+	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+		if len(rawCerts) == 0 {
+			return nil
+		}
+		leaf, err := x509.ParseCertificate(rawCerts[0])
+		if err != nil {
+			return fmt.Errorf("parse client cert: %w", err)
+		}
+		intermediates := x509.NewCertPool()
+		for _, raw := range rawCerts[1:] {
+			if c, err := x509.ParseCertificate(raw); err == nil {
+				intermediates.AddCert(c)
+			}
+		}
+		_, err = leaf.Verify(x509.VerifyOptions{
+			Roots:         globalPool,
+			Intermediates: intermediates,
+			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		})
+		return err
+	}
+}
+
+// rotateWorkspaceCAsIfNeeded inspects every active workspace CA and re-issues any
+// that were minted with the pre-fix PermittedURIDomains (entries prefixed "spiffe://").
+// After rotation, connectors/agents enrolled under the old CA must be restarted to
+// re-enroll; their existing short-lived certs (5-min TTL) will fail chain verification
+// until they pick up a cert signed by the new CA.
+func rotateWorkspaceCAsIfNeeded(workspaceStore *state.WorkspaceStore, parentCA *ca.CA) {
+	if workspaceStore == nil {
+		return
+	}
+	workspaces, err := workspaceStore.ListAllWorkspaces()
+	if err != nil {
+		log.Printf("ca-rotation: failed to list workspaces: %v", err)
+		return
+	}
+	rotated := 0
+	for _, ws := range workspaces {
+		if !ca.HasBrokenURIConstraint([]byte(ws.CACertPEM)) {
+			continue
+		}
+		certPEM, keyPEM, err := ca.IssueWorkspaceCA(parentCA, ws.TrustDomain, 365*24*time.Hour)
+		if err != nil {
+			log.Printf("ca-rotation: failed to reissue CA for workspace %s (%s): %v", ws.ID, ws.TrustDomain, err)
+			continue
+		}
+		if err := workspaceStore.UpdateWorkspaceCA(ws.ID, string(certPEM), string(keyPEM)); err != nil {
+			log.Printf("ca-rotation: failed to store rotated CA for workspace %s (%s): %v", ws.ID, ws.TrustDomain, err)
+			continue
+		}
+		log.Printf("ca-rotation: rotated workspace CA %s (%s)", ws.ID, ws.TrustDomain)
+		rotated++
+	}
+	if rotated > 0 {
+		log.Printf("ca-rotation: rotated %d workspace CA(s) with broken URI constraints — restart affected connectors/agents to re-enroll", rotated)
+	}
 }
 
 func loadOrIssueControllerCert(caInst *ca.CA, trustDomain string) (tls.Certificate, error) {

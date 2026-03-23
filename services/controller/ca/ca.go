@@ -136,7 +136,7 @@ func IssueWorkspaceCA(parent *CA, trustDomain string, ttl time.Duration) (certPE
 		IsCA:                  true,
 		MaxPathLen:            0,
 		MaxPathLenZero:        true,
-		PermittedURIDomains:   []string{"spiffe://" + trustDomain},
+		PermittedURIDomains:   []string{trustDomain},
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, parent.cert, &key.PublicKey, parent.key)
@@ -153,6 +153,27 @@ func IssueWorkspaceCA(parent *CA, trustDomain string, ttl time.Duration) (certPE
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 
 	return certPEM, keyPEM, nil
+}
+
+// HasBrokenURIConstraint reports whether the workspace CA cert in certPEM was minted
+// with the pre-fix PermittedURIDomains (entries that start with "spiffe://").
+// Such entries fail RFC 5280 name-constraint checking because the constraint value
+// must be a bare hostname, not a URI.
+func HasBrokenURIConstraint(certPEM []byte) bool {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return false
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false
+	}
+	for _, d := range cert.PermittedURIDomains {
+		if len(d) > len("spiffe://") && d[:len("spiffe://")] == "spiffe://" {
+			return true
+		}
+	}
+	return false
 }
 
 // IssueWorkloadCert issues a short-lived workload certificate with the given SPIFFE ID.

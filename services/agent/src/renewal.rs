@@ -7,7 +7,7 @@ use tracing::{info, warn};
 pub async fn renewal_loop(
     controller_addr: String,
     agent_id: String,
-    trust_domain: String,
+    controller_trust_domain: String,
     store: CertStore,
     controller_ca_pem: Vec<u8>,
     workload_ca_pem: Vec<u8>,
@@ -20,7 +20,7 @@ pub async fn renewal_loop(
         match crate::enroll::renew(
             &controller_addr,
             &agent_id,
-            &trust_domain,
+            &controller_trust_domain,
             &store,
             &controller_ca_pem,
             &workload_ca_pem,

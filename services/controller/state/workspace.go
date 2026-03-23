@@ -196,6 +196,43 @@ func (s *WorkspaceStore) UpdateWorkspace(w *Workspace) error {
 	return err
 }
 
+// UpdateWorkspaceCA replaces the stored CA cert and encrypted key for a workspace.
+func (s *WorkspaceStore) UpdateWorkspaceCA(id, certPEM, keyPEM string) error {
+	storedKey := s.encryptCAKey(keyPEM)
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(
+		Rebind(`UPDATE workspaces SET ca_cert_pem = ?, ca_key_pem = ?, updated_at = ? WHERE id = ?`),
+		certPEM, storedKey, now, id,
+	)
+	return err
+}
+
+// ListAllWorkspaces returns all active workspaces with their CA material decrypted.
+// Used at startup for workspace CA rotation checks.
+func (s *WorkspaceStore) ListAllWorkspaces() ([]Workspace, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, slug, trust_domain, ca_cert_pem, ca_key_pem, status, created_at, updated_at
+		 FROM workspaces WHERE status = 'active' ORDER BY created_at ASC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var workspaces []Workspace
+	for rows.Next() {
+		var w Workspace
+		if err := rows.Scan(&w.ID, &w.Name, &w.Slug, &w.TrustDomain, &w.CACertPEM, &w.CAKeyPEM, &w.Status, &w.CreatedAt, &w.UpdatedAt); err != nil {
+			return nil, err
+		}
+		w.CAKeyPEM = s.decryptCAKey(w.CAKeyPEM)
+		workspaces = append(workspaces, w)
+	}
+	if workspaces == nil {
+		workspaces = []Workspace{}
+	}
+	return workspaces, nil
+}
+
 func (s *WorkspaceStore) DeleteWorkspace(id string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.Exec(

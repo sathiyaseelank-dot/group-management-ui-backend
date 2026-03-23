@@ -85,7 +85,7 @@ pub async fn enroll(cfg: &EnrollConfig) -> Result<EnrollResult> {
 pub async fn renew(
     controller_addr: &str,
     agent_id: &str,
-    trust_domain: &str,
+    controller_trust_domain: &str,
     store: &crate::tls::cert_store::CertStore,
     controller_ca_pem: &[u8],
     workload_ca_pem: &[u8],
@@ -94,7 +94,7 @@ pub async fn renew(
 
     let channel = crate::tls::client_cfg::build_tonic_channel(
         controller_addr,
-        trust_domain,
+        controller_trust_domain,
         store,
         controller_ca_pem,
     )
@@ -243,7 +243,7 @@ async fn build_enroll_channel(cfg: &EnrollConfig) -> Result<tonic::transport::Ch
 
     let verifier = Arc::new(EnrollVerifier {
         ca_der,
-        trust_domain: cfg.trust_domain.clone(),
+        trust_domain: cfg.controller_trust_domain.clone(),
     });
 
     let mut client_config = rustls::ClientConfig::builder()

@@ -5,7 +5,8 @@ use std::env;
 pub struct EnrollConfig {
     pub controller_addr: String,
     pub agent_id: String,
-    pub trust_domain: String,
+    /// Trust domain for verifying the controller's SPIFFE cert (global, e.g. mycorp.internal).
+    pub controller_trust_domain: String,
     pub token: String,
     pub ca_pem: Vec<u8>,
 }
@@ -15,7 +16,10 @@ pub struct RunConfig {
     pub controller_addr: String,
     pub connector_addr: String,
     pub agent_id: String,
-    pub trust_domain: String,
+    /// Trust domain for verifying the controller's SPIFFE cert (global, e.g. mycorp.internal).
+    pub controller_trust_domain: String,
+    /// Trust domain for verifying the connector's SPIFFE cert (workspace-scoped).
+    pub connector_trust_domain: String,
     pub enrollment_token: String,
     pub ca_pem: Vec<u8>,
     pub tun_name: String,
@@ -60,17 +64,48 @@ pub fn load_controller_ca() -> Result<Vec<u8>> {
     Ok(pem)
 }
 
+/// Returns `(controller_trust_domain, connector_trust_domain)`.
+///
+/// - `connector_trust_domain`: `CONNECTOR_TRUST_DOMAIN`, falling back to `TRUST_DOMAIN`,
+///   defaulting to `"mycorp.internal"`.
+/// - `controller_trust_domain`: `CONTROLLER_TRUST_DOMAIN`, falling back to
+///   `connector_trust_domain` (so non-workspace deployments need no extra config).
+fn load_trust_domains() -> (String, String) {
+    let connector_trust_domain = {
+        let v = env::var("CONNECTOR_TRUST_DOMAIN").unwrap_or_default();
+        let v = v.trim().to_string();
+        if v.is_empty() {
+            let fallback = env::var("TRUST_DOMAIN").unwrap_or_default();
+            let fallback = fallback.trim().to_string();
+            if fallback.is_empty() {
+                "mycorp.internal".to_string()
+            } else {
+                normalize_trust_domain(&fallback)
+            }
+        } else {
+            normalize_trust_domain(&v)
+        }
+    };
+    let controller_trust_domain = {
+        let v = env::var("CONTROLLER_TRUST_DOMAIN").unwrap_or_default();
+        let v = v.trim().to_string();
+        if v.is_empty() {
+            connector_trust_domain.clone()
+        } else {
+            normalize_trust_domain(&v)
+        }
+    };
+    (controller_trust_domain, connector_trust_domain)
+}
+
 pub fn enroll_config_from_env() -> Result<EnrollConfig> {
     let controller_addr = env::var("CONTROLLER_ADDR").unwrap_or_default();
     let mut agent_id = env::var("AGENT_ID").unwrap_or_default();
     if agent_id.trim().is_empty() {
         agent_id = env::var("TUNNELER_ID").unwrap_or_default();
     }
-    let mut trust_domain = env::var("TRUST_DOMAIN").unwrap_or_default();
-    if trust_domain.is_empty() {
-        trust_domain = "mycorp.internal".to_string();
-    }
-    let trust_domain = normalize_trust_domain(&trust_domain);
+
+    let (controller_trust_domain, _) = load_trust_domains();
 
     if controller_addr.trim().is_empty() {
         bail!("CONTROLLER_ADDR is not set");
@@ -92,7 +127,7 @@ pub fn enroll_config_from_env() -> Result<EnrollConfig> {
     Ok(EnrollConfig {
         controller_addr: controller_addr.trim().to_string(),
         agent_id: agent_id.trim().to_string(),
-        trust_domain,
+        controller_trust_domain,
         token: token.trim().to_string(),
         ca_pem,
     })
@@ -105,11 +140,8 @@ pub fn run_config_from_env() -> Result<RunConfig> {
     if agent_id.trim().is_empty() {
         agent_id = env::var("TUNNELER_ID").unwrap_or_default();
     }
-    let mut trust_domain = env::var("TRUST_DOMAIN").unwrap_or_default();
-    if trust_domain.is_empty() {
-        trust_domain = "mycorp.internal".to_string();
-    }
-    let trust_domain = normalize_trust_domain(&trust_domain);
+
+    let (controller_trust_domain, connector_trust_domain) = load_trust_domains();
 
     if controller_addr.trim().is_empty() {
         bail!("CONTROLLER_ADDR is not set");
@@ -137,7 +169,8 @@ pub fn run_config_from_env() -> Result<RunConfig> {
         controller_addr: controller_addr.trim().to_string(),
         connector_addr: connector_addr.trim().to_string(),
         agent_id: agent_id.trim().to_string(),
-        trust_domain,
+        controller_trust_domain,
+        connector_trust_domain,
         enrollment_token: enrollment_token.trim().to_string(),
         ca_pem,
         tun_name,

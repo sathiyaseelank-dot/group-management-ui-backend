@@ -25,7 +25,7 @@ pub async fn run() -> Result<()> {
             let enroll_cfg = config::EnrollConfig {
                 controller_addr: cfg.controller_addr.clone(),
                 agent_id: cfg.agent_id.clone(),
-                trust_domain: cfg.trust_domain.clone(),
+                controller_trust_domain: cfg.controller_trust_domain.clone(),
                 token: cfg.enrollment_token.clone(),
                 ca_pem: cfg.ca_pem.clone(),
             };
@@ -80,7 +80,7 @@ pub async fn run() -> Result<()> {
     // Start control plane loop (connects to connector)
     tokio::spawn(control_plane_loop(
         cfg.connector_addr.clone(),
-        cfg.trust_domain.clone(),
+        cfg.connector_trust_domain.clone(),
         store.clone(),
         result.ca_pem.clone(),
         result.spiffe_id.clone(),
@@ -94,7 +94,7 @@ pub async fn run() -> Result<()> {
     tokio::spawn(crate::renewal::renewal_loop(
         cfg.controller_addr.clone(),
         cfg.agent_id.clone(),
-        cfg.trust_domain.clone(),
+        cfg.controller_trust_domain.clone(),
         store.clone(),
         cfg.ca_pem.clone(),
         result.ca_pem.clone(),
@@ -112,7 +112,7 @@ pub async fn run() -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 async fn control_plane_loop(
     connector_addr: String,
-    trust_domain: String,
+    connector_trust_domain: String,
     store: CertStore,
     ca_pem: Vec<u8>,
     spiffe_id: String,
@@ -126,7 +126,7 @@ async fn control_plane_loop(
         tokio::select! {
             result = connect_to_connector(
                 &connector_addr,
-                &trust_domain,
+                &connector_trust_domain,
                 &store,
                 &ca_pem,
                 &spiffe_id,
@@ -152,7 +152,7 @@ async fn control_plane_loop(
 
 async fn connect_to_connector(
     connector_addr: &str,
-    trust_domain: &str,
+    connector_trust_domain: &str,
     store: &CertStore,
     ca_pem: &[u8],
     spiffe_id: &str,
@@ -162,7 +162,7 @@ async fn connect_to_connector(
 ) -> Result<()> {
     let channel = crate::tls::client_cfg::build_tonic_channel_with_role(
         connector_addr,
-        trust_domain,
+        connector_trust_domain,
         store,
         ca_pem,
         "connector",
