@@ -39,6 +39,7 @@ pub async fn renewal_loop(
                 }
                 store.update(
                     result.cert_der,
+                    result.cert_chain_der,
                     result.key_der.to_vec(),
                     not_after,
                     total_ttl,

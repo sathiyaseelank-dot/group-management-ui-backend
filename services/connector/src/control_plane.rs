@@ -28,8 +28,7 @@ pub struct ConnectorControlPlane {
 
 #[tonic::async_trait]
 impl ControlPlane for ConnectorControlPlane {
-    type ConnectStream =
-        tokio_stream::wrappers::ReceiverStream<Result<ControlMessage, Status>>;
+    type ConnectStream = tokio_stream::wrappers::ReceiverStream<Result<ControlMessage, Status>>;
 
     async fn connect(
         &self,
@@ -47,13 +46,13 @@ impl ControlPlane for ConnectorControlPlane {
             return Err(Status::permission_denied("agent not in allowlist"));
         }
 
-        let agent_id = agent_id_from_spiffe(&spiffe_id)
-            .unwrap_or_else(|| "unknown".to_string());
+        let agent_id = agent_id_from_spiffe(&spiffe_id).unwrap_or_else(|| "unknown".to_string());
 
         // Capture the TCP peer IP at connection time — most reliable source.
         let peer_ip = {
             use crate::server::PeerCertInfo;
-            request.extensions()
+            request
+                .extensions()
                 .get::<PeerCertInfo>()
                 .map(|p| p.peer_ip.clone())
                 .unwrap_or_default()
@@ -78,11 +77,13 @@ impl ControlPlane for ConnectorControlPlane {
         tokio::spawn(async move {
             // Send the current firewall policy immediately to this agent
             if let Some(data) = latest_fw_policy.get() {
-                let _ = tx.send(Ok(ControlMessage {
-                    r#type: "firewall_policy".to_string(),
-                    payload: data,
-                    ..Default::default()
-                })).await;
+                let _ = tx
+                    .send(Ok(ControlMessage {
+                        r#type: "firewall_policy".to_string(),
+                        payload: data,
+                        ..Default::default()
+                    }))
+                    .await;
             }
 
             loop {
@@ -125,7 +126,9 @@ impl ControlPlane for ConnectorControlPlane {
             info!("agent disconnected: {}", spiffe_id);
         });
 
-        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
     }
 }
 
@@ -156,10 +159,17 @@ async fn handle_agent_message(
         "agent_heartbeat" => {
             // Prefer TCP peer IP unless it is loopback (agent on same host as connector),
             // in which case use the self-reported IP from the heartbeat payload.
-            let status = if msg.status.is_empty() { "ONLINE" } else { &msg.status };
+            let status = if msg.status.is_empty() {
+                "ONLINE"
+            } else {
+                &msg.status
+            };
             let payload_ip = if !msg.payload.is_empty() {
                 #[derive(Deserialize)]
-                struct HbPayload { #[serde(default)] ip: String }
+                struct HbPayload {
+                    #[serde(default)]
+                    ip: String,
+                }
                 serde_json::from_slice::<HbPayload>(&msg.payload)
                     .map(|p| p.ip)
                     .unwrap_or_default()
@@ -175,7 +185,10 @@ async fn handle_agent_message(
                 peer_ip.to_string()
             };
             agent_registry.update(agent_id, status, &ip);
-            info!("agent heartbeat: agent_id={} spiffe_id={} status={} ip={}", agent_id, spiffe_id, status, ip);
+            info!(
+                "agent heartbeat: agent_id={} spiffe_id={} status={} ip={}",
+                agent_id, spiffe_id, status, ip
+            );
         }
         "agent_request" => {
             #[derive(Deserialize)]

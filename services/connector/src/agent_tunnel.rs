@@ -279,8 +279,12 @@ where
         Ok::<(), anyhow::Error>(())
     });
 
-    let send_res = send_task.await.map_err(|e| anyhow!("send task join: {}", e))?;
-    let recv_res = recv_task.await.map_err(|e| anyhow!("recv task join: {}", e))?;
+    let send_res = send_task
+        .await
+        .map_err(|e| anyhow!("send task join: {}", e))?;
+    let recv_res = recv_task
+        .await
+        .map_err(|e| anyhow!("recv task join: {}", e))?;
     hub.unregister_session(&recv_conn);
     send_res?;
     recv_res?;

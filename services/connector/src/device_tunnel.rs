@@ -133,9 +133,14 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     let req: TunnelRequest =
         serde_json::from_str(line.trim()).map_err(|e| anyhow::anyhow!("bad handshake: {}", e))?;
 
-    let allowed =
-        check_access(controller_http_url, &req.token, &req.destination, req.port, &req.protocol)
-            .await;
+    let allowed = check_access(
+        controller_http_url,
+        &req.token,
+        &req.destination,
+        req.port,
+        &req.protocol,
+    )
+    .await;
     match allowed {
         Err(e) => {
             let _ = send_response(&mut stream, false, Some("check-access error")).await;

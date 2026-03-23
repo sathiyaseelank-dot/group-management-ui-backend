@@ -3,8 +3,8 @@
 use anyhow::Result;
 use rustls::{
     client::danger::HandshakeSignatureValid,
-    server::danger::{ClientCertVerified, ClientCertVerifier},
     pki_types::{CertificateDer, UnixTime},
+    server::danger::{ClientCertVerified, ClientCertVerifier},
     DigitallySignedStruct, DistinguishedName, SignatureScheme,
 };
 
@@ -92,11 +92,14 @@ impl rustls::server::ResolvesServerCert for DynamicCertResolver {
         &self,
         _client_hello: rustls::server::ClientHello<'_>,
     ) -> Option<std::sync::Arc<rustls::sign::CertifiedKey>> {
-        let (cert_der, key_der) = self.store.snapshot();
+        let (_cert_der, cert_chain_der, key_der) = self.store.snapshot();
         let key = rustls::pki_types::PrivateKeyDer::try_from(key_der).ok()?;
         let signing_key = rustls::crypto::ring::sign::any_supported_type(&key).ok()?;
         Some(std::sync::Arc::new(rustls::sign::CertifiedKey::new(
-            vec![CertificateDer::from(cert_der)],
+            cert_chain_der
+                .into_iter()
+                .map(CertificateDer::from)
+                .collect(),
             signing_key,
         )))
     }

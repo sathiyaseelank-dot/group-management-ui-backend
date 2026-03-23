@@ -86,7 +86,8 @@ pub async fn build_tonic_channel(
     store: &CertStore,
     ca_pem: &[u8],
 ) -> Result<Channel> {
-    build_tonic_channel_with_policy_key(controller_addr, trust_domain, store, ca_pem, "", None).await
+    build_tonic_channel_with_policy_key(controller_addr, trust_domain, store, ca_pem, "", None)
+        .await
 }
 
 const POLICY_KEY_LABEL: &str = "ztna-policy-signing-v1";
@@ -130,7 +131,7 @@ pub async fn build_tonic_channel_with_policy_key(
     connector_id: &str,
     on_policy_key: Option<Arc<dyn Fn(Vec<u8>) + Send + Sync>>,
 ) -> Result<Channel> {
-    let (cert_der, key_der) = store.snapshot();
+    let (_cert_der, cert_chain_der, key_der) = store.snapshot();
 
     // Parse CA cert DER from PEM
     let ca_der = pem_to_der(ca_pem)?;
@@ -144,7 +145,10 @@ pub async fn build_tonic_channel_with_policy_key(
         .dangerous()
         .with_custom_certificate_verifier(verifier)
         .with_client_auth_cert(
-            vec![CertificateDer::from(cert_der)],
+            cert_chain_der
+                .into_iter()
+                .map(CertificateDer::from)
+                .collect(),
             rustls::pki_types::PrivateKeyDer::try_from(key_der)
                 .map_err(|e| anyhow::anyhow!("invalid private key: {}", e))?,
         )?;
@@ -163,10 +167,15 @@ pub async fn build_tonic_channel_with_policy_key(
         let on_policy_key = on_policy_key.clone();
         async move {
             let tcp = TcpStream::connect(&addr).await?;
-            let domain = ServerName::try_from("controller")
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{}", e)))?;
+            let domain = ServerName::try_from("controller").map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{}", e))
+            })?;
             let tls_stream = tls.connect(domain, tcp).await?;
-            export_policy_signing_key(tls_stream.get_ref().1, &connector_id, on_policy_key.as_ref());
+            export_policy_signing_key(
+                tls_stream.get_ref().1,
+                &connector_id,
+                on_policy_key.as_ref(),
+            );
             Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(tls_stream))
         }
     });

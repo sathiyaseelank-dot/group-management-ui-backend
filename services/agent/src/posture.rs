@@ -59,7 +59,9 @@ fn check_firewall(os_type: &str) -> bool {
             if !nft.is_empty() {
                 return true;
             }
-            run_cmd("ufw", &["status"]).to_lowercase().contains("active")
+            run_cmd("ufw", &["status"])
+                .to_lowercase()
+                .contains("active")
         }
         "macos" => {
             let out = run_cmd(
@@ -68,12 +70,9 @@ fn check_firewall(os_type: &str) -> bool {
             );
             out.trim() == "1" || out.trim() == "2"
         }
-        "windows" => run_cmd(
-            "netsh",
-            &["advfirewall", "show", "allprofiles", "state"],
-        )
-        .to_lowercase()
-        .contains("on"),
+        "windows" => run_cmd("netsh", &["advfirewall", "show", "allprofiles", "state"])
+            .to_lowercase()
+            .contains("on"),
         _ => false,
     }
 }
@@ -120,8 +119,8 @@ fn check_screen_lock(os_type: &str) -> bool {
             {
                 return true;
             }
-            let kde_cfg_path = std::env::var("HOME").unwrap_or_default()
-                + "/.config/kscreenlockerrc";
+            let kde_cfg_path =
+                std::env::var("HOME").unwrap_or_default() + "/.config/kscreenlockerrc";
             if std::fs::read_to_string(&kde_cfg_path)
                 .unwrap_or_default()
                 .lines()

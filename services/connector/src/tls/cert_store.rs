@@ -9,21 +9,42 @@ pub struct CertStore {
 
 struct Inner {
     cert_der: Vec<u8>,
+    cert_chain_der: Vec<Vec<u8>>,
     key_der: Vec<u8>,
     not_after: SystemTime,
     total_ttl: Duration,
 }
 
 impl CertStore {
-    pub fn new(cert_der: Vec<u8>, key_der: Vec<u8>, not_after: SystemTime, total_ttl: Duration) -> Self {
+    pub fn new(
+        cert_der: Vec<u8>,
+        cert_chain_der: Vec<Vec<u8>>,
+        key_der: Vec<u8>,
+        not_after: SystemTime,
+        total_ttl: Duration,
+    ) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(Inner { cert_der, key_der, not_after, total_ttl })),
+            inner: Arc::new(RwLock::new(Inner {
+                cert_der,
+                cert_chain_der,
+                key_der,
+                not_after,
+                total_ttl,
+            })),
         }
     }
 
-    pub fn update(&self, cert_der: Vec<u8>, key_der: Vec<u8>, not_after: SystemTime, total_ttl: Duration) {
+    pub fn update(
+        &self,
+        cert_der: Vec<u8>,
+        cert_chain_der: Vec<Vec<u8>>,
+        key_der: Vec<u8>,
+        not_after: SystemTime,
+        total_ttl: Duration,
+    ) {
         let mut w = self.inner.write().unwrap();
         w.cert_der = cert_der;
+        w.cert_chain_der = cert_chain_der;
         w.key_der = key_der;
         w.not_after = not_after;
         w.total_ttl = total_ttl;
@@ -37,9 +58,13 @@ impl CertStore {
         self.inner.read().unwrap().total_ttl
     }
 
-    /// Returns a snapshot of (cert_der, key_der) for building a TLS identity.
-    pub fn snapshot(&self) -> (Vec<u8>, Vec<u8>) {
+    /// Returns a snapshot of (leaf cert, full chain, private key) for TLS identity use.
+    pub fn snapshot(&self) -> (Vec<u8>, Vec<Vec<u8>>, Vec<u8>) {
         let r = self.inner.read().unwrap();
-        (r.cert_der.clone(), r.key_der.clone())
+        (
+            r.cert_der.clone(),
+            r.cert_chain_der.clone(),
+            r.key_der.clone(),
+        )
     }
 }

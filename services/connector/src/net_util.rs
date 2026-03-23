@@ -20,7 +20,8 @@ fn discover_private_ip(controller_addr: &str) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("failed to bind UDP socket: {}", e))?;
     sock.connect(&target)
         .map_err(|e| anyhow::anyhow!("failed to determine private IP: {}", e))?;
-    let local = sock.local_addr()
+    let local = sock
+        .local_addr()
         .map_err(|e| anyhow::anyhow!("failed to determine private IP: {}", e))?;
     Ok(local.ip().to_string())
 }
@@ -31,7 +32,9 @@ fn controller_host(controller_addr: &str) -> Result<String> {
     }
     // Split host:port
     match controller_addr.rsplit_once(':') {
-        Some((host, _port)) if !host.is_empty() => Ok(host.trim_matches('[').trim_matches(']').to_string()),
+        Some((host, _port)) if !host.is_empty() => {
+            Ok(host.trim_matches('[').trim_matches(']').to_string())
+        }
         _ => bail!("CONTROLLER_ADDR must be host:port"),
     }
 }

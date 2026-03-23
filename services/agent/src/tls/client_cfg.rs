@@ -98,7 +98,7 @@ pub async fn build_tonic_channel_with_role(
     ca_pem: &[u8],
     expected_role: &str,
 ) -> Result<Channel> {
-    let (cert_der, key_der) = store.snapshot();
+    let (_cert_der, cert_chain_der, key_der) = store.snapshot();
     let ca_der = pem_to_der(ca_pem)?;
 
     let verifier = Arc::new(SpiffeVerifier {
@@ -111,7 +111,10 @@ pub async fn build_tonic_channel_with_role(
         .dangerous()
         .with_custom_certificate_verifier(verifier)
         .with_client_auth_cert(
-            vec![CertificateDer::from(cert_der)],
+            cert_chain_der
+                .into_iter()
+                .map(CertificateDer::from)
+                .collect(),
             rustls::pki_types::PrivateKeyDer::try_from(key_der)
                 .map_err(|e| anyhow::anyhow!("invalid private key: {}", e))?,
         )?;

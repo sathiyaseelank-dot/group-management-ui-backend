@@ -13,6 +13,7 @@ pub mod pb {
 #[allow(dead_code)]
 pub struct EnrollResult {
     pub cert_der: Vec<u8>,
+    pub cert_chain_der: Vec<Vec<u8>>,
     pub cert_pem: Vec<u8>,
     pub ca_pem: Vec<u8>,
     pub key_der: Zeroizing<Vec<u8>>,
@@ -67,10 +68,12 @@ pub async fn enroll(cfg: &EnrollConfig) -> Result<EnrollResult> {
     }
 
     let cert_der = pem_cert_to_der(&resp.certificate)?;
+    let cert_chain_der = cert_chain_to_der(&resp.certificate, &resp.ca_certificate)?;
     let spiffe_id = extract_spiffe_id(&cert_der)?;
 
     Ok(EnrollResult {
         cert_der,
+        cert_chain_der,
         cert_pem: resp.certificate,
         ca_pem: resp.ca_certificate,
         key_der,
@@ -119,10 +122,12 @@ pub async fn renew(
     }
 
     let cert_der = pem_cert_to_der(&resp.certificate)?;
+    let cert_chain_der = cert_chain_to_der(&resp.certificate, &resp.ca_certificate)?;
     let spiffe_id = extract_spiffe_id(&cert_der)?;
 
     Ok(EnrollResult {
         cert_der,
+        cert_chain_der,
         cert_pem: resp.certificate,
         ca_pem: resp.ca_certificate,
         key_der,
@@ -278,6 +283,17 @@ pub fn pem_cert_to_der(pem_bytes: &[u8]) -> Result<Vec<u8>> {
         }
     }
     bail!("invalid certificate PEM from controller")
+}
+
+pub fn cert_chain_to_der(cert_pem: &[u8], ca_pem: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let mut chain = vec![pem_cert_to_der(cert_pem)?];
+    let pem_str = std::str::from_utf8(ca_pem)?;
+    for p in pem::parse_many(pem_str)? {
+        if p.tag() == "CERTIFICATE" {
+            chain.push(p.into_contents());
+        }
+    }
+    Ok(chain)
 }
 
 fn ca_pem_equal(a: &[u8], b: &[u8]) -> bool {

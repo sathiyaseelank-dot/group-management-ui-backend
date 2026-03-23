@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket};
 use tokio::net::tcp::OwnedWriteHalf;
+use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
 use crate::enroll::pb::ControlMessage;

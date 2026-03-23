@@ -31,7 +31,10 @@ pub fn extract_spiffe_id(cert_der: &[u8]) -> Result<String> {
     }
 
     if spiffe_uris.len() != 1 {
-        bail!("certificate must contain exactly one SPIFFE URI SAN, found {}", spiffe_uris.len());
+        bail!(
+            "certificate must contain exactly one SPIFFE URI SAN, found {}",
+            spiffe_uris.len()
+        );
     }
 
     Ok(spiffe_uris.into_iter().next().unwrap())
@@ -41,22 +44,33 @@ pub fn extract_spiffe_id(cert_der: &[u8]) -> Result<String> {
 /// Expected role: "controller", "agent", "connector".
 pub fn verify_spiffe_uri(uri: &str, trust_domain: &str, expected_role: &str) -> Result<String> {
     // uri format: spiffe://<trust_domain>/<role>/<id>
-    let rest = uri.strip_prefix("spiffe://")
+    let rest = uri
+        .strip_prefix("spiffe://")
         .ok_or_else(|| anyhow::anyhow!("SPIFFE ID must use spiffe:// scheme"))?;
 
-    let slash = rest.find('/').ok_or_else(|| anyhow::anyhow!("invalid SPIFFE ID format"))?;
+    let slash = rest
+        .find('/')
+        .ok_or_else(|| anyhow::anyhow!("invalid SPIFFE ID format"))?;
     let host = &rest[..slash];
     let path = &rest[slash + 1..];
 
     if host != trust_domain {
-        bail!("SPIFFE trust domain mismatch: got '{}', want '{}'", host, trust_domain);
+        bail!(
+            "SPIFFE trust domain mismatch: got '{}', want '{}'",
+            host,
+            trust_domain
+        );
     }
 
     let parts: Vec<&str> = path.splitn(2, '/').collect();
     let role = parts[0];
 
     if !expected_role.is_empty() && role != expected_role {
-        bail!("unexpected SPIFFE role: got '{}', want '{}'", role, expected_role);
+        bail!(
+            "unexpected SPIFFE role: got '{}', want '{}'",
+            role,
+            expected_role
+        );
     }
 
     Ok(uri.to_string())

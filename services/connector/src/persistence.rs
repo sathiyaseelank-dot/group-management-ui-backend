@@ -38,10 +38,10 @@ pub fn load_saved_enrollment() -> Result<Option<EnrollResult>> {
 
     let cert_pem = std::fs::read(&cert_path)
         .map_err(|e| anyhow::anyhow!("failed to read saved cert: {}", e))?;
-    let key_der = std::fs::read(&key_path)
-        .map_err(|e| anyhow::anyhow!("failed to read saved key: {}", e))?;
-    let ca_pem = std::fs::read(&ca_path)
-        .map_err(|e| anyhow::anyhow!("failed to read saved CA: {}", e))?;
+    let key_der =
+        std::fs::read(&key_path).map_err(|e| anyhow::anyhow!("failed to read saved key: {}", e))?;
+    let ca_pem =
+        std::fs::read(&ca_path).map_err(|e| anyhow::anyhow!("failed to read saved CA: {}", e))?;
 
     let cert_der = crate::enroll::pem_cert_to_der(&cert_pem)?;
 
@@ -54,10 +54,12 @@ pub fn load_saved_enrollment() -> Result<Option<EnrollResult>> {
     }
 
     let spiffe_id = crate::tls::spiffe::extract_spiffe_id(&cert_der)?;
+    let cert_chain_der = crate::enroll::cert_chain_to_der(&cert_pem, &ca_pem)?;
 
     info!("loaded saved certificate for {}", spiffe_id);
     Ok(Some(EnrollResult {
         cert_der,
+        cert_chain_der,
         cert_pem,
         ca_pem,
         key_der: Zeroizing::new(key_der),

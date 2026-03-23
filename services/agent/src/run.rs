@@ -48,6 +48,7 @@ pub async fn run() -> Result<()> {
 
     let store = CertStore::new(
         result.cert_der.clone(),
+        result.cert_chain_der.clone(),
         result.key_der.to_vec(),
         not_after,
         total_ttl,

@@ -46,7 +46,10 @@ impl TlsConnStream {
             .unwrap_or_default();
         Self {
             inner: tls,
-            peer_info: PeerCertInfo { peer_certs, peer_ip },
+            peer_info: PeerCertInfo {
+                peer_certs,
+                peer_ip,
+            },
         }
     }
 }
@@ -59,13 +62,21 @@ impl Connected for TlsConnStream {
 }
 
 impl AsyncRead for TlsConnStream {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_read(cx, buf)
     }
 }
 
 impl AsyncWrite for TlsConnStream {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
         Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
@@ -167,7 +178,9 @@ async fn run_server(
                     let tx = conn_tx.clone();
                     tokio::spawn(async move {
                         match acceptor.accept(tcp).await {
-                            Ok(tls) => { let _ = tx.send(Ok(TlsConnStream::new(tls))).await; }
+                            Ok(tls) => {
+                                let _ = tx.send(Ok(TlsConnStream::new(tls))).await;
+                            }
                             Err(e) => {
                                 tracing::debug!("TLS accept failed: {}", e);
                             }

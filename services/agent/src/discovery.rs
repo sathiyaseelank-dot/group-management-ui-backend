@@ -8,11 +8,7 @@ use crate::enroll::pb::ControlMessage;
 use crate::firewall::FirewallEnforcer;
 
 /// Ports to ignore (system noise).
-const IGNORED_PORTS: &[(u16, &str)] = &[
-    (5355, "LLMNR"),
-    (631, "IPP"),
-    (5353, "mDNS"),
-];
+const IGNORED_PORTS: &[(u16, &str)] = &[(5355, "LLMNR"), (631, "IPP"), (5353, "mDNS")];
 
 /// Start of ephemeral port range.
 const EPHEMERAL_PORT_START: u16 = 32768;
@@ -246,7 +242,10 @@ mod platform {
             });
         }
 
-        info!("discovery: externally-listening services = {}", exposed.len());
+        info!(
+            "discovery: externally-listening services = {}",
+            exposed.len()
+        );
         Ok(exposed)
     }
 }
@@ -282,7 +281,10 @@ mod platform {
                 process_name: None,
             });
         }
-        info!("discovery: externally-listening services = {}", exposed.len());
+        info!(
+            "discovery: externally-listening services = {}",
+            exposed.len()
+        );
         Ok(exposed)
     }
 }
@@ -539,7 +541,10 @@ pub async fn run_discovery_scan(
 
     let (filtered, current_ports) = scan_services(enforcer).await?;
 
-    info!("discovery: protected ports filtered, remaining={}", filtered.len());
+    info!(
+        "discovery: protected ports filtered, remaining={}",
+        filtered.len()
+    );
     info!("discovery: already-sent ports = {:?}", sent_services);
 
     // ── Gone detection ──
@@ -555,7 +560,9 @@ pub async fn run_discovery_scan(
         info!(
             "discovery: {} service(s) gone: {:?}",
             gone.len(),
-            gone.iter().map(|(p, proto)| format!("{}:{}", proto, p)).collect::<Vec<_>>()
+            gone.iter()
+                .map(|(p, proto)| format!("{}:{}", proto, p))
+                .collect::<Vec<_>>()
         );
 
         #[derive(serde::Serialize)]

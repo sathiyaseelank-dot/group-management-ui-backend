@@ -71,19 +71,31 @@ impl FirewallEnforcer {
 
         // Create input chain with filter hook
         run_nft_cmd_allow_exists(&[
-            "add", "chain", "inet", &self.table_name, &self.chain_name,
-            "{", "type", "filter", "hook", "input", "priority", "0", ";",
-            "policy", "accept", ";", "}",
+            "add",
+            "chain",
+            "inet",
+            &self.table_name,
+            &self.chain_name,
+            "{",
+            "type",
+            "filter",
+            "hook",
+            "input",
+            "priority",
+            "0",
+            ";",
+            "policy",
+            "accept",
+            ";",
+            "}",
         ])
         .await
         .context("failed to create nftables chain")?;
 
         // Flush stale rules from a previous run so we never duplicate.
-        run_nft_cmd(&[
-            "flush", "chain", "inet", &self.table_name, &self.chain_name,
-        ])
-        .await
-        .context("failed to flush nftables chain")?;
+        run_nft_cmd(&["flush", "chain", "inet", &self.table_name, &self.chain_name])
+            .await
+            .context("failed to flush nftables chain")?;
 
         info!(
             "nftables initialized: table={} chain={}",
@@ -96,8 +108,7 @@ impl FirewallEnforcer {
     pub async fn sync_policy(&self, desired: &[PortRule]) -> Result<()> {
         let mut protected = self.protected.lock().await;
 
-        let desired_ports: HashMap<u16, &PortRule> =
-            desired.iter().map(|r| (r.port, r)).collect();
+        let desired_ports: HashMap<u16, &PortRule> = desired.iter().map(|r| (r.port, r)).collect();
 
         // Remove ports no longer desired
         let stale: Vec<u16> = protected
@@ -133,7 +144,10 @@ impl FirewallEnforcer {
                     info!("protected port {}/{}", rule.port, rule.protocol);
                 }
                 Err(e) => {
-                    warn!("failed to protect port {}/{}: {}", rule.port, rule.protocol, e);
+                    warn!(
+                        "failed to protect port {}/{}: {}",
+                        rule.port, rule.protocol, e
+                    );
                 }
             }
         }
@@ -152,9 +166,7 @@ impl FirewallEnforcer {
 
         // Rule 1: accept from lo
         let h1 = self
-            .add_rule(&[
-                "iifname", "lo", proto, "dport", &port_str, "accept",
-            ])
+            .add_rule(&["iifname", "lo", proto, "dport", &port_str, "accept"])
             .await
             .context("lo accept rule")?;
         handles.push(h1);
@@ -162,7 +174,12 @@ impl FirewallEnforcer {
         // Rule 2: accept from TUN
         let h2 = match self
             .add_rule(&[
-                "iifname", &self.tun_name, proto, "dport", &port_str, "accept",
+                "iifname",
+                &self.tun_name,
+                proto,
+                "dport",
+                &port_str,
+                "accept",
             ])
             .await
         {
@@ -175,10 +192,7 @@ impl FirewallEnforcer {
         handles.push(h2);
 
         // Rule 3: drop all other traffic to this port
-        let h3 = match self
-            .add_rule(&[proto, "dport", &port_str, "drop"])
-            .await
-        {
+        let h3 = match self.add_rule(&[proto, "dport", &port_str, "drop"]).await {
             Ok(h) => h,
             Err(e) => {
                 let _ = self.delete_rules(&handles).await;
@@ -193,7 +207,12 @@ impl FirewallEnforcer {
     /// Add a single rule and return its handle.
     async fn add_rule(&self, rule_args: &[&str]) -> Result<u64> {
         let mut args: Vec<&str> = vec![
-            "-ae", "add", "rule", "inet", &self.table_name, &self.chain_name,
+            "-ae",
+            "add",
+            "rule",
+            "inet",
+            &self.table_name,
+            &self.chain_name,
         ];
         args.extend_from_slice(rule_args);
         let output = run_nft_cmd_output(&args).await?;
@@ -208,8 +227,13 @@ impl FirewallEnforcer {
         for handle in handles {
             let handle_str = handle.to_string();
             if let Err(e) = run_nft_cmd(&[
-                "delete", "rule", "inet", &self.table_name, &self.chain_name,
-                "handle", &handle_str,
+                "delete",
+                "rule",
+                "inet",
+                &self.table_name,
+                &self.chain_name,
+                "handle",
+                &handle_str,
             ])
             .await
             {
@@ -270,8 +294,8 @@ pub async fn handle_firewall_policy(
     payload: &[u8],
     enforcer: &FirewallEnforcer,
 ) -> Result<FirewallPolicySummary> {
-    let policy: FirewallPolicy = serde_json::from_slice(payload)
-        .context("failed to parse firewall_policy message")?;
+    let policy: FirewallPolicy =
+        serde_json::from_slice(payload).context("failed to parse firewall_policy message")?;
     let protected_ports = format_port_rules(&policy.protected_ports);
     let summary = FirewallPolicySummary {
         action: policy.action.clone(),
@@ -393,7 +417,9 @@ mod tests {
             Some(7)
         );
         assert_eq!(
-            parse_handle("add rule inet ztna input_filter iifname \"lo\" tcp dport 22 accept # handle 5"),
+            parse_handle(
+                "add rule inet ztna input_filter iifname \"lo\" tcp dport 22 accept # handle 5"
+            ),
             Some(5)
         );
     }

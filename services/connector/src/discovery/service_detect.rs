@@ -102,7 +102,10 @@ mod tests {
 
     #[test]
     fn test_identify_smtp_banner() {
-        assert_eq!(identify_from_banner(b"220 mail.example.com ESMTP", 25), "SMTP");
+        assert_eq!(
+            identify_from_banner(b"220 mail.example.com ESMTP", 25),
+            "SMTP"
+        );
     }
 
     #[test]

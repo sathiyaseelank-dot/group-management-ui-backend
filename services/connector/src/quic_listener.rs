@@ -61,11 +61,10 @@ pub async fn listen(
                                         let hub = hub.clone();
                                         tokio::spawn(async move {
                                             let stream = QuicBiStream { send, recv };
-                                            if let Err(e) =
-                                                device_tunnel::handle_stream(
-                                                    stream, &ctrl, acl, hub,
-                                                )
-                                                .await
+                                            if let Err(e) = device_tunnel::handle_stream(
+                                                stream, &ctrl, acl, hub,
+                                            )
+                                            .await
                                             {
                                                 warn!(
                                                     "QUIC device tunnel error from {}: {}",

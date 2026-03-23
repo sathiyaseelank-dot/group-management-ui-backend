@@ -155,8 +155,8 @@ pub fn run_config_from_env() -> Result<RunConfig> {
     };
     let controller_http_url = env::var("CONTROLLER_HTTP_URL").unwrap_or_default();
     let controller_http_url = controller_http_url.trim().to_string();
-    let device_tunnel_addr = env::var("DEVICE_TUNNEL_ADDR")
-        .unwrap_or_else(|_| format!("{}:9444", private_ip));
+    let device_tunnel_addr =
+        env::var("DEVICE_TUNNEL_ADDR").unwrap_or_else(|_| format!("{}:9444", private_ip));
     let device_tunnel_addr = device_tunnel_addr.trim().to_string();
 
     let ca_pem = load_controller_ca()?;
