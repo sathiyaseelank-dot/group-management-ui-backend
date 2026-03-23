@@ -40,6 +40,10 @@ impl AgentAllowlist {
         }
         self.inner.write().unwrap().insert(spiffe_id.to_string());
     }
+
+    pub fn len(&self) -> usize {
+        self.inner.read().unwrap().len()
+    }
 }
 
 impl Default for AgentAllowlist {

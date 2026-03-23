@@ -19,6 +19,8 @@ for var in "${required_envs[@]}"; do
 done
 
 WORKSPACE_SLUG="${WORKSPACE_SLUG:-}"
+CONTROLLER_TRUST_DOMAIN="${CONTROLLER_TRUST_DOMAIN:-}"
+CONNECTOR_TRUST_DOMAIN="${CONNECTOR_TRUST_DOMAIN:-}"
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
@@ -103,6 +105,12 @@ chmod 0644 "${bundled_ca}"
   echo "ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}"
   if [[ -n "${WORKSPACE_SLUG}" ]]; then
     echo "WORKSPACE_SLUG=${WORKSPACE_SLUG}"
+  fi
+  if [[ -n "${CONTROLLER_TRUST_DOMAIN}" ]]; then
+    echo "CONTROLLER_TRUST_DOMAIN=${CONTROLLER_TRUST_DOMAIN}"
+  fi
+  if [[ -n "${CONNECTOR_TRUST_DOMAIN}" ]]; then
+    echo "CONNECTOR_TRUST_DOMAIN=${CONNECTOR_TRUST_DOMAIN}"
   fi
   if [[ -n "${TRUST_DOMAIN:-}" ]]; then
     echo "TRUST_DOMAIN=${TRUST_DOMAIN}"

@@ -228,7 +228,7 @@ async fn build_enroll_channel(cfg: &EnrollConfig) -> Result<tonic::transport::Ch
 
     let verifier = Arc::new(EnrollVerifier {
         ca_der,
-        trust_domain: cfg.trust_domain.clone(),
+        trust_domain: cfg.controller_trust_domain.clone(),
     });
 
     let mut client_config = rustls::ClientConfig::builder()

@@ -43,6 +43,12 @@ impl ControlPlane for ConnectorControlPlane {
             .map_err(|e| Status::permission_denied(format!("SPIFFE verify: {}", e)))?;
 
         if !self.allowlist.allowed(&spiffe_id) {
+            warn!(
+                "agent rejected by allowlist: spiffe_id={} trust_domain={} allowlist_size={}",
+                spiffe_id,
+                self.trust_domain,
+                self.allowlist.len()
+            );
             return Err(Status::permission_denied("agent not in allowlist"));
         }
 

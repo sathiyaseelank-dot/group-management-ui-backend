@@ -6,7 +6,8 @@ use std::time::Duration;
 pub struct EnrollConfig {
     pub controller_addr: String,
     pub connector_id: String,
-    pub trust_domain: String,
+    /// Trust domain for verifying the controller's SPIFFE cert.
+    pub controller_trust_domain: String,
     pub token: String,
     pub private_ip: String,
     pub version: String,
@@ -17,7 +18,10 @@ pub struct EnrollConfig {
 pub struct RunConfig {
     pub controller_addr: String,
     pub connector_id: String,
-    pub trust_domain: String,
+    /// Trust domain for verifying the controller's SPIFFE cert.
+    pub controller_trust_domain: String,
+    /// Trust domain for verifying agent SPIFFE certs on the connector listener.
+    pub agent_trust_domain: String,
     pub listen_addr: String,
     pub private_ip: String,
     pub policy_key: Vec<u8>,
@@ -70,14 +74,47 @@ pub fn load_controller_ca() -> Result<Vec<u8>> {
     Ok(pem)
 }
 
+/// Returns `(controller_trust_domain, agent_trust_domain)`.
+///
+/// - `agent_trust_domain`: `AGENT_TRUST_DOMAIN`, falling back to `TRUST_DOMAIN`,
+///   defaulting to `"mycorp.internal"`.
+/// - `controller_trust_domain`: `CONTROLLER_TRUST_DOMAIN`, falling back to
+///   `TRUST_DOMAIN`, defaulting to `"mycorp.internal"`.
+fn load_trust_domains() -> (String, String) {
+    let fallback = {
+        let v = env::var("TRUST_DOMAIN").unwrap_or_default();
+        let v = v.trim().to_string();
+        if v.is_empty() {
+            "mycorp.internal".to_string()
+        } else {
+            normalize_trust_domain(&v)
+        }
+    };
+    let agent_trust_domain = {
+        let v = env::var("AGENT_TRUST_DOMAIN").unwrap_or_default();
+        let v = v.trim().to_string();
+        if v.is_empty() {
+            fallback.clone()
+        } else {
+            normalize_trust_domain(&v)
+        }
+    };
+    let controller_trust_domain = {
+        let v = env::var("CONTROLLER_TRUST_DOMAIN").unwrap_or_default();
+        let v = v.trim().to_string();
+        if v.is_empty() {
+            fallback
+        } else {
+            normalize_trust_domain(&v)
+        }
+    };
+    (controller_trust_domain, agent_trust_domain)
+}
+
 pub fn enroll_config_from_env() -> Result<EnrollConfig> {
     let controller_addr = env::var("CONTROLLER_ADDR").unwrap_or_default();
     let connector_id = env::var("CONNECTOR_ID").unwrap_or_default();
-    let mut trust_domain = env::var("TRUST_DOMAIN").unwrap_or_default();
-    if trust_domain.is_empty() {
-        trust_domain = "mycorp.internal".to_string();
-    }
-    let trust_domain = normalize_trust_domain(&trust_domain);
+    let (controller_trust_domain, _) = load_trust_domains();
 
     if controller_addr.trim().is_empty() {
         bail!("CONTROLLER_ADDR is not set");
@@ -101,7 +138,7 @@ pub fn enroll_config_from_env() -> Result<EnrollConfig> {
     Ok(EnrollConfig {
         controller_addr: controller_addr.trim().to_string(),
         connector_id: connector_id.trim().to_string(),
-        trust_domain,
+        controller_trust_domain,
         token: token.trim().to_string(),
         private_ip,
         version,
@@ -112,11 +149,7 @@ pub fn enroll_config_from_env() -> Result<EnrollConfig> {
 pub fn run_config_from_env() -> Result<RunConfig> {
     let controller_addr = env::var("CONTROLLER_ADDR").unwrap_or_default();
     let connector_id = env::var("CONNECTOR_ID").unwrap_or_default();
-    let mut trust_domain = env::var("TRUST_DOMAIN").unwrap_or_default();
-    if trust_domain.is_empty() {
-        trust_domain = "mycorp.internal".to_string();
-    }
-    let trust_domain = normalize_trust_domain(&trust_domain);
+    let (controller_trust_domain, agent_trust_domain) = load_trust_domains();
     let policy_key_str = env::var("POLICY_SIGNING_KEY").unwrap_or_default();
     let listen_addr_env = env::var("CONNECTOR_LISTEN_ADDR").unwrap_or_default();
 
@@ -164,7 +197,8 @@ pub fn run_config_from_env() -> Result<RunConfig> {
     Ok(RunConfig {
         controller_addr: controller_addr.trim().to_string(),
         connector_id: connector_id.trim().to_string(),
-        trust_domain,
+        controller_trust_domain,
+        agent_trust_domain,
         listen_addr,
         private_ip,
         policy_key: policy_key_str.trim().as_bytes().to_vec(),

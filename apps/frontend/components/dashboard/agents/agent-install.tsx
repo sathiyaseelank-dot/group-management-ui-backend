@@ -52,6 +52,10 @@ export function AgentInstall({
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
   const [connectorAddr, setConnectorAddr] = useState(`${detectedHost}:9443`);
+  const [controllerTrustDomain, setControllerTrustDomain] = useState('mycorp.internal');
+  const [connectorTrustDomain, setConnectorTrustDomain] = useState(
+    workspaceSlug ? `${workspaceSlug}.zerotrust.com` : 'mycorp.internal',
+  );
   const [agentId, setAgentId] = useState(initialAgentId || 'agent-local-01');
 
   const [connectors, setConnectors] = useState<Connector[]>([]);
@@ -96,6 +100,11 @@ export function AgentInstall({
     if (!initialAgentId) return;
     setAgentId(initialAgentId);
   }, [initialAgentId]);
+
+  useEffect(() => {
+    if (!workspaceSlug) return;
+    setConnectorTrustDomain(`${workspaceSlug}.zerotrust.com`);
+  }, [workspaceSlug]);
 
   const handleConnectorSelect = (id: string) => {
     setSelectedConnectorId(id);
@@ -144,10 +153,21 @@ export function AgentInstall({
       `  CONNECTOR_ADDR="${connectorAddr || 'CONNECTOR_ADDR_HERE'}" \\\n` +
       `  AGENT_ID="${agentId || 'agent-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${safeToken}" \\\n` +
+      `  CONTROLLER_TRUST_DOMAIN="${controllerTrustDomain || 'mycorp.internal'}" \\\n` +
+      `  CONNECTOR_TRUST_DOMAIN="${connectorTrustDomain || 'mycorp.internal'}" \\\n` +
       (workspaceSlug ? `  WORKSPACE_SLUG="${workspaceSlug}" \\\n` : '') +
       `  bash`
     );
-  }, [connectorAddr, controllerAddr, controllerHttpAddr, token, agentId, workspaceSlug]);
+  }, [
+    connectorAddr,
+    controllerAddr,
+    controllerHttpAddr,
+    controllerTrustDomain,
+    connectorTrustDomain,
+    token,
+    agentId,
+    workspaceSlug,
+  ]);
 
   const handleCopyCommand = () => {
     if (navigator.clipboard?.writeText) {
@@ -288,6 +308,24 @@ export function AgentInstall({
                 onChange={(e) => setAgentId(e.target.value)}
                 placeholder="agent-local-01"
                 disabled={!!initialAgentId}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="controllerTrustDomain">Controller Trust Domain</Label>
+              <Input
+                id="controllerTrustDomain"
+                value={controllerTrustDomain}
+                onChange={(e) => setControllerTrustDomain(e.target.value)}
+                placeholder="mycorp.internal"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="connectorTrustDomain">Connector Trust Domain</Label>
+              <Input
+                id="connectorTrustDomain"
+                value={connectorTrustDomain}
+                onChange={(e) => setConnectorTrustDomain(e.target.value)}
+                placeholder="workspace.zerotrust.com"
               />
             </div>
             <div className="space-y-2">

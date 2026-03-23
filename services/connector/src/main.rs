@@ -172,7 +172,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
             let enroll_cfg = config::EnrollConfig {
                 controller_addr: cfg.controller_addr.clone(),
                 connector_id: cfg.connector_id.clone(),
-                trust_domain: cfg.trust_domain.clone(),
+                controller_trust_domain: cfg.controller_trust_domain.clone(),
                 token: cfg.enrollment_token.clone(),
                 private_ip: cfg.private_ip.clone(),
                 version: buildinfo::version().to_string(),
@@ -257,7 +257,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     // Start agent-facing gRPC server
     tokio::spawn(server::server_loop(
         cfg.listen_addr.clone(),
-        cfg.trust_domain.clone(),
+        cfg.agent_trust_domain.clone(),
         store.clone(),
         result.ca_pem.clone(),
         allowlist.clone(),
@@ -274,7 +274,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     tokio::spawn(renewal::renewal_loop(
         cfg.controller_addr.clone(),
         enrolled_connector_id.clone(),
-        cfg.trust_domain.clone(),
+        cfg.controller_trust_domain.clone(),
         store.clone(),
         cfg.ca_pem.clone(),
         result.ca_pem.clone(),
@@ -283,7 +283,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     // Run control plane loop (blocks until context cancelled)
     control_plane_loop(
         cfg.controller_addr.clone(),
-        cfg.trust_domain.clone(),
+        cfg.controller_trust_domain.clone(),
         enrolled_connector_id.clone(),
         cfg.private_ip.clone(),
         store.clone(),
@@ -305,7 +305,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 async fn control_plane_loop(
     controller_addr: String,
-    trust_domain: String,
+    controller_trust_domain: String,
     connector_id: String,
     private_ip: String,
     store: CertStore,
@@ -322,7 +322,7 @@ async fn control_plane_loop(
     loop {
         match connect_control_plane(
             &controller_addr,
-            &trust_domain,
+            &controller_trust_domain,
             &connector_id,
             &private_ip,
             &store,
@@ -351,7 +351,7 @@ async fn control_plane_loop(
 #[allow(clippy::too_many_arguments)]
 async fn connect_control_plane(
     controller_addr: &str,
-    trust_domain: &str,
+    controller_trust_domain: &str,
     connector_id: &str,
     private_ip: &str,
     store: &CertStore,
@@ -373,7 +373,7 @@ async fn connect_control_plane(
     };
     let channel = tls::client_cfg::build_tonic_channel_with_policy_key(
         controller_addr,
-        trust_domain,
+        controller_trust_domain,
         store,
         ca_pem,
         connector_id,
@@ -462,12 +462,18 @@ async fn handle_control_message(
     match msg.r#type.as_str() {
         "agent_allowlist" => {
             if let Ok(items) = serde_json::from_slice::<Vec<AgentInfo>>(&msg.payload) {
+                let count = items.len();
                 allowlist.replace(items);
+                info!("agent allowlist replaced: entries={}", count);
             }
         }
         "agent_allow" => {
             if let Ok(item) = serde_json::from_slice::<AgentInfo>(&msg.payload) {
                 allowlist.add(&item.spiffe_id);
+                info!(
+                    "agent allowlist add: agent_id={} spiffe_id={}",
+                    item.agent_id, item.spiffe_id
+                );
             }
         }
         "policy_snapshot" => {
