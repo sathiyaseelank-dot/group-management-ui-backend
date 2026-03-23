@@ -1,22 +1,22 @@
-mod allowlist;
 mod agent_tunnel;
+mod allowlist;
 mod buildinfo;
 mod config;
 mod control_plane;
 mod device_tunnel;
-mod quic_listener;
 mod discovery;
 mod enroll;
 mod net_util;
 mod persistence;
 mod policy;
+mod quic_listener;
 mod renewal;
 mod server;
 mod tls;
 mod watchdog;
 
-use allowlist::{AgentAllowlist, AgentInfo};
 use agent_tunnel::AgentTunnelHub;
+use allowlist::{AgentAllowlist, AgentInfo};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use enroll::pb::ControlMessage;
@@ -129,8 +129,7 @@ async fn main() {
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -225,15 +224,14 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         let tunnel_acl = acl.clone();
         let tunnel_hub = agent_tunnel_hub.clone();
         tokio::spawn(async move {
-            if let Err(e) =
-                device_tunnel::listen(
-                    &device_tunnel_addr,
-                    controller_http_url,
-                    tunnel_store,
-                    tunnel_acl,
-                    tunnel_hub,
-                )
-                .await
+            if let Err(e) = device_tunnel::listen(
+                &device_tunnel_addr,
+                controller_http_url,
+                tunnel_store,
+                tunnel_acl,
+                tunnel_hub,
+            )
+            .await
             {
                 warn!("device tunnel stopped: {}", e);
             }
@@ -277,6 +275,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         enrolled_connector_id.clone(),
         cfg.trust_domain.clone(),
         store.clone(),
+        cfg.ca_pem.clone(),
         result.ca_pem.clone(),
     ));
 
@@ -287,7 +286,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         enrolled_connector_id.clone(),
         cfg.private_ip.clone(),
         store.clone(),
-        result.ca_pem.clone(),
+        cfg.ca_pem.clone(),
         allowlist.clone(),
         acl.clone(),
         send_ch,
@@ -381,8 +380,7 @@ async fn connect_control_plane(
     )
     .await?;
 
-    let mut client =
-        enroll::pb::control_plane_client::ControlPlaneClient::new(channel);
+    let mut client = enroll::pb::control_plane_client::ControlPlaneClient::new(channel);
 
     let (stream_tx, stream_rx) = mpsc::channel::<ControlMessage>(16);
     let in_stream = tokio_stream::wrappers::ReceiverStream::new(stream_rx);
@@ -478,8 +476,7 @@ async fn handle_control_message(
                 if acl.replace_snapshot(snap.clone()) {
                     info!(
                         "policy snapshot applied: version={} resources={}",
-                        version,
-                        resource_count
+                        version, resource_count
                     );
 
                     // Extract port rules from protected resources and broadcast to agents.
@@ -514,8 +511,7 @@ async fn handle_control_message(
                 } else {
                     warn!(
                         "policy snapshot rejected: version={} resources={}",
-                        version,
-                        resource_count
+                        version, resource_count
                     );
                 }
             }
@@ -546,7 +542,10 @@ fn format_port_rules(rules: &[serde_json::Value]) -> String {
     let ports: Vec<String> = rules
         .iter()
         .map(|rule| {
-            let port = rule.get("port").and_then(|v| v.as_u64()).unwrap_or_default();
+            let port = rule
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or_default();
             let protocol = rule
                 .get("protocol")
                 .and_then(|v| v.as_str())

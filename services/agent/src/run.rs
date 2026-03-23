@@ -9,8 +9,8 @@ use crate::config;
 use crate::enroll;
 use crate::enroll::pb::ControlMessage;
 use crate::firewall::FirewallEnforcer;
-use crate::tunnel::{AgentTunnelManager, TunnelClose, TunnelData, TunnelOpen};
 use crate::tls::cert_store::CertStore;
+use crate::tunnel::{AgentTunnelManager, TunnelClose, TunnelData, TunnelOpen};
 
 pub async fn run() -> Result<()> {
     let cfg = config::run_config_from_env()?;
@@ -56,7 +56,10 @@ pub async fn run() -> Result<()> {
     // Initialize firewall enforcer
     let enforcer = Arc::new(FirewallEnforcer::new(&cfg.tun_name));
     if let Err(e) = enforcer.initialize().await {
-        warn!("firewall enforcer initialization failed (nftables may not be available): {}", e);
+        warn!(
+            "firewall enforcer initialization failed (nftables may not be available): {}",
+            e
+        );
     } else {
         // Restore persisted firewall state
         match crate::persistence::load_firewall_state() {
@@ -92,6 +95,7 @@ pub async fn run() -> Result<()> {
         cfg.agent_id.clone(),
         cfg.trust_domain.clone(),
         store.clone(),
+        cfg.ca_pem.clone(),
         result.ca_pem.clone(),
         reload.clone(),
     ));
@@ -164,8 +168,7 @@ async fn connect_to_connector(
     )
     .await?;
 
-    let mut client =
-        enroll::pb::control_plane_client::ControlPlaneClient::new(channel);
+    let mut client = enroll::pb::control_plane_client::ControlPlaneClient::new(channel);
 
     let (stream_tx, stream_rx) = tokio::sync::mpsc::channel::<ControlMessage>(16);
     let in_stream = tokio_stream::wrappers::ReceiverStream::new(stream_rx);
@@ -205,7 +208,10 @@ async fn connect_to_connector(
                 sent_services.insert((svc.port, svc.protocol.clone()));
             }
             last_fingerprint = state.fingerprint;
-            info!("discovery: loaded {} persisted services", sent_services.len());
+            info!(
+                "discovery: loaded {} persisted services",
+                sent_services.len()
+            );
         }
         Ok(None) => {}
         Err(e) => warn!("discovery: failed to load persisted state: {}", e),

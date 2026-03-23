@@ -1,8 +1,5 @@
 use anyhow::{bail, Result};
-use p256::{
-    pkcs8::EncodePublicKey,
-    SecretKey,
-};
+use p256::{pkcs8::EncodePublicKey, SecretKey};
 use pem::Pem;
 use tracing::info;
 use zeroize::Zeroizing;
@@ -70,7 +67,8 @@ pub async fn renew(
     connector_id: &str,
     trust_domain: &str,
     store: &crate::tls::cert_store::CertStore,
-    ca_pem: &[u8],
+    controller_ca_pem: &[u8],
+    workload_ca_pem: &[u8],
 ) -> Result<EnrollResult> {
     let (key_der, pub_pem) = generate_key_pair()?;
 
@@ -78,7 +76,7 @@ pub async fn renew(
         controller_addr,
         trust_domain,
         store,
-        ca_pem,
+        controller_ca_pem,
     )
     .await?;
 
@@ -99,7 +97,7 @@ pub async fn renew(
     if resp.ca_certificate.is_empty() {
         bail!("empty CA certificate in renewal response");
     }
-    if !ca_pem_equal(ca_pem, &resp.ca_certificate) {
+    if !ca_pem_equal(workload_ca_pem, &resp.ca_certificate) {
         bail!("internal CA mismatch during renewal");
     }
 
@@ -179,12 +177,7 @@ async fn build_enroll_channel(cfg: &EnrollConfig) -> Result<tonic::transport::Ch
             _ocsp: &[u8],
             _now: UnixTime,
         ) -> Result<ServerCertVerified, rustls::Error> {
-            crate::tls::client_cfg::verify_chain(
-                end_entity,
-                intermediates,
-                &self.ca_der,
-                true,
-            )?;
+            crate::tls::client_cfg::verify_chain(end_entity, intermediates, &self.ca_der, true)?;
 
             crate::tls::spiffe::extract_spiffe_id(end_entity.as_ref())
                 .and_then(|uri| {
@@ -195,14 +188,36 @@ async fn build_enroll_channel(cfg: &EnrollConfig) -> Result<tonic::transport::Ch
             Ok(ServerCertVerified::assertion())
         }
 
-        fn verify_tls12_signature(&self, msg: &[u8], cert: &CertificateDer<'_>, dss: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
-            rustls::crypto::verify_tls12_signature(msg, cert, dss, &rustls::crypto::ring::default_provider().signature_verification_algorithms)
+        fn verify_tls12_signature(
+            &self,
+            msg: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls12_signature(
+                msg,
+                cert,
+                dss,
+                &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            )
         }
-        fn verify_tls13_signature(&self, msg: &[u8], cert: &CertificateDer<'_>, dss: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
-            rustls::crypto::verify_tls13_signature(msg, cert, dss, &rustls::crypto::ring::default_provider().signature_verification_algorithms)
+        fn verify_tls13_signature(
+            &self,
+            msg: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls13_signature(
+                msg,
+                cert,
+                dss,
+                &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            )
         }
         fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-            rustls::crypto::ring::default_provider().signature_verification_algorithms.supported_schemes()
+            rustls::crypto::ring::default_provider()
+                .signature_verification_algorithms
+                .supported_schemes()
         }
     }
 
@@ -226,16 +241,16 @@ async fn build_enroll_channel(cfg: &EnrollConfig) -> Result<tonic::transport::Ch
         let addr = addr.clone();
         async move {
             let tcp = TcpStream::connect(&addr).await?;
-            let domain = ServerName::try_from("controller")
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{}", e)))?;
+            let domain = ServerName::try_from("controller").map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{}", e))
+            })?;
             let tls_stream = tls.connect(domain, tcp).await?;
             Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(tls_stream))
         }
     });
 
     let url = format!("http://{}", cfg.controller_addr);
-    let channel = Endpoint::from_shared(url)?
-        .connect_with_connector_lazy(connector);
+    let channel = Endpoint::from_shared(url)?.connect_with_connector_lazy(connector);
 
     Ok(channel)
 }

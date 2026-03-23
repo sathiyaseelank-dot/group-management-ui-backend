@@ -31,7 +31,11 @@ pub fn get_local_ip() -> String {
         .ok()
         .and_then(|addr| {
             let ip = addr.ip();
-            if ip.is_loopback() || ip.is_unspecified() { None } else { Some(ip.to_string()) }
+            if ip.is_loopback() || ip.is_unspecified() {
+                None
+            } else {
+                Some(ip.to_string())
+            }
         })
         .unwrap_or_default()
 }
@@ -80,13 +84,18 @@ pub async fn renew(
     agent_id: &str,
     trust_domain: &str,
     store: &crate::tls::cert_store::CertStore,
-    ca_pem: &[u8],
+    controller_ca_pem: &[u8],
+    workload_ca_pem: &[u8],
 ) -> Result<EnrollResult> {
     let (key_der, pub_pem) = generate_key_pair()?;
 
-    let channel =
-        crate::tls::client_cfg::build_tonic_channel(controller_addr, trust_domain, store, ca_pem)
-            .await?;
+    let channel = crate::tls::client_cfg::build_tonic_channel(
+        controller_addr,
+        trust_domain,
+        store,
+        controller_ca_pem,
+    )
+    .await?;
 
     let mut client = pb::enrollment_service_client::EnrollmentServiceClient::new(channel);
 
@@ -105,7 +114,7 @@ pub async fn renew(
     if resp.ca_certificate.is_empty() {
         bail!("empty CA certificate in renewal response");
     }
-    if !ca_pem_equal(ca_pem, &resp.ca_certificate) {
+    if !ca_pem_equal(workload_ca_pem, &resp.ca_certificate) {
         bail!("internal CA mismatch during renewal");
     }
 
