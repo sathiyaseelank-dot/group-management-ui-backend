@@ -65,7 +65,7 @@ export default function ConnectorDetailPage() {
   const [agentTrustDomain, setAgentTrustDomain] = useState(
     workspaceSlug ? `${workspaceSlug}.zerotrust.com` : 'mycorp.internal',
   );
-  const connectorInstallScript = 'https://raw.githubusercontent.com/vairabarath/zero-trust/feature/quic-device-tunnel-control-plane-merge/scripts/setup.sh';
+  const connectorInstallScript = 'https://raw.githubusercontent.com/vairabarath/zero-trust/alpha/scripts/setup.sh';
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
     return (

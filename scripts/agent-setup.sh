@@ -45,7 +45,7 @@ esac
 
 binary="agent-${os}-${arch}"
 release_url="https://github.com/vairabarath/zero-trust/releases/latest/download/${binary}"
-unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/main/systemd/agent.service"
+unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/alpha/systemd/agent.service"
 
 tmpdir="$(mktemp -d)"
 cleanup() {

@@ -43,7 +43,7 @@ esac
 
 binary="connector-${os}-${arch}"
 release_url="https://github.com/vairabarath/zero-trust/releases/latest/download/${binary}"
-unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/main/systemd/connector.service"
+unit_url="https://raw.githubusercontent.com/vairabarath/zero-trust/alpha/systemd/connector.service"
 
 tmpdir="$(mktemp -d)"
 cleanup() {

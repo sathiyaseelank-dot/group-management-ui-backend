@@ -124,7 +124,7 @@ export default function InstallPage() {
   const controllerUrl = buildControllerUrl()
   const controllerGrpcAddr = buildControllerGrpcAddr(controllerUrl)
   const installCommand =
-    'curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/feature/client-grpc-lan-auth/scripts/client-install-release.sh | sudo bash'
+    'curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/alpha/scripts/client-install-release.sh | sudo bash'
   const setupCommand = [
     'sudo tee /etc/ztna-client/client.conf >/dev/null <<\'CONF\'',
     `controller_url = "${controllerUrl}"`,
@@ -187,7 +187,7 @@ export default function InstallPage() {
 
             <CommandBlock
               title="1. Install the client"
-              description="This downloads the latest released ztna-client binary and installs the systemd service."
+              description="This downloads the installer script from the current alpha branch and installs the latest released ztna-client binary plus systemd service."
               command={installCommand}
             />
 

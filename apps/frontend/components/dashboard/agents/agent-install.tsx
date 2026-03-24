@@ -147,7 +147,7 @@ export function AgentInstall({
   const installCommand = useMemo(() => {
     const safeToken = token || 'fetching_enrollment_token';
     return (
-      `curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/feature/quic-device-tunnel-control-plane-merge/scripts/agent-setup.sh | sudo \\\n` +
+      `curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/alpha/scripts/agent-setup.sh | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +
       `  CONTROLLER_HTTP_ADDR="${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ADDR="${connectorAddr || 'CONNECTOR_ADDR_HERE'}" \\\n` +
