@@ -10,6 +10,38 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+service_group="zero-trust-agent"
+service_user="zero-trust-agent"
+
+resolve_nologin_shell() {
+  local candidate
+  for candidate in /usr/sbin/nologin /usr/bin/nologin /sbin/nologin /bin/false; do
+    if [[ -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  printf '%s\n' "/bin/false"
+}
+
+ensure_service_account() {
+  local shell_path
+  shell_path="$(resolve_nologin_shell)"
+
+  if ! getent group "${service_group}" >/dev/null 2>&1; then
+    groupadd --system "${service_group}"
+  fi
+
+  if ! id -u "${service_user}" >/dev/null 2>&1; then
+    useradd \
+      --system \
+      --no-create-home \
+      --gid "${service_group}" \
+      --shell "${shell_path}" \
+      "${service_user}"
+  fi
+}
+
 required_envs=(CONTROLLER_ADDR CONTROLLER_HTTP_ADDR CONNECTOR_ADDR AGENT_ID ENROLLMENT_TOKEN)
 for var in "${required_envs[@]}"; do
   if [[ -z "${!var:-}" ]]; then
@@ -135,6 +167,8 @@ else
 fi
 
 install -m 0644 "${tmpdir}/agent.service" "${systemd_dst}"
+
+ensure_service_account
 
 systemctl daemon-reload
 systemctl enable agent.service

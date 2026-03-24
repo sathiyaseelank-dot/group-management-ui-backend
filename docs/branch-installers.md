@@ -13,6 +13,7 @@ Important behavior:
 - The `curl` command downloads the installer script from `alpha`.
 - The connector and agent installer scripts also download their systemd unit files from `alpha`.
 - The installer binaries are still fetched from GitHub Releases using `releases/latest`.
+- The agent installer now creates the `zero-trust-agent` system user/group automatically before starting `agent.service`.
 
 That means:
 
