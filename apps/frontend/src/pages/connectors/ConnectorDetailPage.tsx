@@ -61,6 +61,10 @@ export default function ConnectorDetailPage() {
   const [controllerAddr, setControllerAddr] = useState(`${detectedHost}:8443`);
   const [controllerHttpAddr, setControllerHttpAddr] = useState(`${detectedHost}:8081`);
   const [deviceTunnelAddr, setDeviceTunnelAddr] = useState('0.0.0.0:9444');
+  const [controllerTrustDomain, setControllerTrustDomain] = useState('mycorp.internal');
+  const [agentTrustDomain, setAgentTrustDomain] = useState(
+    workspaceSlug ? `${workspaceSlug}.zerotrust.com` : 'mycorp.internal',
+  );
   const connectorInstallScript = 'https://raw.githubusercontent.com/vairabarath/zero-trust/feature/quic-device-tunnel-control-plane-merge/scripts/setup.sh';
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
@@ -70,11 +74,23 @@ export default function ConnectorDetailPage() {
       `  CONTROLLER_HTTP_URL="http://${controllerHttpAddr || '127.0.0.1:8081'}" \\\n` +
       `  CONNECTOR_ID="${connectorId ?? 'connector-local-01'}" \\\n` +
       `  ENROLLMENT_TOKEN="${enrollmentToken}" \\\n` +
+      `  CONTROLLER_TRUST_DOMAIN="${controllerTrustDomain || 'mycorp.internal'}" \\\n` +
+      `  AGENT_TRUST_DOMAIN="${agentTrustDomain || 'mycorp.internal'}" \\\n` +
       (workspaceSlug ? `  WORKSPACE_SLUG="${workspaceSlug}" \\\n` : '') +
       `  DEVICE_TUNNEL_ADDR="${deviceTunnelAddr || '0.0.0.0:9444'}" \\\n` +
       `  bash`
     );
-  }, [connectorInstallScript, enrollmentToken, controllerAddr, controllerHttpAddr, connectorId, deviceTunnelAddr, workspaceSlug]);
+  }, [
+    connectorInstallScript,
+    enrollmentToken,
+    controllerAddr,
+    controllerHttpAddr,
+    connectorId,
+    controllerTrustDomain,
+    agentTrustDomain,
+    deviceTunnelAddr,
+    workspaceSlug,
+  ]);
 
   const loadConnectorData = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -231,6 +247,24 @@ export default function ConnectorDetailPage() {
             <p className="text-xs text-muted-foreground">
               Address the connector binds for device tunnel traffic.
             </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="controllerTrustDomain">Controller Trust Domain</Label>
+            <Input
+              id="controllerTrustDomain"
+              value={controllerTrustDomain}
+              onChange={(e) => setControllerTrustDomain(e.target.value)}
+              placeholder="mycorp.internal"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="agentTrustDomain">Agent Trust Domain</Label>
+            <Input
+              id="agentTrustDomain"
+              value={agentTrustDomain}
+              onChange={(e) => setAgentTrustDomain(e.target.value)}
+              placeholder="asdf.zerotrust.com"
+            />
           </div>
         </div>
 
