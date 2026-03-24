@@ -532,7 +532,7 @@ func backfillWorkspaceScope(db *sql.DB) error {
 
 	return fillBlankWorkspaceScope(db, workspaceIDs[0], []string{
 		"connectors",
-		"tunnelers",
+		"agents",
 		"resources",
 		"tokens",
 		"remote_networks",
@@ -567,7 +567,7 @@ func inferWorkspaceScope(db *sql.DB) error {
 		WHERE c.remote_network_id = rn.id
 		  AND COALESCE(TRIM(c.workspace_id), '') = ''
 		  AND COALESCE(TRIM(rn.workspace_id), '') <> ''`,
-		`UPDATE tunnelers t
+		`UPDATE agents t
 			SET workspace_id = src.workspace_id
 		FROM (
 			SELECT id, workspace_id FROM connectors WHERE COALESCE(TRIM(workspace_id), '') <> ''
@@ -633,9 +633,9 @@ func inferWorkspaceScope(db *sql.DB) error {
 		FROM (
 			SELECT id, workspace_id FROM resources WHERE COALESCE(TRIM(workspace_id), '') <> ''
 			UNION
-			SELECT id, workspace_id FROM tunnelers WHERE COALESCE(TRIM(workspace_id), '') <> ''
+			SELECT id, workspace_id FROM agents WHERE COALESCE(TRIM(workspace_id), '') <> ''
 		) src
-		WHERE (a.resource_id = src.id OR a.tunneler_id = src.id)
+		WHERE (a.resource_id = src.id OR a.agent_id = src.id)
 		  AND COALESCE(TRIM(a.workspace_id), '') = ''`,
 	}
 	for _, stmt := range statements {
