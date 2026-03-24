@@ -28,6 +28,7 @@ use server::{
     begin_login, callback_router, disconnect_workspace, ensure_workspace_state, management_router,
     wait_for_login, AppState,
 };
+use token_store::StoredWorkspaceState;
 use sha2::{Digest, Sha256};
 use token_store::{connector_tunnel_addr_for_resource, list_workspace_states};
 use tracing::{info, warn};
@@ -128,12 +129,15 @@ async fn run(config: Config) -> Result<()> {
                     );
                     String::new()
                 });
+            let (ws_tx, ws_rx) =
+                tokio::sync::watch::channel::<Option<StoredWorkspaceState>>(None);
             let app_state = AppState {
                 config: config.clone(),
                 pending: Arc::new(Mutex::new(HashMap::new())),
                 service_token,
+                ws_update: Arc::new(ws_tx),
             };
-            run_service_listeners(app_state).await
+            run_service_listeners(app_state, ws_rx).await
         }
         Command::Login {
             tenant,
@@ -419,10 +423,12 @@ async fn run_proxied_disconnect(config: &Config, tenant: &str, verb: &str) -> Re
 // ---------------------------------------------------------------------------
 
 async fn run_direct_login(config: Config, tenant: &str, timeout_secs: u64) -> Result<()> {
+    let (ws_tx, _ws_rx) = tokio::sync::watch::channel::<Option<StoredWorkspaceState>>(None);
     let app_state = AppState {
         config: config.clone(),
         pending: Arc::new(Mutex::new(HashMap::new())),
         service_token: String::new(),
+        ws_update: Arc::new(ws_tx),
     };
     let _server = tokio::spawn(run_direct_callback_server(app_state.clone()));
     let auth_url = begin_login(&app_state, tenant).await?;
@@ -489,10 +495,13 @@ async fn run_direct_sync(config: &Config, tenant: &str) -> Result<()> {
 /// 127.0.0.1 so control-plane endpoints are never reachable from the LAN.
 /// The callback listener uses `callback_bind_addr` and may be LAN-exposed
 /// for testing — only the `/callback` route is served there.
-async fn run_service_listeners(state: AppState) -> Result<()> {
+async fn run_service_listeners(
+    state: AppState,
+    ws_rx: tokio::sync::watch::Receiver<Option<StoredWorkspaceState>>,
+) -> Result<()> {
     match state.config.mode.as_str() {
         "socks5" => start_socks_listener(&state.config),
-        _ => start_tun_listener(&state.config),
+        _ => start_tun_listener(&state.config, ws_rx),
     }
     tokio::spawn(server::run_posture_reporter(state.config.clone()));
 
@@ -821,10 +830,12 @@ async fn run_product_noargs(config: &Config) -> Result<()> {
 }
 
 async fn run_ui(config: Config, initial_tenant: Option<String>) -> Result<()> {
+    let (ws_tx, _ws_rx) = tokio::sync::watch::channel::<Option<StoredWorkspaceState>>(None);
     let app_state = AppState {
         config: config.clone(),
         pending: Arc::new(Mutex::new(HashMap::new())),
         service_token: String::new(),
+        ws_update: Arc::new(ws_tx),
     };
     let _server = tokio::spawn(run_direct_callback_server(app_state.clone()));
 
@@ -1226,7 +1237,10 @@ fn start_socks_listener(config: &Config) {
     });
 }
 
-fn start_tun_listener(config: &Config) {
+fn start_tun_listener(
+    config: &Config,
+    ws_rx: tokio::sync::watch::Receiver<Option<StoredWorkspaceState>>,
+) {
     let config = config.clone();
     tokio::spawn(async move {
         let mut config = config;
@@ -1235,7 +1249,7 @@ fn start_tun_listener(config: &Config) {
             config.internal_ca_cert = String::from_utf8_lossy(&ca_pem).to_string();
             config.ca_cert_path.clear();
         }
-        if let Err(e) = tun::run_tun_listener(&config).await {
+        if let Err(e) = tun::run_tun_listener(&config, ws_rx).await {
             tracing::error!("[tun] listener failed: {}", e);
             tracing::info!("Hint: TUN mode requires root / CAP_NET_ADMIN. Try --mode socks5 for unprivileged use.");
         }

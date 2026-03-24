@@ -10,7 +10,7 @@ use smoltcp::socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState}
 use smoltcp::time::Instant as SmolInstant;
 use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tracing::{debug, info, warn};
 
 use crate::acl;
@@ -370,7 +370,10 @@ async fn connect_bypass(dst_ip: IpAddr, dst_port: u16) -> Result<tokio::net::Tcp
 // Main TUN listener
 // ---------------------------------------------------------------------------
 
-pub async fn run_tun_listener(config: &Config) -> Result<()> {
+pub async fn run_tun_listener(
+    config: &Config,
+    mut ws_rx: watch::Receiver<Option<StoredWorkspaceState>>,
+) -> Result<()> {
     // ---- 1. Create TUN device ----
     let (tun_ip, prefix) = parse_tun_addr(&config.tun_addr)?;
     let netmask = prefix_to_netmask(prefix);
@@ -397,10 +400,13 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
     let mut route_manager = RouteManager::new(&config.tun_name);
 
     // ---- 3. Initial workspace state + routes + DNS domains ----
+    // force_sync=true validates the session with the controller before
+    // installing any routes, preventing stale cached state from granting
+    // access after a revocation or unclean shutdown.
     let mut ws_state: Option<StoredWorkspaceState> = None;
     let mut dns_domains: HashSet<String> = HashSet::new();
     if !config.tenant.is_empty() {
-        match ensure_workspace_state(config, &config.tenant, false).await {
+        match ensure_workspace_state(config, &config.tenant, true).await {
             Ok(state) => {
                 if let Err(e) = route_manager.sync_routes(&state.resources).await {
                     warn!("[tun] initial route sync failed: {}", e);
@@ -415,7 +421,7 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
             }
             Err(e) => {
                 warn!(
-                    "[tun] no workspace state yet: {}. Routes will sync after login.",
+                    "[tun] no valid session on startup: {}. Routes will install after login.",
                     e
                 );
             }
@@ -579,10 +585,21 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                             .map(|s| s.resources.clone())
                             .unwrap_or_default();
                         let ca_pem = Arc::clone(&ca_pem);
-                        let access_token = ws_state
+                        let access_token = match ws_state
                             .as_ref()
-                            .map(|s| s.session.access_token.clone())
-                            .unwrap_or_default();
+                            .map(|s| s.session.access_token.as_str())
+                            .filter(|t| !t.is_empty())
+                        {
+                            Some(t) => t.to_owned(),
+                            None => {
+                                warn!(
+                                    "[tun] no active session — rejecting UDP {}:{}",
+                                    dst_ip, dst_port
+                                );
+                                udp_connections.remove(&key);
+                                continue;
+                            }
+                        };
                         let destination = route_manager
                             .lookup_domain(IpAddr::V4(dst_ip))
                             .unwrap_or_else(|| dst_ip.to_string());
@@ -688,6 +705,34 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                 }
             }
 
+            // -- Immediate session change notification (login / disconnect) --
+            Ok(()) = ws_rx.changed() => {
+                let update = ws_rx.borrow_and_update().clone();
+                match update {
+                    None => {
+                        // Disconnect: clear routes and session state immediately.
+                        info!("[tun] session cleared — removing all routes");
+                        if let Err(e) = route_manager.sync_routes(&[]).await {
+                            warn!("[tun] failed to clear routes after disconnect: {}", e);
+                        }
+                        ws_state = None;
+                        dns_domains = HashSet::new();
+                    }
+                    Some(state) => {
+                        // Login: install routes for the new session.
+                        info!(
+                            "[tun] new session — syncing routes for {} resources",
+                            state.resources.len()
+                        );
+                        if let Err(e) = route_manager.sync_routes(&state.resources).await {
+                            warn!("[tun] route sync after login failed: {}", e);
+                        }
+                        dns_domains = tun_dns_intercept::resource_domains(&state.resources);
+                        ws_state = Some(state);
+                    }
+                }
+            }
+
             // -- Periodic route refresh (re-resolve DNS, sync routes) --
             _ = route_timer.tick() => {
                 if !config.tenant.is_empty() {
@@ -701,6 +746,16 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                         }
                         Err(e) => {
                             warn!("[tun] workspace refresh failed: {}", e);
+                            // If the state file is gone (e.g. post-disconnect race),
+                            // remove stale routes rather than leaving them installed.
+                            if crate::token_store::load_workspace_state(&config.tenant).is_none() {
+                                info!("[tun] no workspace state — clearing stale routes");
+                                if let Err(ce) = route_manager.sync_routes(&[]).await {
+                                    warn!("[tun] failed to clear stale routes: {}", ce);
+                                }
+                                ws_state = None;
+                                dns_domains = HashSet::new();
+                            }
                         }
                     }
                 }
@@ -761,11 +816,26 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                 .lookup_domain(conn.dst_ip)
                 .unwrap_or_else(|| conn.dst_ip.to_string());
 
-            // Access token from latest workspace state
-            let access_token = ws_state
+            // Require an active session before opening a tunnel. An empty
+            // or missing token means we are logged out; reject immediately
+            // rather than making a doomed ACL call to the controller.
+            let access_token = match ws_state
                 .as_ref()
-                .map(|s| s.session.access_token.clone())
-                .unwrap_or_default();
+                .map(|s| s.session.access_token.as_str())
+                .filter(|t| !t.is_empty())
+            {
+                Some(t) => t.to_owned(),
+                None => {
+                    warn!(
+                        "[tun] no active session — rejecting {}:{}",
+                        conn.dst_ip, dst_port
+                    );
+                    conn.stage = ConnStage::Closing;
+                    let socket = sockets.get_mut::<TcpSocket>(conn.handle);
+                    socket.close();
+                    continue;
+                }
+            };
 
             let task_quic_pool = quic_pool.clone();
             let task_quic_cache = quic_addr_cache.clone();

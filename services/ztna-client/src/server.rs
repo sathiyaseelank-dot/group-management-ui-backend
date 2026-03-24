@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use tokio::sync::watch;
+
 use anyhow::{anyhow, Result};
 use axum::{
     extract::{Query, Request, State},
@@ -82,6 +84,9 @@ pub struct AppState {
     /// Token the CLI must supply in `X-Service-Token` to reach management
     /// endpoints.  Empty string disables auth (dev mode / token-init failure).
     pub service_token: String,
+    /// Notifies the TUN loop of session changes.  Send `Some(state)` after
+    /// login and `None` after disconnect so routes are updated immediately.
+    pub ws_update: Arc<watch::Sender<Option<StoredWorkspaceState>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -662,6 +667,8 @@ async fn handle_callback(
                         error!("failed to save workspace state: {}", err);
                     }
                     report_posture(&state.config, &stored).await;
+                    // Signal the TUN loop to install routes for the new session.
+                    let _ = state.ws_update.send(Some(stored.clone()));
                     info!("authenticated to workspace: {}", pending.tenant_slug);
                     Html(format!(
                         "<html><body><h2>Connected to {}.</h2><p>You can close this tab and return to the terminal.</p></body></html>",
@@ -751,7 +758,11 @@ async fn handle_disconnect(
     Json(body): Json<DisconnectRequest>,
 ) -> impl IntoResponse {
     match disconnect_workspace(&state.config, &body.tenant).await {
-        Ok(()) => Json(serde_json::json!({ "status": "disconnected" })).into_response(),
+        Ok(()) => {
+            // Signal the TUN loop to clear routes immediately.
+            let _ = state.ws_update.send(None);
+            Json(serde_json::json!({ "status": "disconnected" })).into_response()
+        }
         Err(err) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": err.to_string() })),
