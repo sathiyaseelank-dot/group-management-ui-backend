@@ -751,6 +751,10 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                 .as_ref()
                 .map(|s| s.resources.clone())
                 .unwrap_or_default();
+            let workspace_ca_pem = ws_state
+                .as_ref()
+                .map(|s| s.device.ca_cert_pem.as_bytes().to_vec())
+                .unwrap_or_default();
             let ca_pem = Arc::clone(&ca_pem);
             let dst_port = conn.dst_port;
             let destination = route_manager
@@ -771,13 +775,14 @@ pub async fn run_tun_listener(config: &Config) -> Result<()> {
                 event_tx,
                 controller_url,
                 access_token,
-                tenant,
-                connector_tunnel_addr,
-                workspace_resources,
-                ca_pem,
-                destination,
-                dst_port,
-                "tcp".to_string(),
+                        tenant,
+                        connector_tunnel_addr,
+                        workspace_resources,
+                        workspace_ca_pem,
+                        ca_pem,
+                        destination,
+                        dst_port,
+                        "tcp".to_string(),
                 task_quic_pool,
                 task_quic_cache,
             ));
@@ -886,6 +891,7 @@ async fn tunnel_relay_task(
     _tenant: String,
     fallback_connector_tunnel_addr: String,
     workspace_resources: Vec<StoredResource>,
+    workspace_ca_pem: Vec<u8>,
     ca_pem: Arc<Vec<u8>>,
     destination: String,
     dst_port: u16,
@@ -983,12 +989,20 @@ async fn tunnel_relay_task(
         return;
     }
 
-    if ca_pem.is_empty() {
+    let effective_ca_pem = if !ca_pem.is_empty() {
+        ca_pem.as_ref().clone()
+    } else if !workspace_ca_pem.is_empty() {
+        workspace_ca_pem
+    } else {
+        Vec::new()
+    };
+
+    if effective_ca_pem.is_empty() {
         warn!(
             "[tun-relay] connector CA not available for tunnel; CA_CERT_PATH='{}' INTERNAL_CA_CERT={} cached_workspace_ca={}",
             std::env::var("CA_CERT_PATH").unwrap_or_default(),
             !std::env::var("INTERNAL_CA_CERT").unwrap_or_default().trim().is_empty(),
-            false
+            true
         );
         let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
         return;
@@ -996,7 +1010,7 @@ async fn tunnel_relay_task(
 
     info!(
         "[tun-relay] using connector CA: {}",
-        crate::describe_ca_pem(&ca_pem)
+        crate::describe_ca_pem(&effective_ca_pem)
     );
 
     // Try QUIC first if a cached QUIC address is available, fall back to TLS.
@@ -1030,7 +1044,7 @@ async fn tunnel_relay_task(
     if use_quic_stream.is_none() {
         let tunnel_result = match tunnel::open(
             &connector_tunnel_addr,
-            &ca_pem,
+            &effective_ca_pem,
             &access_token,
             &destination,
             dst_port,
