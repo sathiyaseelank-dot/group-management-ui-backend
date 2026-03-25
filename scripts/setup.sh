@@ -37,6 +37,63 @@ if [[ -z "${CONTROLLER_HTTP_ADDR}" && -z "${CONTROLLER_CA_PATH}" ]]; then
   exit 1
 fi
 
+# ── Auto-fetch config from controller ───────────────────────────────────────
+# Calls the provisioning endpoint to auto-populate trust domains and workspace
+# slug. Manually-set env vars always take priority. Fails silently if the
+# endpoint is unreachable (backward compatible with older controllers).
+parse_json_field() {
+  local json="$1" field="$2"
+  if command -v jq >/dev/null 2>&1; then
+    echo "${json}" | jq -r ".${field} // empty" 2>/dev/null
+  elif command -v python3 >/dev/null 2>&1; then
+    echo "${json}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('${field}',''))" 2>/dev/null
+  else
+    echo "${json}" | grep -o "\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' 2>/dev/null || true
+  fi
+}
+
+auto_fetch_config() {
+  local http_addr="${CONTROLLER_HTTP_ADDR:-}"
+  if [[ -z "${http_addr}" ]]; then
+    return 0
+  fi
+
+  echo "Fetching configuration from controller..."
+  local provision_url="http://${http_addr}/api/provision?token=${ENROLLMENT_TOKEN}"
+  local provision_resp=""
+
+  if command -v curl >/dev/null 2>&1; then
+    provision_resp="$(curl -fsSL --max-time 10 "${provision_url}" 2>/dev/null)" || true
+  elif command -v wget >/dev/null 2>&1; then
+    provision_resp="$(wget -qO- --timeout=10 "${provision_url}" 2>/dev/null)" || true
+  fi
+
+  if [[ -z "${provision_resp}" ]]; then
+    echo "  Could not fetch config from controller — using manually specified values."
+    return 0
+  fi
+
+  local fetched_controller_td fetched_workspace_td fetched_workspace_slug
+  fetched_controller_td="$(parse_json_field "${provision_resp}" controller_trust_domain)"
+  fetched_workspace_td="$(parse_json_field "${provision_resp}" workspace_trust_domain)"
+  fetched_workspace_slug="$(parse_json_field "${provision_resp}" workspace_slug)"
+
+  if [[ -z "${CONTROLLER_TRUST_DOMAIN}" && -n "${fetched_controller_td}" ]]; then
+    CONTROLLER_TRUST_DOMAIN="${fetched_controller_td}"
+    echo "  Auto-configured CONTROLLER_TRUST_DOMAIN=${CONTROLLER_TRUST_DOMAIN}"
+  fi
+  if [[ -z "${AGENT_TRUST_DOMAIN}" && -n "${fetched_workspace_td}" ]]; then
+    AGENT_TRUST_DOMAIN="${fetched_workspace_td}"
+    echo "  Auto-configured AGENT_TRUST_DOMAIN=${AGENT_TRUST_DOMAIN}"
+  fi
+  if [[ -z "${WORKSPACE_SLUG}" && -n "${fetched_workspace_slug}" ]]; then
+    WORKSPACE_SLUG="${fetched_workspace_slug}"
+    echo "  Auto-configured WORKSPACE_SLUG=${WORKSPACE_SLUG}"
+  fi
+}
+
+auto_fetch_config
+
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
 
