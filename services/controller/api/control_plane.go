@@ -545,7 +545,7 @@ func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, host
 				).Scan(&workspaceID)
 			}
 		}
-		_, _ = s.db.Exec(
+		if _, err := s.db.Exec(
 			state.Rebind(`INSERT INTO agents (id, spiffe_id, connector_id, version, hostname, last_seen, ip, workspace_id)
 			VALUES (?, ?, '', ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
@@ -556,14 +556,20 @@ func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, host
 				ip=excluded.ip,
 				workspace_id=CASE WHEN excluded.workspace_id = '' THEN agents.workspace_id ELSE excluded.workspace_id END`),
 			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(), ip, workspaceID,
-		)
-		_ = s.db.QueryRow(
-			state.Rebind(`SELECT remote_network_id FROM agents WHERE id = ?`),
+		); err != nil {
+			log.Printf("failed to persist enrolled agent %s: %v", agentID, err)
+			return
+		}
+		if err := s.db.QueryRow(
+			state.Rebind(`SELECT COALESCE(TRIM(remote_network_id), '') FROM agents WHERE id = ?`),
 			agentID,
-		).Scan(&remoteNetworkID)
+		).Scan(&remoteNetworkID); err != nil {
+			log.Printf("failed to resolve remote_network_id for agent %s: %v", agentID, err)
+			return
+		}
 	}
 	if strings.TrimSpace(remoteNetworkID) == "" {
-		log.Printf("agent %s enrolled without remote_network_id; skipping connector allowlist refresh", agentID)
+		log.Printf("agent %s enrolled without remote_network_id; agent will not be allowlisted until assigned to a remote network", agentID)
 		return
 	}
 	s.RefreshAllowlistsForRemoteNetwork(remoteNetworkID)

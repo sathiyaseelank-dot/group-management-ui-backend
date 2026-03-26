@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"controller/state"
 )
@@ -131,5 +132,118 @@ func TestAllowlistForConnectorWithoutNetworkReturnsEmpty(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("expected empty allowlist, got %#v", list)
+	}
+}
+
+func TestNotifyAgentAllowedPreservesAssignedRemoteNetwork(t *testing.T) {
+	db := newAllowlistTestDB(t)
+	server := &ControlPlaneServer{db: db}
+
+	insertRemoteNetwork(t, db, "net-a")
+	if _, err := db.Exec(
+		`INSERT INTO connectors (id, name, remote_network_id) VALUES (?, 'Connector A', ?)`,
+		"conn-a", "net-a",
+	); err != nil {
+		t.Fatalf("insert connector: %v", err)
+	}
+	insertAgentRow(t, db, "agent-a1", "", "net-a", 0)
+
+	server.NotifyAgentAllowed("agent-a1", "spiffe://test.internal/agent/agent-a1", "1.2.3", "host-a1", "10.0.0.10")
+
+	var remoteNetworkID, spiffeID, version, hostname, ip string
+	if err := db.QueryRow(
+		`SELECT remote_network_id, spiffe_id, version, hostname, ip FROM agents WHERE id = ?`,
+		"agent-a1",
+	).Scan(&remoteNetworkID, &spiffeID, &version, &hostname, &ip); err != nil {
+		t.Fatalf("query enrolled agent: %v", err)
+	}
+	if remoteNetworkID != "net-a" {
+		t.Fatalf("expected remote_network_id net-a, got %q", remoteNetworkID)
+	}
+	if spiffeID != "spiffe://test.internal/agent/agent-a1" {
+		t.Fatalf("expected spiffe_id to be updated, got %q", spiffeID)
+	}
+	if version != "1.2.3" || hostname != "host-a1" || ip != "10.0.0.10" {
+		t.Fatalf("unexpected persisted agent fields: version=%q hostname=%q ip=%q", version, hostname, ip)
+	}
+
+	list, networkID, err := server.allowlistForConnector("conn-a")
+	if err != nil {
+		t.Fatalf("allowlistForConnector: %v", err)
+	}
+	if networkID != "net-a" {
+		t.Fatalf("expected networkID net-a, got %q", networkID)
+	}
+	if len(list) != 1 || list[0].ID != "agent-a1" {
+		t.Fatalf("expected agent-a1 in allowlist, got %#v", list)
+	}
+}
+
+func TestNotifyAgentAllowedLeavesUnassignedAgentOutOfAllowlist(t *testing.T) {
+	db := newAllowlistTestDB(t)
+	server := &ControlPlaneServer{db: db}
+
+	insertRemoteNetwork(t, db, "net-a")
+	if _, err := db.Exec(
+		`INSERT INTO connectors (id, name, remote_network_id) VALUES (?, 'Connector A', ?)`,
+		"conn-a", "net-a",
+	); err != nil {
+		t.Fatalf("insert connector: %v", err)
+	}
+
+	server.NotifyAgentAllowed("agent-unassigned", "spiffe://test.internal/agent/agent-unassigned", "1.0.0", "host-u", "10.0.0.20")
+
+	var remoteNetworkID string
+	if err := db.QueryRow(
+		`SELECT remote_network_id FROM agents WHERE id = ?`,
+		"agent-unassigned",
+	).Scan(&remoteNetworkID); err != nil {
+		t.Fatalf("query enrolled agent: %v", err)
+	}
+	if remoteNetworkID != "" {
+		t.Fatalf("expected empty remote_network_id, got %q", remoteNetworkID)
+	}
+
+	list, networkID, err := server.allowlistForConnector("conn-a")
+	if err != nil {
+		t.Fatalf("allowlistForConnector: %v", err)
+	}
+	if networkID != "net-a" {
+		t.Fatalf("expected networkID net-a, got %q", networkID)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected empty allowlist, got %#v", list)
+	}
+}
+
+func TestSaveAgentToDBPreservesAssignedRemoteNetwork(t *testing.T) {
+	db := newAllowlistTestDB(t)
+
+	insertRemoteNetwork(t, db, "net-a")
+	insertAgentRow(t, db, "agent-state", "spiffe://test.internal/agent/agent-state", "net-a", 0)
+
+	rec := state.AgentStatusRecord{
+		ID:          "agent-state",
+		SPIFFEID:    "spiffe://test.internal/agent/agent-state",
+		ConnectorID: "conn-a",
+		LastSeen:    time.Unix(1_700_000_000, 0).UTC(),
+		IP:          "10.0.0.30",
+	}
+	if err := state.SaveAgentToDB(db, rec); err != nil {
+		t.Fatalf("SaveAgentToDB: %v", err)
+	}
+
+	var remoteNetworkID, connectorID, ip string
+	if err := db.QueryRow(
+		`SELECT remote_network_id, connector_id, ip FROM agents WHERE id = ?`,
+		"agent-state",
+	).Scan(&remoteNetworkID, &connectorID, &ip); err != nil {
+		t.Fatalf("query saved agent: %v", err)
+	}
+	if remoteNetworkID != "net-a" {
+		t.Fatalf("expected remote_network_id net-a, got %q", remoteNetworkID)
+	}
+	if connectorID != "conn-a" || ip != "10.0.0.30" {
+		t.Fatalf("unexpected runtime-updated fields: connector_id=%q ip=%q", connectorID, ip)
 	}
 }
