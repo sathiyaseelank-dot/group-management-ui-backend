@@ -13,6 +13,88 @@ fi
 service_group="zero-trust-agent"
 service_user="zero-trust-agent"
 
+detect_package_manager() {
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+  fi
+
+  if command -v pacman >/dev/null 2>&1; then
+    PKG_MANAGER="pacman"
+  elif command -v apt-get >/dev/null 2>&1; then
+    PKG_MANAGER="apt-get"
+  elif command -v dnf >/dev/null 2>&1; then
+    PKG_MANAGER="dnf"
+  elif command -v yum >/dev/null 2>&1; then
+    PKG_MANAGER="yum"
+  elif command -v apk >/dev/null 2>&1; then
+    PKG_MANAGER="apk"
+  elif command -v zypper >/dev/null 2>&1; then
+    PKG_MANAGER="zypper"
+  else
+    PKG_MANAGER=""
+  fi
+  OS_ID="${ID:-unknown}"
+}
+
+install_nftables() {
+  case "${PKG_MANAGER}" in
+    pacman)
+      pacman -Sy --noconfirm nftables
+      ;;
+    apt-get)
+      apt-get update
+      apt-get install -y nftables
+      ;;
+    dnf)
+      dnf install -y nftables
+      ;;
+    yum)
+      yum install -y nftables
+      ;;
+    apk)
+      apk add --no-cache nftables
+      ;;
+    zypper)
+      zypper --non-interactive install nftables
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+ensure_nft() {
+  detect_package_manager
+  if command -v nft >/dev/null 2>&1; then
+    echo "nft already installed: $(command -v nft)"
+    return 0
+  fi
+
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "ERROR: nftables auto-install is supported only on Linux hosts." >&2
+    exit 1
+  fi
+
+  if [[ -z "${PKG_MANAGER}" ]]; then
+    echo "ERROR: no supported package manager found on Linux host (os=${OS_ID}). Install nftables manually and re-run." >&2
+    exit 1
+  fi
+
+  echo "Installing nftables via ${PKG_MANAGER} (os=${OS_ID})..."
+  install_nftables || {
+    echo "ERROR: failed to install nftables via ${PKG_MANAGER}. Install it manually and re-run." >&2
+    exit 1
+  }
+
+  if ! command -v nft >/dev/null 2>&1; then
+    echo "ERROR: nftables installation finished but \`nft\` is still missing. Agent firewall protection will not work." >&2
+    exit 1
+  fi
+
+  echo "nft installed: $(command -v nft)"
+}
+
 resolve_nologin_shell() {
   local candidate
   for candidate in /usr/sbin/nologin /usr/bin/nologin /sbin/nologin /bin/false; do
@@ -74,6 +156,8 @@ case "${arch}" in
     exit 1
     ;;
 esac
+
+ensure_nft
 
 binary="agent-${os}-${arch}"
 release_url="https://github.com/vairabarath/zero-trust/releases/latest/download/${binary}"

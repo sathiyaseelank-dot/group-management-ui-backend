@@ -31,6 +31,88 @@ ok()   { echo -e "  ${GREEN}[OK]${NC}  $*"; }
 warn() { echo -e "  ${YELLOW}[WARN]${NC} $*"; }
 err()  { echo -e "  ${RED}[ERR]${NC} $*" >&2; }
 
+detect_package_manager() {
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+  fi
+
+  if command -v pacman >/dev/null 2>&1; then
+    PKG_MANAGER="pacman"
+  elif command -v apt-get >/dev/null 2>&1; then
+    PKG_MANAGER="apt-get"
+  elif command -v dnf >/dev/null 2>&1; then
+    PKG_MANAGER="dnf"
+  elif command -v yum >/dev/null 2>&1; then
+    PKG_MANAGER="yum"
+  elif command -v apk >/dev/null 2>&1; then
+    PKG_MANAGER="apk"
+  elif command -v zypper >/dev/null 2>&1; then
+    PKG_MANAGER="zypper"
+  else
+    PKG_MANAGER=""
+  fi
+  OS_ID="${ID:-unknown}"
+}
+
+install_nftables() {
+  case "${PKG_MANAGER}" in
+    pacman)
+      pacman -Sy --noconfirm nftables
+      ;;
+    apt-get)
+      apt-get update
+      apt-get install -y nftables
+      ;;
+    dnf)
+      dnf install -y nftables
+      ;;
+    yum)
+      yum install -y nftables
+      ;;
+    apk)
+      apk add --no-cache nftables
+      ;;
+    zypper)
+      zypper --non-interactive install nftables
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+ensure_nft() {
+  detect_package_manager
+  if command -v nft >/dev/null 2>&1; then
+    ok "nft already installed → $(command -v nft)"
+    return 0
+  fi
+
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    err "nftables auto-install is supported only on Linux hosts"
+    exit 1
+  fi
+
+  if [[ -z "${PKG_MANAGER}" ]]; then
+    err "No supported package manager found on Linux host (os=${OS_ID}). Install nftables manually and re-run."
+    exit 1
+  fi
+
+  warn "nft not found; installing nftables via ${PKG_MANAGER} (os=${OS_ID})"
+  install_nftables || {
+    err "Failed to install nftables via ${PKG_MANAGER}. Install it manually and re-run."
+    exit 1
+  }
+
+  if ! command -v nft >/dev/null 2>&1; then
+    err "nftables installation completed but `nft` is still missing. Agent firewall protection will not work."
+    exit 1
+  fi
+
+  ok "nft installed → $(command -v nft)"
+}
+
 prompt_if_empty() {
   local varname="$1"
   local prompt_text="$2"
@@ -91,6 +173,8 @@ if [[ ! -f "${SYSTEMD_SRC_DIR}/agent.service" ]]; then
   exit 1
 fi
 ok "Systemd unit file found"
+
+ensure_nft
 echo ""
 
 # ── Create system user ─────────────────────────────────────────────────────────
