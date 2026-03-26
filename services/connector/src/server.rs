@@ -99,7 +99,7 @@ pub async fn server_loop(
     connector_id: String,
     agent_registry: Arc<crate::AgentRegistry>,
     agent_tunnel_hub: crate::agent_tunnel::AgentTunnelHub,
-    firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
+    firewall_tx: tokio::sync::broadcast::Sender<()>,
     latest_fw_policy: crate::LatestFirewallPolicy,
 ) {
     let mut backoff = std::time::Duration::from_secs(2);
@@ -143,7 +143,7 @@ async fn run_server(
     connector_id: String,
     agent_registry: Arc<crate::AgentRegistry>,
     agent_tunnel_hub: crate::agent_tunnel::AgentTunnelHub,
-    firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
+    firewall_tx: tokio::sync::broadcast::Sender<()>,
     latest_fw_policy: crate::LatestFirewallPolicy,
 ) -> Result<()> {
     let server_tls = crate::tls::server_cfg::build_server_tls(store, ca_pem, trust_domain)?;

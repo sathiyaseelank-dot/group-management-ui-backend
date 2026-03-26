@@ -22,7 +22,7 @@ pub struct ConnectorControlPlane {
     pub trust_domain: String,
     pub agent_registry: Arc<crate::AgentRegistry>,
     pub agent_tunnel_hub: crate::agent_tunnel::AgentTunnelHub,
-    pub firewall_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
+    pub firewall_tx: tokio::sync::broadcast::Sender<()>,
     pub latest_fw_policy: crate::LatestFirewallPolicy,
 }
 
@@ -81,16 +81,7 @@ impl ControlPlane for ConnectorControlPlane {
         agent_registry.update(&agent_id, "ONLINE", &peer_ip);
 
         tokio::spawn(async move {
-            // Send the current firewall policy immediately to this agent
-            if let Some(data) = latest_fw_policy.get() {
-                let _ = tx
-                    .send(Ok(ControlMessage {
-                        r#type: "firewall_policy".to_string(),
-                        payload: data,
-                        ..Default::default()
-                    }))
-                    .await;
-            }
+            let _ = send_current_firewall_policy(&tx, &agent_id, &agent_registry, &latest_fw_policy).await;
 
             loop {
                 tokio::select! {
@@ -109,6 +100,7 @@ impl ControlPlane for ConnectorControlPlane {
                                     &agent_registry,
                                     &peer_ip,
                                     &agent_tunnel_hub,
+                                    &latest_fw_policy,
                                 )
                                 .await;
                             }
@@ -118,12 +110,8 @@ impl ControlPlane for ConnectorControlPlane {
                             }
                         }
                     }
-                    Ok(data) = firewall_rx.recv() => {
-                        let _ = tx.send(Ok(ControlMessage {
-                            r#type: "firewall_policy".to_string(),
-                            payload: data,
-                            ..Default::default()
-                        })).await;
+                    Ok(()) = firewall_rx.recv() => {
+                        let _ = send_current_firewall_policy(&tx, &agent_id, &agent_registry, &latest_fw_policy).await;
                     }
                 }
             }
@@ -149,6 +137,7 @@ async fn handle_agent_message(
     agent_registry: &Arc<crate::AgentRegistry>,
     peer_ip: &str,
     agent_tunnel_hub: &crate::agent_tunnel::AgentTunnelHub,
+    latest_fw_policy: &crate::LatestFirewallPolicy,
 ) {
     if agent_tunnel_hub.handle_incoming(msg) {
         return;
@@ -191,6 +180,7 @@ async fn handle_agent_message(
                 peer_ip.to_string()
             };
             agent_registry.update(agent_id, status, &ip);
+            let _ = send_current_firewall_policy(tx, agent_id, agent_registry, latest_fw_policy).await;
             info!(
                 "agent heartbeat: agent_id={} spiffe_id={} status={} ip={}",
                 agent_id, spiffe_id, status, ip
@@ -260,6 +250,27 @@ async fn handle_agent_message(
         }
         _ => {}
     }
+}
+
+async fn send_current_firewall_policy(
+    tx: &mpsc::Sender<Result<ControlMessage, Status>>,
+    agent_id: &str,
+    agent_registry: &Arc<crate::AgentRegistry>,
+    latest_fw_policy: &crate::LatestFirewallPolicy,
+) -> Result<(), mpsc::error::SendError<Result<ControlMessage, Status>>> {
+    let agent_ip = agent_registry.get_ip(agent_id).unwrap_or_default();
+    let payload = crate::build_agent_firewall_payload(
+        agent_id,
+        &agent_ip,
+        &latest_fw_policy.get(),
+        &agent_registry.snapshot(),
+    );
+    tx.send(Ok(ControlMessage {
+        r#type: "firewall_policy".to_string(),
+        payload,
+        ..Default::default()
+    }))
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]

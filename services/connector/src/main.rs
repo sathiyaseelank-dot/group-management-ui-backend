@@ -20,7 +20,7 @@ use allowlist::{AgentAllowlist, AgentInfo};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use enroll::pb::ControlMessage;
-use policy::{PolicyCache, PolicySnapshot};
+use policy::{types::PolicyResource, PolicyCache, PolicySnapshot};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
@@ -28,28 +28,28 @@ use tls::cert_store::CertStore;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, warn};
 
-/// Stores the latest firewall policy bytes so new agent connections
-/// receive the current policy immediately upon connecting.
+/// Stores the latest protected resources so each agent can receive
+/// a personalized firewall policy based on its own IP.
 #[derive(Clone)]
 pub struct LatestFirewallPolicy {
-    inner: Arc<std::sync::RwLock<Option<Vec<u8>>>>,
+    inner: Arc<std::sync::RwLock<Vec<PolicyResource>>>,
 }
 
 impl LatestFirewallPolicy {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(std::sync::RwLock::new(None)),
+            inner: Arc::new(std::sync::RwLock::new(Vec::new())),
         }
     }
 
-    pub fn store(&self, data: Vec<u8>) {
+    pub fn store(&self, resources: Vec<PolicyResource>) {
         if let Ok(mut w) = self.inner.write() {
-            *w = Some(data);
+            *w = resources;
         }
     }
 
-    pub fn get(&self) -> Option<Vec<u8>> {
-        self.inner.read().ok().and_then(|r| r.clone())
+    pub fn get(&self) -> Vec<PolicyResource> {
+        self.inner.read().map(|r| r.clone()).unwrap_or_default()
     }
 }
 
@@ -92,6 +92,13 @@ impl AgentRegistry {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    pub fn get_ip(&self, agent_id: &str) -> Option<String> {
+        self.inner
+            .read()
+            .ok()
+            .and_then(|map| map.get(agent_id).map(|(_, ip)| ip.clone()))
     }
 }
 
@@ -214,7 +221,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     let (send_ch, recv_ch) = mpsc::channel::<ControlMessage>(16);
     let agent_registry = Arc::new(AgentRegistry::new());
     let agent_tunnel_hub = AgentTunnelHub::new();
-    let (firewall_tx, _) = broadcast::channel::<Vec<u8>>(16);
+    let (firewall_tx, _) = broadcast::channel::<()>(16);
     let latest_fw_policy = LatestFirewallPolicy::new();
 
     if !cfg.device_tunnel_addr.is_empty() && !cfg.controller_http_url.is_empty() {
@@ -315,7 +322,7 @@ async fn control_plane_loop(
     send_ch: mpsc::Sender<ControlMessage>,
     mut recv_ch: mpsc::Receiver<ControlMessage>,
     agent_registry: Arc<AgentRegistry>,
-    firewall_tx: broadcast::Sender<Vec<u8>>,
+    firewall_tx: broadcast::Sender<()>,
     latest_fw_policy: LatestFirewallPolicy,
 ) {
     let mut backoff = Duration::from_secs(2);
@@ -361,7 +368,7 @@ async fn connect_control_plane(
     _send_ch: &mpsc::Sender<ControlMessage>,
     recv_ch: &mut mpsc::Receiver<ControlMessage>,
     agent_registry: &Arc<AgentRegistry>,
-    firewall_tx: &broadcast::Sender<Vec<u8>>,
+    firewall_tx: &broadcast::Sender<()>,
     latest_fw_policy: &LatestFirewallPolicy,
 ) -> Result<()> {
     let policy_cb = {
@@ -426,7 +433,7 @@ async fn connect_control_plane(
                                 }
                             });
                         } else {
-                            handle_control_message(&m, allowlist, acl, firewall_tx, latest_fw_policy).await;
+                            handle_control_message(&m, allowlist, acl, firewall_tx, latest_fw_policy, agent_registry).await;
                         }
                     }
                     Ok(None) => return Ok(()),
@@ -456,8 +463,9 @@ async fn handle_control_message(
     msg: &ControlMessage,
     allowlist: &Arc<AgentAllowlist>,
     acl: &Arc<PolicyCache>,
-    firewall_tx: &broadcast::Sender<Vec<u8>>,
+    firewall_tx: &broadcast::Sender<()>,
     latest_fw_policy: &LatestFirewallPolicy,
+    agent_registry: &Arc<AgentRegistry>,
 ) {
     match msg.r#type.as_str() {
         "agent_allowlist" => {
@@ -486,35 +494,30 @@ async fn handle_control_message(
                         version, resource_count
                     );
 
-                    // Extract port rules from protected resources and broadcast to agents.
-                    let port_rules: Vec<serde_json::Value> = snap
+                    let protected_resources: Vec<PolicyResource> = snap
                         .resources
                         .iter()
                         .filter(|r| r.firewall_status == "protected")
-                        .flat_map(|r| extract_port_rules(r))
+                        .cloned()
                         .collect();
-                    let policy = serde_json::json!({
-                        "action": "sync",
-                        "protected_ports": port_rules
-                    });
-                    if let Ok(data) = serde_json::to_vec(&policy) {
-                        let protected_resource_count = snap
-                            .resources
-                            .iter()
-                            .filter(|r| r.firewall_status == "protected")
-                            .count();
-                        let protected_port_count = port_rules.len();
-                        let protected_ports = format_port_rules(&port_rules);
-                        info!(
-                            "firewall policy pushed to agents: action=sync reason=\"policy snapshot applied for protected resources\" version={} protected_resources={} protected_ports={} ports={}",
-                            version,
-                            protected_resource_count,
-                            protected_port_count,
-                            protected_ports,
-                        );
-                        latest_fw_policy.store(data.clone());
-                        let _ = firewall_tx.send(data);
+                    let protected_resource_count = protected_resources.len();
+                    let summary = summarize_firewall_distribution(
+                        &protected_resources,
+                        &agent_registry.snapshot(),
+                    );
+                    info!(
+                        "firewall policy prepared for agents: action=sync reason=\"policy snapshot applied for protected resources\" version={} protected_resources={} matched_resources={} unmatched_resources={} ambiguous_resources={}",
+                        version,
+                        protected_resource_count,
+                        summary.matched_resources,
+                        summary.unmatched_resources,
+                        summary.ambiguous_resources,
+                    );
+                    for warning in summary.warnings {
+                        warn!("{}", warning);
                     }
+                    latest_fw_policy.store(protected_resources);
+                    let _ = firewall_tx.send(());
                 } else {
                     warn!(
                         "policy snapshot rejected: version={} resources={}",
@@ -524,6 +527,101 @@ async fn handle_control_message(
             }
         }
         _ => {}
+    }
+}
+
+#[derive(Default)]
+struct FirewallDistributionSummary {
+    matched_resources: usize,
+    unmatched_resources: usize,
+    ambiguous_resources: usize,
+    warnings: Vec<String>,
+}
+
+pub(crate) fn build_agent_firewall_payload(
+    agent_id: &str,
+    agent_ip: &str,
+    protected_resources: &[PolicyResource],
+    agent_snapshot: &[AgentStatusEntry],
+) -> Vec<u8> {
+    let protected_ports: Vec<serde_json::Value> = if agent_ip.trim().is_empty() {
+        Vec::new()
+    } else {
+        let ip_owners = collect_ip_owners(agent_snapshot);
+        protected_resources
+            .iter()
+            .filter(|resource| resource_owner(resource, &ip_owners).as_deref() == Some(agent_id))
+            .flat_map(extract_port_rules)
+            .collect()
+    };
+
+    serde_json::to_vec(&serde_json::json!({
+        "action": "sync",
+        "protected_ports": protected_ports
+    }))
+    .unwrap_or_else(|_| b"{\"action\":\"sync\",\"protected_ports\":[]}".to_vec())
+}
+
+fn summarize_firewall_distribution(
+    protected_resources: &[PolicyResource],
+    agent_snapshot: &[AgentStatusEntry],
+) -> FirewallDistributionSummary {
+    let ip_owners = collect_ip_owners(agent_snapshot);
+    let mut summary = FirewallDistributionSummary::default();
+
+    for resource in protected_resources {
+        match resource_owner(resource, &ip_owners) {
+            Some(_) => summary.matched_resources += 1,
+            None => {
+                let address = resource.address.trim();
+                let owners = ip_owners.get(address).cloned().unwrap_or_default();
+                if owners.is_empty() {
+                    summary.unmatched_resources += 1;
+                    summary.warnings.push(format!(
+                        "protected resource skipped for firewall distribution: resource_id={} address={} reason=\"no owning agent matched\"",
+                        resource.resource_id,
+                        if address.is_empty() { "\"\"" } else { address }
+                    ));
+                } else {
+                    summary.ambiguous_resources += 1;
+                    summary.warnings.push(format!(
+                        "protected resource skipped for firewall distribution: resource_id={} address={} reason=\"multiple owning agents matched\" agents={}",
+                        resource.resource_id,
+                        address,
+                        owners.join(","),
+                    ));
+                }
+            }
+        }
+    }
+
+    summary
+}
+
+fn collect_ip_owners(agent_snapshot: &[AgentStatusEntry]) -> HashMap<String, Vec<String>> {
+    let mut ip_owners: HashMap<String, Vec<String>> = HashMap::new();
+    for agent in agent_snapshot {
+        let ip = agent.ip.trim();
+        if ip.is_empty() {
+            continue;
+        }
+        ip_owners
+            .entry(ip.to_string())
+            .or_default()
+            .push(agent.agent_id.clone());
+    }
+    ip_owners
+}
+
+fn resource_owner(
+    resource: &PolicyResource,
+    ip_owners: &HashMap<String, Vec<String>>,
+) -> Option<String> {
+    let owners = ip_owners.get(resource.address.trim())?;
+    if owners.len() == 1 {
+        owners.first().cloned()
+    } else {
+        None
     }
 }
 
@@ -564,5 +662,83 @@ fn format_port_rules(rules: &[serde_json::Value]) -> String {
         "none".to_string()
     } else {
         ports.join(",")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn policy_resource(id: &str, address: &str, protocol: &str, port: u16) -> PolicyResource {
+        PolicyResource {
+            resource_id: id.to_string(),
+            resource_type: "dns".to_string(),
+            address: address.to_string(),
+            port,
+            protocol: protocol.to_string(),
+            port_from: None,
+            port_to: None,
+            allowed_identities: Vec::new(),
+            firewall_status: "protected".to_string(),
+        }
+    }
+
+    fn agent_entry(agent_id: &str, ip: &str) -> AgentStatusEntry {
+        AgentStatusEntry {
+            agent_id: agent_id.to_string(),
+            status: "ONLINE".to_string(),
+            ip: ip.to_string(),
+        }
+    }
+
+    #[test]
+    fn build_agent_firewall_payload_scopes_rules_to_matching_agent() {
+        let resources = vec![
+            policy_resource("res-a", "10.0.0.10", "TCP", 22),
+            policy_resource("res-b", "10.0.0.20", "TCP", 443),
+        ];
+        let agents = vec![
+            agent_entry("agent-a", "10.0.0.10"),
+            agent_entry("agent-b", "10.0.0.20"),
+        ];
+
+        let payload = build_agent_firewall_payload("agent-a", "10.0.0.10", &resources, &agents);
+        let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        let ports = parsed["protected_ports"].as_array().unwrap();
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0]["port"].as_u64(), Some(22));
+    }
+
+    #[test]
+    fn build_agent_firewall_payload_returns_empty_for_non_owner() {
+        let resources = vec![policy_resource("res-a", "10.0.0.10", "TCP", 22)];
+        let agents = vec![
+            agent_entry("agent-a", "10.0.0.10"),
+            agent_entry("agent-b", "10.0.0.20"),
+        ];
+
+        let payload = build_agent_firewall_payload("agent-b", "10.0.0.20", &resources, &agents);
+        let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        assert!(parsed["protected_ports"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn summarize_firewall_distribution_marks_unmatched_and_ambiguous_resources() {
+        let resources = vec![
+            policy_resource("res-matched", "10.0.0.10", "TCP", 22),
+            policy_resource("res-unmatched", "10.0.0.30", "TCP", 443),
+            policy_resource("res-ambiguous", "10.0.0.40", "TCP", 8080),
+        ];
+        let agents = vec![
+            agent_entry("agent-a", "10.0.0.10"),
+            agent_entry("agent-b1", "10.0.0.40"),
+            agent_entry("agent-b2", "10.0.0.40"),
+        ];
+
+        let summary = summarize_firewall_distribution(&resources, &agents);
+        assert_eq!(summary.matched_resources, 1);
+        assert_eq!(summary.unmatched_resources, 1);
+        assert_eq!(summary.ambiguous_resources, 1);
+        assert_eq!(summary.warnings.len(), 2);
     }
 }
