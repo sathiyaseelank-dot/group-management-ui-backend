@@ -57,6 +57,15 @@ func (m *mockNotifier) NotifyAuthorizationRemoved(_, _ string)          {}
 func (m *mockNotifier) NotifyPolicyChange()                             { m.calls.Add(1) }
 func (m *mockNotifier) notified() bool                                  { return m.calls.Load() > 0 }
 
+type mockAllowlistRefresher struct {
+	calls []string
+}
+
+func (m *mockAllowlistRefresher) RefreshConnectorAllowlist(connectorID string) error {
+	m.calls = append(m.calls, connectorID)
+	return nil
+}
+
 // do sends a request to the full mux (admin + UI routes).
 func do(srv *Server, method, path string, body interface{}, auth bool) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
@@ -626,5 +635,46 @@ func TestDeleteConnectorFromDB_cleansJunctionTable(t *testing.T) {
 	_ = db.QueryRow(`SELECT COUNT(*) FROM remote_network_connectors WHERE connector_id = ?`, "conn-d1").Scan(&count)
 	if count != 0 {
 		t.Error("junction table row not cleaned up after DeleteConnectorFromDB")
+	}
+}
+
+func TestRemoteNetworkConnectorAssign_refreshesAllowlist(t *testing.T) {
+	db := newTestDB(t)
+	srv, _ := newTestServer(t, db)
+	refresher := &mockAllowlistRefresher{}
+	srv.Allowlists = refresher
+
+	_, _ = db.Exec(`INSERT INTO remote_networks (id, name, location, created_at, updated_at) VALUES ('net-r1', 'NetR1', 'US', '', '')`)
+	insertConnector(t, db, "conn-r1", "")
+
+	rr := do(srv, http.MethodPost, "/api/admin/remote-networks/net-r1/connectors", map[string]string{
+		"connector_id": "conn-r1",
+	}, true)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(refresher.calls) != 1 || refresher.calls[0] != "conn-r1" {
+		t.Fatalf("expected allowlist refresh for conn-r1, got %#v", refresher.calls)
+	}
+}
+
+func TestRemoteNetworkConnectorRemove_refreshesAllowlist(t *testing.T) {
+	db := newTestDB(t)
+	srv, _ := newTestServer(t, db)
+	refresher := &mockAllowlistRefresher{}
+	srv.Allowlists = refresher
+
+	_, _ = db.Exec(`INSERT INTO remote_networks (id, name, location, created_at, updated_at) VALUES ('net-r2', 'NetR2', 'US', '', '')`)
+	insertConnector(t, db, "conn-r2", "")
+	_, _ = db.Exec(`INSERT INTO remote_network_connectors (network_id, connector_id) VALUES ('net-r2', 'conn-r2')`)
+
+	rr := do(srv, http.MethodDelete, "/api/admin/remote-networks/net-r2/connectors", map[string]string{
+		"connector_id": "conn-r2",
+	}, true)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(refresher.calls) != 1 || refresher.calls[0] != "conn-r2" {
+		t.Fatalf("expected allowlist refresh for conn-r2, got %#v", refresher.calls)
 	}
 }

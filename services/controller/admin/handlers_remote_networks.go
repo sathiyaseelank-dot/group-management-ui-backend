@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -94,6 +95,11 @@ func (s *Server) handleRemoteNetworkConnectors(w http.ResponseWriter, r *http.Re
 			http.Error(w, fmt.Sprintf("failed to assign connector: %v", err), http.StatusBadRequest)
 			return
 		}
+		if s.Allowlists != nil {
+			if err := s.Allowlists.RefreshConnectorAllowlist(req.ConnectorID); err != nil && !strings.Contains(err.Error(), "not connected") {
+				log.Printf("allowlist refresh after connector assign failed: connector_id=%s err=%v", req.ConnectorID, err)
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	case http.MethodDelete:
 		var req struct {
@@ -110,6 +116,11 @@ func (s *Server) handleRemoteNetworkConnectors(w http.ResponseWriter, r *http.Re
 		if err := s.RemoteNet.RemoveConnector(networkID, req.ConnectorID); err != nil {
 			http.Error(w, fmt.Sprintf("failed to remove connector: %v", err), http.StatusBadRequest)
 			return
+		}
+		if s.Allowlists != nil {
+			if err := s.Allowlists.RefreshConnectorAllowlist(req.ConnectorID); err != nil && !strings.Contains(err.Error(), "not connected") {
+				log.Printf("allowlist refresh after connector removal failed: connector_id=%s err=%v", req.ConnectorID, err)
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	default:

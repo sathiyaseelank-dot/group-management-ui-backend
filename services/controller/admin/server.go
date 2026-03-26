@@ -23,6 +23,10 @@ type ConnectorStreamChecker interface {
 	IsStreamActive(id string) bool
 }
 
+type AllowlistRefresher interface {
+	RefreshConnectorAllowlist(connectorID string) error
+}
+
 type Server struct {
 	Tokens    *state.TokenStore
 	Reg       *state.Registry
@@ -38,6 +42,7 @@ type Server struct {
 
 	// Diagnostics
 	StreamChecker ConnectorStreamChecker
+	Allowlists    AllowlistRefresher
 
 	AdminAuthToken    string
 	InternalAuthToken string

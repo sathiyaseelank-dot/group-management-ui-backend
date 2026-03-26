@@ -525,13 +525,13 @@ func (s *ControlPlaneServer) SendToConnector(connectorID string, msgType string,
 	})
 }
 
-// NotifyAgentAllowed broadcasts a newly enrolled agent to all connectors
-// and persists to DB so the allowlist survives controller restarts.
+// NotifyAgentAllowed persists a newly enrolled agent and refreshes allowlists
+// for connectors in the same remote network.
 func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, hostname, ip string) {
 	if s.agents != nil {
 		s.agents.Add(agentID, spiffeID)
 	}
-	// Persist to DB so LoadAgentRegistryFromDB restores the allowlist on restart.
+	var remoteNetworkID string
 	if s.db != nil {
 		workspaceID := ""
 		trimmed := strings.TrimPrefix(spiffeID, "spiffe://")
@@ -557,16 +557,16 @@ func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, host
 				workspace_id=CASE WHEN excluded.workspace_id = '' THEN agents.workspace_id ELSE excluded.workspace_id END`),
 			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(), ip, workspaceID,
 		)
+		_ = s.db.QueryRow(
+			state.Rebind(`SELECT remote_network_id FROM agents WHERE id = ?`),
+			agentID,
+		).Scan(&remoteNetworkID)
 	}
-	info := state.AgentInfo{ID: agentID, SPIFFEID: spiffeID}
-	payload, err := json.Marshal(info)
-	if err != nil {
+	if strings.TrimSpace(remoteNetworkID) == "" {
+		log.Printf("agent %s enrolled without remote_network_id; skipping connector allowlist refresh", agentID)
 		return
 	}
-	s.broadcast(&controllerpb.ControlMessage{
-		Type:    "agent_allow",
-		Payload: payload,
-	})
+	s.RefreshAllowlistsForRemoteNetwork(remoteNetworkID)
 }
 
 type connectorClient struct {
@@ -626,18 +626,130 @@ func (s *ControlPlaneServer) broadcast(msg *controllerpb.ControlMessage) {
 }
 
 func (s *ControlPlaneServer) sendAllowlist(c *connectorClient) {
-	if s.agents == nil {
+	if c == nil || c.connectorID == "" {
 		return
 	}
-	list := s.agents.List()
+	list, networkID, err := s.allowlistForConnector(c.connectorID)
+	if err != nil {
+		log.Printf("failed to build agent allowlist for connector %s: %v", c.connectorID, err)
+		return
+	}
 	payload, err := json.Marshal(list)
 	if err != nil {
 		return
 	}
+	log.Printf(
+		"agent allowlist pushed: connector_id=%s network_id=%s entries=%d",
+		c.connectorID,
+		networkID,
+		len(list),
+	)
 	_ = c.send(&controllerpb.ControlMessage{
 		Type:    "agent_allowlist",
 		Payload: payload,
 	})
+}
+
+func (s *ControlPlaneServer) allowlistForConnector(connectorID string) ([]state.AgentInfo, string, error) {
+	if strings.TrimSpace(connectorID) == "" {
+		return nil, "", fmt.Errorf("connector_id required")
+	}
+	if s.db == nil {
+		if s.agents == nil {
+			return []state.AgentInfo{}, "", nil
+		}
+		return s.agents.List(), "", nil
+	}
+
+	networkID, err := lookupConnectorNetwork(s.db, connectorID)
+	if err != nil {
+		if strings.Contains(err.Error(), "has no network") {
+			return []state.AgentInfo{}, "", nil
+		}
+		return nil, "", err
+	}
+
+	rows, err := s.db.Query(
+		state.Rebind(`SELECT id, spiffe_id
+			FROM agents
+			WHERE remote_network_id = ?
+			  AND revoked = 0
+			  AND COALESCE(TRIM(spiffe_id), '') <> ''
+			ORDER BY id ASC`),
+		networkID,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	list := make([]state.AgentInfo, 0)
+	for rows.Next() {
+		var item state.AgentInfo
+		if err := rows.Scan(&item.ID, &item.SPIFFEID); err != nil {
+			return nil, "", err
+		}
+		list = append(list, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	return list, networkID, nil
+}
+
+func (s *ControlPlaneServer) RefreshConnectorAllowlist(connectorID string) error {
+	s.mu.Lock()
+	var target *connectorClient
+	for _, c := range s.clients {
+		if c.connectorID == connectorID {
+			target = c
+			break
+		}
+	}
+	s.mu.Unlock()
+
+	if target == nil {
+		return fmt.Errorf("connector %s not connected", connectorID)
+	}
+	s.sendAllowlist(target)
+	return nil
+}
+
+func (s *ControlPlaneServer) RefreshAllowlistsForRemoteNetwork(networkID string) {
+	if s.db == nil || strings.TrimSpace(networkID) == "" {
+		return
+	}
+
+	rows, err := s.db.Query(
+		state.Rebind(`SELECT connector_id
+			FROM (
+				SELECT id AS connector_id FROM connectors WHERE remote_network_id = ?
+				UNION
+				SELECT connector_id FROM remote_network_connectors WHERE network_id = ?
+			) connector_scope
+			ORDER BY connector_id ASC`),
+		networkID,
+		networkID,
+	)
+	if err != nil {
+		log.Printf("failed to load connectors for allowlist refresh in network %s: %v", networkID, err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var connectorID string
+		if err := rows.Scan(&connectorID); err != nil {
+			log.Printf("failed to scan connector for allowlist refresh in network %s: %v", networkID, err)
+			return
+		}
+		if err := s.RefreshConnectorAllowlist(connectorID); err != nil && !strings.Contains(err.Error(), "not connected") {
+			log.Printf("failed to refresh allowlist for connector %s: %v", connectorID, err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("failed during allowlist refresh iteration in network %s: %v", networkID, err)
+	}
 }
 
 // ACL notifications

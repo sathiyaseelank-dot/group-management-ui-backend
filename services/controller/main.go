@@ -7,8 +7,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -137,16 +137,16 @@ func main() {
 	grpcServer := grpc.NewServer(
 		grpc.Creds(creds),
 		grpc.UnaryInterceptor(api.UnaryAuthInterceptor(trustDomain, map[string]struct{}{
-			controllerpb.EnrollmentService_EnrollConnector_FullMethodName:     {},
-			controllerpb.EnrollmentService_EnrollTunneler_FullMethodName:      {},
-			controllerpb.DeviceService_DeviceAuthorize_FullMethodName:         {},
-			controllerpb.DeviceService_DeviceToken_FullMethodName:             {},
-			controllerpb.DeviceService_DeviceRefresh_FullMethodName:           {},
-			controllerpb.DeviceService_DeviceRevoke_FullMethodName:            {},
-			controllerpb.DeviceService_DeviceEnrollCert_FullMethodName:        {},
-			controllerpb.DeviceService_DeviceMe_FullMethodName:                {},
-			controllerpb.DeviceService_DeviceSync_FullMethodName:              {},
-			controllerpb.DeviceService_DeviceReportPosture_FullMethodName:     {},
+			controllerpb.EnrollmentService_EnrollConnector_FullMethodName: {},
+			controllerpb.EnrollmentService_EnrollTunneler_FullMethodName:  {},
+			controllerpb.DeviceService_DeviceAuthorize_FullMethodName:     {},
+			controllerpb.DeviceService_DeviceToken_FullMethodName:         {},
+			controllerpb.DeviceService_DeviceRefresh_FullMethodName:       {},
+			controllerpb.DeviceService_DeviceRevoke_FullMethodName:        {},
+			controllerpb.DeviceService_DeviceEnrollCert_FullMethodName:    {},
+			controllerpb.DeviceService_DeviceMe_FullMethodName:            {},
+			controllerpb.DeviceService_DeviceSync_FullMethodName:          {},
+			controllerpb.DeviceService_DeviceReportPosture_FullMethodName: {},
 		}, "connector", "agent")),
 		grpc.StreamInterceptor(api.StreamSPIFFEInterceptor(trustDomain, "connector", "agent")),
 	)
@@ -286,39 +286,40 @@ func main() {
 	// ---- admin HTTP server ----
 	adminMux := http.NewServeMux()
 	adminServer := &admin.Server{
-		Tokens:            tokenStore,
-		Reg:               registry,
-		Agents:            agentStatus,
-		ACLs:              aclStore,
-		ACLNotify:         controlPlaneServer,
-		Users:             userStore,
-		RemoteNet:         remoteNetStore,
-		ScanStore:         scanStore,
-		ControlPlane:      controlPlaneServer,
-		StreamChecker:     controlPlaneServer,
-		AdminAuthToken:    adminAuthToken,
-		InternalAuthToken: internalAuthToken,
-		CACertPEM:         caCertPEM,
-		OAuthConfig:       oauthCfg,
-		ClientOAuthConfig: clientOAuthCfg,
-		GitHubOAuthConfig: githubOAuthCfg,
-		JWTSecret:         []byte(os.Getenv("JWT_SECRET")),
+		Tokens:               tokenStore,
+		Reg:                  registry,
+		Agents:               agentStatus,
+		ACLs:                 aclStore,
+		ACLNotify:            controlPlaneServer,
+		Users:                userStore,
+		RemoteNet:            remoteNetStore,
+		ScanStore:            scanStore,
+		ControlPlane:         controlPlaneServer,
+		StreamChecker:        controlPlaneServer,
+		Allowlists:           controlPlaneServer,
+		AdminAuthToken:       adminAuthToken,
+		InternalAuthToken:    internalAuthToken,
+		CACertPEM:            caCertPEM,
+		OAuthConfig:          oauthCfg,
+		ClientOAuthConfig:    clientOAuthCfg,
+		GitHubOAuthConfig:    githubOAuthCfg,
+		JWTSecret:            []byte(os.Getenv("JWT_SECRET")),
 		AdminLoginEmails:     adminLoginEmails,
 		SignupAllowedDomains: signupAllowedDomains,
-		DashboardURL:      os.Getenv("DASHBOARD_URL"),
-		InviteBaseURL:     os.Getenv("INVITE_BASE_URL"),
-		Mailer:            m,
-		Workspaces:        workspaceStore,
-		IntermediateCA:    caInst,
-		SystemDomain:      systemDomain,
-		IdPs:              idpStore,
-		Sessions:          sessionStore,
-		SecureCookies:     os.Getenv("SECURE_COOKIES") == "true",
-		AllowedOrigins:    parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		DashboardURL:         os.Getenv("DASHBOARD_URL"),
+		InviteBaseURL:        os.Getenv("INVITE_BASE_URL"),
+		Mailer:               m,
+		Workspaces:           workspaceStore,
+		IntermediateCA:       caInst,
+		SystemDomain:         systemDomain,
+		IdPs:                 idpStore,
+		Sessions:             sessionStore,
+		SecureCookies:        os.Getenv("SECURE_COOKIES") == "true",
+		AllowedOrigins:       parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
 		MaxSessionsPerUser:   parseIntEnv("MAX_SESSIONS_PER_USER", 5),
 		StrictSessionBinding: os.Getenv("STRICT_SESSION_BINDING") == "true",
-		AccessRequests:    state.NewAccessRequestStore(db),
-		AuditKey:          []byte(os.Getenv("JWT_SECRET")),
+		AccessRequests:       state.NewAccessRequestStore(db),
+		AuditKey:             []byte(os.Getenv("JWT_SECRET")),
 	}
 	admin.SetCORSOrigins(parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")), os.Getenv("DASHBOARD_URL"))
 	adminServer.RegisterRoutes(adminMux)
