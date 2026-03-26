@@ -123,7 +123,7 @@ async fn control_plane_loop(
 ) {
     let mut backoff = Duration::from_secs(2);
     loop {
-        tokio::select! {
+        let is_cert_reload = tokio::select! {
             result = connect_to_connector(
                 &connector_addr,
                 &connector_trust_domain,
@@ -137,15 +137,23 @@ async fn control_plane_loop(
                 if let Err(e) = result {
                     warn!("connector connection ended: {}", e);
                 }
+                false
             }
             _ = reload.notified() => {
                 info!("cert reload signal received, reconnecting");
+                true
             }
-        }
+        };
 
-        tokio::time::sleep(backoff).await;
-        if backoff < Duration::from_secs(30) {
-            backoff *= 2;
+        if is_cert_reload {
+            // Reconnect immediately on cert renewal — no backoff delay.
+            // The old cert is about to expire so we must swap quickly.
+            backoff = Duration::from_secs(2);
+        } else {
+            tokio::time::sleep(backoff).await;
+            if backoff < Duration::from_secs(30) {
+                backoff *= 2;
+            }
         }
     }
 }
