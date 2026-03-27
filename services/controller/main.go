@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -43,12 +44,7 @@ func main() {
 	if adminAddr == "" {
 		adminAddr = ":8081"
 	}
-	adminAuthToken := os.Getenv("ADMIN_AUTH_TOKEN")
-	internalAuthToken := os.Getenv("INTERNAL_API_TOKEN")
-	policySigningKey := os.Getenv("POLICY_SIGNING_KEY")
-	if policySigningKey == "" {
-		policySigningKey = internalAuthToken
-	}
+	jwtSecret := resolveControllerSecret("JWT_SECRET", caKeyPEM, "controller-jwt")
 	policyTTL := 10 * time.Minute
 	if v := strings.TrimSpace(os.Getenv("POLICY_SNAPSHOT_TTL_SECONDS")); v != "" {
 		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
@@ -58,13 +54,6 @@ func main() {
 	tokenStorePath := os.Getenv("TOKEN_STORE_PATH")
 	if tokenStorePath == "" {
 		tokenStorePath = "/var/lib/grpccontroller/tokens.json"
-	}
-
-	if adminAuthToken == "" {
-		log.Fatal("ADMIN_AUTH_TOKEN is not set")
-	}
-	if internalAuthToken == "" {
-		log.Fatal("INTERNAL_API_TOKEN is not set")
 	}
 
 	// ---- load internal CA ----
@@ -121,7 +110,7 @@ func main() {
 
 	idpEncKey := []byte(os.Getenv("IDP_ENCRYPTION_KEY"))
 	if len(idpEncKey) == 0 {
-		idpEncKey = []byte(os.Getenv("JWT_SECRET"))
+		idpEncKey = jwtSecret
 	}
 	// Encrypt workspace CA private keys at rest using the same key as IdP secrets.
 	workspaceStore.SetEncryptionKey(idpEncKey)
@@ -152,7 +141,7 @@ func main() {
 	)
 
 	scanStore := state.NewScanStore()
-	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, agentRegistry, agentStatus, aclStore, db, []byte(policySigningKey), policyTTL, scanStore)
+	controlPlaneServer := api.NewControlPlaneServer(trustDomain, registry, agentRegistry, agentStatus, aclStore, db, policyTTL, scanStore)
 	_ = state.LoadConnectorsFromDB(db, registry)
 	_ = state.LoadAgentRegistryFromDB(db, agentRegistry)
 	_ = state.LoadAgentsFromDB(db, agentStatus)
@@ -297,13 +286,11 @@ func main() {
 		ControlPlane:         controlPlaneServer,
 		StreamChecker:        controlPlaneServer,
 		Allowlists:           controlPlaneServer,
-		AdminAuthToken:       adminAuthToken,
-		InternalAuthToken:    internalAuthToken,
 		CACertPEM:            caCertPEM,
 		OAuthConfig:          oauthCfg,
 		ClientOAuthConfig:    clientOAuthCfg,
 		GitHubOAuthConfig:    githubOAuthCfg,
-		JWTSecret:            []byte(os.Getenv("JWT_SECRET")),
+		JWTSecret:            jwtSecret,
 		AdminLoginEmails:     adminLoginEmails,
 		SignupAllowedDomains: signupAllowedDomains,
 		DashboardURL:         os.Getenv("DASHBOARD_URL"),
@@ -319,7 +306,7 @@ func main() {
 		MaxSessionsPerUser:   parseIntEnv("MAX_SESSIONS_PER_USER", 5),
 		StrictSessionBinding: os.Getenv("STRICT_SESSION_BINDING") == "true",
 		AccessRequests:       state.NewAccessRequestStore(db),
-		AuditKey:             []byte(os.Getenv("JWT_SECRET")),
+		AuditKey:             jwtSecret,
 	}
 	admin.SetCORSOrigins(parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")), os.Getenv("DASHBOARD_URL"))
 	adminServer.RegisterRoutes(adminMux)
@@ -447,6 +434,15 @@ func parseAllowedOrigins(raw string) []string {
 		}
 	}
 	return out
+}
+
+func resolveControllerSecret(envName string, fallbackSource []byte, purpose string) []byte {
+	if value := strings.TrimSpace(os.Getenv(envName)); value != "" {
+		return []byte(value)
+	}
+	sum := sha256.Sum256(append([]byte("ztna:"+purpose+":"), fallbackSource...))
+	log.Printf("%s not set; deriving controller secret from INTERNAL_CA_KEY", envName)
+	return sum[:]
 }
 
 func normalizeTrustDomain(v string) string {

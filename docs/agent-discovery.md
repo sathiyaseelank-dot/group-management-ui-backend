@@ -313,7 +313,7 @@ CREATE TABLE agent_discovered_services (
 | `ListAllAgentDiscoveredServicesIncludingDismissed` | `[workspace_id=?]` | Results endpoint (all, with dismissed) |
 | `GetDiscoverySummary` | 4 count queries, all workspace-filtered | Summary endpoint |
 
-All query functions take a `workspaceID string` parameter. When empty (super-admin via `ADMIN_AUTH_TOKEN`), the workspace filter is omitted — returns data across all workspaces.
+All query functions take a `workspaceID string` parameter. When empty (admin JWT without workspace claims), the workspace filter is omitted — returns data across all workspaces.
 
 ---
 
@@ -430,7 +430,7 @@ func wsFilter(query string, args []any, workspaceID string) (string, []any) {
 }
 ```
 
-When `workspaceID == ""` (super-admin using `ADMIN_AUTH_TOKEN` without workspace JWT claims), no filter is applied — all data is returned. This preserves backward compatibility.
+When `workspaceID == ""` (admin JWT without workspace claims), no filter is applied — all data is returned.
 
 ### How Mutations Are Scoped
 

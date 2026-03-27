@@ -19,8 +19,11 @@ SYSTEMD_SRC_DIR="${SYSTEMD_SRC_DIR:-${REPO_DIR}/systemd}"
 CA_SRC_PATH="${CA_SRC_PATH:-${REPO_DIR}/services/controller/ca/ca.crt}"
 
 CONTROLLER_ADDR="${CONTROLLER_ADDR:-localhost:8443}"
+CONTROLLER_HTTP_URL="${CONTROLLER_HTTP_URL:-http://localhost:8081}"
 TRUST_DOMAIN="${TRUST_DOMAIN:-mycorp.internal}"
 CONNECTOR_LISTEN_ADDR="${CONNECTOR_LISTEN_ADDR:-127.0.0.1:9443}"
+DEVICE_TUNNEL_ADDR="${DEVICE_TUNNEL_ADDR:-}"
+DEVICE_TUNNEL_ADVERTISE_ADDR="${DEVICE_TUNNEL_ADVERTISE_ADDR:-}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -58,8 +61,15 @@ echo "  Repo:             ${REPO_DIR}"
 echo "  Binary:           ${DIST_DIR}/connector"
 echo "  CA cert:          ${CA_SRC_PATH}"
 echo "  Controller addr:  ${CONTROLLER_ADDR}"
+echo "  Controller URL:   ${CONTROLLER_HTTP_URL}"
 echo "  Trust domain:     ${TRUST_DOMAIN}"
 echo "  Listen addr:      ${CONNECTOR_LISTEN_ADDR}"
+if [[ -n "${DEVICE_TUNNEL_ADDR}" ]]; then
+  echo "  Device tunnel:    ${DEVICE_TUNNEL_ADDR}"
+fi
+if [[ -n "${DEVICE_TUNNEL_ADVERTISE_ADDR}" ]]; then
+  echo "  Advertise addr:   ${DEVICE_TUNNEL_ADVERTISE_ADDR}"
+fi
 echo ""
 
 # ── Collect inputs ────────────────────────────────────────────────────────────
@@ -109,11 +119,22 @@ ok "CA cert installed → /etc/connector/ca.crt"
 
 cat >/etc/connector/connector.conf <<EOF
 CONTROLLER_ADDR=${CONTROLLER_ADDR}
+CONTROLLER_HTTP_URL=${CONTROLLER_HTTP_URL}
 CONNECTOR_ID=${CONNECTOR_ID}
 ENROLLMENT_TOKEN=${CONNECTOR_TOKEN}
 TRUST_DOMAIN=${TRUST_DOMAIN}
 CONNECTOR_LISTEN_ADDR=${CONNECTOR_LISTEN_ADDR}
 EOF
+if [[ -n "${DEVICE_TUNNEL_ADDR}" ]]; then
+  cat >>/etc/connector/connector.conf <<EOF
+DEVICE_TUNNEL_ADDR=${DEVICE_TUNNEL_ADDR}
+EOF
+fi
+if [[ -n "${DEVICE_TUNNEL_ADVERTISE_ADDR}" ]]; then
+  cat >>/etc/connector/connector.conf <<EOF
+DEVICE_TUNNEL_ADVERTISE_ADDR=${DEVICE_TUNNEL_ADVERTISE_ADDR}
+EOF
+fi
 chmod 0600 /etc/connector/connector.conf
 ok "Config written → /etc/connector/connector.conf"
 

@@ -91,7 +91,7 @@ func (s *EnrollmentServer) EnrollConnector(
 	if workspaceID != "" && s.Registry != nil {
 		if rec, ok := s.Registry.Get(req.GetId()); ok && rec.WorkspaceID != "" {
 			if rec.WorkspaceID != workspaceID {
-				return nil, status.Error(codes.PermissionDenied, 
+				return nil, status.Error(codes.PermissionDenied,
 					"connector was enrolled with a different workspace; use original workspace token")
 			}
 		}
@@ -137,7 +137,7 @@ func (s *EnrollmentServer) EnrollConnector(
 
 	logEnrollment("connector", req.GetId(), req.GetPrivateIp(), req.GetVersion())
 	if s.Registry != nil {
-		s.Registry.RegisterWithWorkspace(req.GetId(), req.GetPrivateIp(), req.GetVersion(), workspaceID)
+		s.Registry.RegisterWithWorkspace(req.GetId(), req.GetPrivateIp(), "", req.GetVersion(), workspaceID)
 	}
 
 	return &controllerpb.EnrollResponse{

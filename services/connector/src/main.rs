@@ -217,7 +217,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         .unwrap_or_else(|| cfg.connector_id.clone());
 
     let allowlist = Arc::new(AgentAllowlist::new());
-    let acl = Arc::new(PolicyCache::new(cfg.policy_key.clone(), cfg.stale_grace));
+    let acl = Arc::new(PolicyCache::new(Vec::new(), cfg.stale_grace));
     let (send_ch, recv_ch) = mpsc::channel::<ControlMessage>(16);
     let agent_registry = Arc::new(AgentRegistry::new());
     let agent_tunnel_hub = AgentTunnelHub::new();
@@ -293,6 +293,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         cfg.controller_trust_domain.clone(),
         enrolled_connector_id.clone(),
         cfg.private_ip.clone(),
+        cfg.device_tunnel_advertise_addr.clone(),
         store.clone(),
         cfg.ca_pem.clone(),
         allowlist.clone(),
@@ -315,6 +316,7 @@ async fn control_plane_loop(
     controller_trust_domain: String,
     connector_id: String,
     private_ip: String,
+    device_tunnel_addr: String,
     store: CertStore,
     ca_pem: Vec<u8>,
     allowlist: Arc<AgentAllowlist>,
@@ -332,6 +334,7 @@ async fn control_plane_loop(
             &controller_trust_domain,
             &connector_id,
             &private_ip,
+            &device_tunnel_addr,
             &store,
             &ca_pem,
             &allowlist,
@@ -361,6 +364,7 @@ async fn connect_control_plane(
     controller_trust_domain: &str,
     connector_id: &str,
     private_ip: &str,
+    device_tunnel_addr: &str,
     store: &CertStore,
     ca_pem: &[u8],
     allowlist: &Arc<AgentAllowlist>,
@@ -445,7 +449,10 @@ async fn connect_control_plane(
             }
             _ = heartbeat.tick() => {
                 let agents = agent_registry.snapshot();
-                let payload = serde_json::to_vec(&agents).unwrap_or_default();
+                let payload = serde_json::to_vec(&serde_json::json!({
+                    "agents": agents,
+                    "device_tunnel_addr": device_tunnel_addr,
+                })).unwrap_or_default();
                 stream_tx.send(ControlMessage {
                     r#type: "heartbeat".to_string(),
                     connector_id: connector_id.to_string(),

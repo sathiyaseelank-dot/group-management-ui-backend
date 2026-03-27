@@ -150,11 +150,6 @@ func (d *DeviceServiceServer) DeviceAuthorize(ctx context.Context, req *controll
 			cfg := *d.S.GitHubOAuthConfig
 			cfg.RedirectURL = callbackURI
 			authURL = cfg.AuthCodeURL(deviceState)
-		} else if d.S.OAuthConfig != nil {
-			// Use the admin OAuth app — its redirect URI (/oauth/google/callback) is
-			// already registered in Google Console and routes through handleOAuthCallback
-			// which forwards device: states to handleDeviceCallback.
-			authURL = d.S.OAuthConfig.AuthCodeURL(deviceState)
 		} else {
 			clientCfg := d.S.effectiveClientOAuthConfig()
 			if clientCfg != nil {
@@ -166,7 +161,7 @@ func (d *DeviceServiceServer) DeviceAuthorize(ctx context.Context, req *controll
 	}
 
 	if authURL == "" {
-		return nil, status.Error(codes.Internal, "failed to build auth URL")
+		return nil, status.Error(codes.Internal, "client OAuth is not configured for device login")
 	}
 
 	return &controllerpb.DeviceAuthorizeResponse{

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,14 +35,13 @@ func newTestServer(t *testing.T, db *sql.DB) (*Server, *mockNotifier) {
 	t.Helper()
 	notify := &mockNotifier{}
 	srv := &Server{
-		Tokens:            state.NewTokenStoreWithDB(60, db),
-		Reg:               state.NewRegistry(),
-		Agents:            state.NewAgentStatusRegistry(),
-		ACLs:              state.NewACLStoreWithDB(db),
-		ACLNotify:         notify,
-		Users:             state.NewUserStore(db),
-		AdminAuthToken:    "test-token",
-		InternalAuthToken: "internal-token",
+		Tokens:    state.NewTokenStoreWithDB(60, db),
+		Reg:       state.NewRegistry(),
+		Agents:    state.NewAgentStatusRegistry(),
+		ACLs:      state.NewACLStoreWithDB(db),
+		ACLNotify: notify,
+		Users:     state.NewUserStore(db),
+		JWTSecret: []byte("test-jwt-secret"),
 	}
 	return srv, notify
 }
@@ -75,7 +75,11 @@ func do(srv *Server, method, path string, body interface{}, auth bool) *httptest
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
 	if auth {
-		req.Header.Set("Authorization", "Bearer test-token")
+		tok, err := srv.signAdminJWT("test-admin@example.com", "test-uid", "", "", "owner", "")
+		if err != nil {
+			panic(fmt.Sprintf("signAdminJWT in test helper: %v", err))
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	rr := httptest.NewRecorder()
 	mux := http.NewServeMux()
@@ -142,7 +146,7 @@ func TestConnectorDELETE_removesFromDBAndRegistry(t *testing.T) {
 	connID := "conn-del-1"
 	insertConnector(t, db, connID, "")
 	insertToken(t, db, "tok-abc", connID)
-	srv.Reg.Register(connID, "10.0.0.1", "1.0")
+	srv.Reg.Register(connID, "10.0.0.1", "", "1.0")
 
 	rr := do(srv, http.MethodDelete, "/api/connectors/"+connID, nil, false)
 	if rr.Code != http.StatusOK {

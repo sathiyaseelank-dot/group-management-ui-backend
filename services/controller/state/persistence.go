@@ -14,10 +14,10 @@ func SaveConnectorToDB(db *sql.DB, rec ConnectorRecord) error {
 	}
 	lastSeenAt := rec.LastSeen.UTC().Format(time.RFC3339)
 	_, err := db.Exec(
-		Rebind(`INSERT INTO connectors (id, private_ip, version, last_seen, installed, status, last_seen_at, workspace_id)
-		VALUES (?, ?, ?, ?, 1, 'online', ?, ?)
-		ON CONFLICT(id) DO UPDATE SET private_ip=excluded.private_ip, version=excluded.version, last_seen=excluded.last_seen, installed=1, status='online', last_seen_at=excluded.last_seen_at, workspace_id=CASE WHEN excluded.workspace_id = '' THEN connectors.workspace_id ELSE excluded.workspace_id END`),
-		rec.ID, rec.PrivateIP, rec.Version, rec.LastSeen.Unix(), lastSeenAt, rec.WorkspaceID,
+		Rebind(`INSERT INTO connectors (id, private_ip, connector_tunnel_addr, version, last_seen, installed, status, last_seen_at, workspace_id)
+		VALUES (?, ?, ?, ?, ?, 1, 'online', ?, ?)
+		ON CONFLICT(id) DO UPDATE SET private_ip=excluded.private_ip, connector_tunnel_addr=excluded.connector_tunnel_addr, version=excluded.version, last_seen=excluded.last_seen, installed=1, status='online', last_seen_at=excluded.last_seen_at, workspace_id=CASE WHEN excluded.workspace_id = '' THEN connectors.workspace_id ELSE excluded.workspace_id END`),
+		rec.ID, rec.PrivateIP, rec.TunnelAddr, rec.Version, rec.LastSeen.Unix(), lastSeenAt, rec.WorkspaceID,
 	)
 	return err
 }
@@ -55,21 +55,22 @@ func DeleteAgentFromDB(db *sql.DB, id string) error {
 }
 
 func LoadConnectorsFromDB(db *sql.DB, registry *Registry) error {
-	rows, err := db.Query(`SELECT id, private_ip, version, last_seen, workspace_id FROM connectors`)
+	rows, err := db.Query(`SELECT id, private_ip, connector_tunnel_addr, version, last_seen, workspace_id FROM connectors`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, privateIP, version, workspaceID string
+		var id, privateIP, tunnelAddr, version, workspaceID string
 		var lastSeen int64
-		if err := rows.Scan(&id, &privateIP, &version, &lastSeen, &workspaceID); err != nil {
+		if err := rows.Scan(&id, &privateIP, &tunnelAddr, &version, &lastSeen, &workspaceID); err != nil {
 			continue
 		}
 		registry.mu.Lock()
 		registry.records[id] = ConnectorRecord{
 			ID:          id,
 			PrivateIP:   privateIP,
+			TunnelAddr:  tunnelAddr,
 			Version:     version,
 			LastSeen:    time.Unix(lastSeen, 0).UTC(),
 			WorkspaceID: workspaceID,

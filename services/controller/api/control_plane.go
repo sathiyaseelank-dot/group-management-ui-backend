@@ -28,7 +28,6 @@ type ControlPlaneServer struct {
 	agentStatus *state.AgentStatusRegistry
 	acls        *state.ACLStore
 	db          *sql.DB
-	signingKey  []byte
 	snapshotTTL time.Duration
 	scanStore   *state.ScanStore
 	mu          sync.Mutex
@@ -39,7 +38,7 @@ type ControlPlaneServer struct {
 }
 
 // NewControlPlaneServer creates a new control plane server.
-func NewControlPlaneServer(trustDomain string, registry *state.Registry, agents *state.AgentRegistry, agentStatus *state.AgentStatusRegistry, acls *state.ACLStore, db *sql.DB, signingKey []byte, snapshotTTL time.Duration, scanStore *state.ScanStore) *ControlPlaneServer {
+func NewControlPlaneServer(trustDomain string, registry *state.Registry, agents *state.AgentRegistry, agentStatus *state.AgentStatusRegistry, acls *state.ACLStore, db *sql.DB, snapshotTTL time.Duration, scanStore *state.ScanStore) *ControlPlaneServer {
 	_ = trustDomain
 	return &ControlPlaneServer{
 		registry:    registry,
@@ -47,7 +46,6 @@ func NewControlPlaneServer(trustDomain string, registry *state.Registry, agents 
 		agentStatus: agentStatus,
 		acls:        acls,
 		db:          db,
-		signingKey:  signingKey,
 		snapshotTTL: snapshotTTL,
 		scanStore:   scanStore,
 		clients:     make(map[string]*connectorClient),
@@ -142,35 +140,57 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 			}
 		}
 		if msg.GetType() == "heartbeat" {
+			deviceTunnelAddr := ""
+			if len(msg.GetPayload()) > 0 {
+				var payload struct {
+					Agents []struct {
+						AgentID string `json:"agent_id"`
+						Status  string `json:"status"`
+						IP      string `json:"ip"`
+					} `json:"agents"`
+					DeviceTunnelAddr string `json:"device_tunnel_addr"`
+				}
+				if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil {
+					deviceTunnelAddr = payload.DeviceTunnelAddr
+					if s.agentStatus != nil {
+						for _, t := range payload.Agents {
+							s.agentStatus.Record(t.AgentID, "", msg.GetConnectorId(), t.IP)
+							log.Printf("agent heartbeat: agent_id=%s connector_id=%s status=%s ip=%s", t.AgentID, msg.GetConnectorId(), t.Status, t.IP)
+							if s.acls != nil && s.acls.DB() != nil {
+								if rec, ok := s.agentStatus.Get(t.AgentID); ok {
+									_ = state.SaveAgentToDB(s.acls.DB(), rec)
+								}
+							}
+						}
+					}
+				} else if s.agentStatus != nil {
+					var agents []struct {
+						AgentID string `json:"agent_id"`
+						Status  string `json:"status"`
+						IP      string `json:"ip"`
+					}
+					if err := json.Unmarshal(msg.GetPayload(), &agents); err == nil {
+						for _, t := range agents {
+							s.agentStatus.Record(t.AgentID, "", msg.GetConnectorId(), t.IP)
+							log.Printf("agent heartbeat: agent_id=%s connector_id=%s status=%s ip=%s", t.AgentID, msg.GetConnectorId(), t.Status, t.IP)
+							if s.acls != nil && s.acls.DB() != nil {
+								if rec, ok := s.agentStatus.Get(t.AgentID); ok {
+									_ = state.SaveAgentToDB(s.acls.DB(), rec)
+								}
+							}
+						}
+					}
+				}
+			}
 			if s.registry != nil {
-				s.registry.RecordHeartbeat(msg.GetConnectorId(), msg.GetPrivateIp())
+				s.registry.RecordHeartbeat(msg.GetConnectorId(), msg.GetPrivateIp(), deviceTunnelAddr)
 				if s.acls != nil && s.acls.DB() != nil {
 					if rec, ok := s.registry.Get(msg.GetConnectorId()); ok {
 						_ = state.SaveConnectorToDB(s.acls.DB(), rec)
 					}
 				}
 			}
-			log.Printf("heartbeat: connector_id=%s private_ip=%s status=%s", msg.GetConnectorId(), msg.GetPrivateIp(), msg.GetStatus())
-
-			// Connector embeds agent statuses in the heartbeat payload.
-			if s.agentStatus != nil && len(msg.GetPayload()) > 0 {
-				var agents []struct {
-					AgentID string `json:"agent_id"`
-					Status  string `json:"status"`
-					IP      string `json:"ip"`
-				}
-				if err := json.Unmarshal(msg.GetPayload(), &agents); err == nil {
-					for _, t := range agents {
-						s.agentStatus.Record(t.AgentID, "", msg.GetConnectorId(), t.IP)
-						log.Printf("agent heartbeat: agent_id=%s connector_id=%s status=%s ip=%s", t.AgentID, msg.GetConnectorId(), t.Status, t.IP)
-						if s.acls != nil && s.acls.DB() != nil {
-							if rec, ok := s.agentStatus.Get(t.AgentID); ok {
-								_ = state.SaveAgentToDB(s.acls.DB(), rec)
-							}
-						}
-					}
-				}
-			}
+			log.Printf("heartbeat: connector_id=%s private_ip=%s tunnel_addr=%s status=%s", msg.GetConnectorId(), msg.GetPrivateIp(), deviceTunnelAddr, msg.GetStatus())
 		}
 		if msg.GetType() == "agent_heartbeat" && s.agentStatus != nil {
 			var payload struct {

@@ -22,10 +22,6 @@ function getBackendUrl() {
   return process.env.BACKEND_URL || 'http://localhost:8081'
 }
 
-function getAdminAuthToken() {
-  return process.env.ADMIN_AUTH_TOKEN || '7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4'
-}
-
 // Extract JWT from an Express request's Authorization header.
 export function getJWTFromRequest(req: { headers: { authorization?: string } }): string | undefined {
   const auth = req.headers.authorization
@@ -40,17 +36,17 @@ export async function proxyToBackend<T = any>(
 ): Promise<T> {
   const url = `${getBackendUrl()}${path}`;
 
-  const authHeader = userJWT
-    ? `Bearer ${userJWT}`
-    : `Bearer ${getAdminAuthToken()}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+  if (userJWT) {
+    headers['Authorization'] = `Bearer ${userJWT}`;
+  }
 
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': authHeader,
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -89,4 +85,4 @@ export async function proxyWithJWT<T = any>(
   return response.json();
 }
 
-export { getBackendUrl, getAdminAuthToken };
+export { getBackendUrl };
