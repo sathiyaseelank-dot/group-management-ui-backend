@@ -154,8 +154,10 @@ export default function NetworkDiscoveryPage() {
     )
   }
 
+  const hasContent = !!scanJob
+
   return (
-    <div className="space-y-6 p-6">
+    <div className={`space-y-6 p-6${hasContent ? ' min-h-full bg-background' : ''}`}>
       <div>
         <h1 className="text-2xl font-bold">Network Discovery</h1>
         <p className="text-muted-foreground">
