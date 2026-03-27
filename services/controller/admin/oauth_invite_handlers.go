@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -729,16 +730,53 @@ func (s *Server) writeAdminAudit(db *sql.DB, actor, action, target, result strin
 }
 
 // resolveDashboardURL returns the URL to redirect the user to after OAuth.
-// It prefers the return_to value captured from the login request, then falls
+// It prefers the return_to value if it matches an allowed origin, then falls
 // back to the configured DashboardURL, then to localhost.
 func (s *Server) resolveDashboardURL(returnTo string) string {
-	if returnTo != "" {
+	if returnTo != "" && s.isAllowedRedirectOrigin(returnTo) {
 		return strings.TrimRight(returnTo, "/")
 	}
 	if s.DashboardURL != "" {
 		return s.DashboardURL
 	}
 	return "http://localhost:5173"
+}
+
+// isAllowedRedirectOrigin checks if a URL's origin matches the configured
+// dashboard URL or CORS allowed origins. Prevents open redirect attacks.
+func (s *Server) isAllowedRedirectOrigin(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	target := u.Scheme + "://" + u.Host
+	if s.DashboardURL != "" {
+		if du, err := url.Parse(s.DashboardURL); err == nil {
+			allowed := du.Scheme + "://" + du.Host
+			if target == allowed {
+				return true
+			}
+		}
+	}
+	for _, origin := range corsAllowedOrigins {
+		if ou, err := url.Parse(origin); err == nil {
+			allowed := ou.Scheme + "://" + ou.Host
+			if target == allowed {
+				return true
+			}
+		}
+	}
+	// Allow loopback and private/LAN IPs — safe since they are not
+	// internet-routable and this is a self-hosted tool.
+	host := u.Hostname()
+	if host == "localhost" || host == "127.0.0.1" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
+		return true
+	}
+	return false
 }
 
 // BuildOAuthConfig returns a configured *oauth2.Config for Google if clientID is set, otherwise nil.

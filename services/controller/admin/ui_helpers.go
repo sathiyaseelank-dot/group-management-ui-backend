@@ -171,6 +171,7 @@ func scanUIAgent(scanner interface{ Scan(dest ...any) error }) (uiAgent, bool) {
 	if t.Name == "" {
 		t.Name = t.ID
 	}
+	t.Installed = installed.Valid && installed.Int64 != 0
 	t.Status = strings.TrimSpace(status.String)
 	if t.Status == "" {
 		t.Status = "offline"
@@ -178,11 +179,20 @@ func scanUIAgent(scanner interface{ Scan(dest ...any) error }) (uiAgent, bool) {
 	if revoked.Valid && revoked.Int64 != 0 {
 		t.Status = "revoked"
 		t.Revoked = true
+	} else if lastSeen.Valid && t.Installed {
+		// Derive live status from heartbeat timestamp, same as connectors.
+		// Only for enrolled agents (installed=1) — freshly created agents stay offline.
+		if ts, err := strconv.ParseInt(lastSeen.String, 10, 64); err == nil && ts > 0 {
+			if time.Since(time.Unix(ts, 0)) <= connectorStaleThreshold {
+				t.Status = "online"
+			} else if t.Status == "online" {
+				t.Status = "offline"
+			}
+		}
 	}
 	t.Version = strings.TrimSpace(version.String)
 	t.Hostname = strings.TrimSpace(hostname.String)
 	t.RemoteNetworkID = strings.TrimSpace(remoteNetworkID.String)
-	t.Installed = installed.Valid && installed.Int64 != 0
 	if lastSeenAt.Valid && lastSeenAt.String != "" {
 		t.LastSeen = lastSeenAt.String
 		t.LastSeenAt = &lastSeenAt.String

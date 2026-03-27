@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -84,10 +85,10 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/diagnostics/ping/", withCORS(wsAdmin(http.HandlerFunc(s.handleUIDiagnosticsPing))))
 	mux.Handle("/api/diagnostics/trace", withCORS(wsAdmin(http.HandlerFunc(s.handleUIDiagnosticsTrace))))
 
-	// Discovery routes (admin-authed with CORS)
-	mux.Handle("/api/admin/discovery/scan", withCORS(s.adminAuth(http.HandlerFunc(s.handleStartScan))))
-	mux.Handle("/api/admin/discovery/scan/", withCORS(s.adminAuth(http.HandlerFunc(s.handleScanStatus))))
-	mux.Handle("/api/admin/discovery/results", withCORS(s.adminAuth(http.HandlerFunc(s.handleDiscoveryResults))))
+	// Discovery routes (workspace-scoped admin auth)
+	mux.Handle("/api/admin/discovery/scan", withCORS(wsAdmin(http.HandlerFunc(s.handleStartScan))))
+	mux.Handle("/api/admin/discovery/scan/", withCORS(wsAdmin(http.HandlerFunc(s.handleScanStatus))))
+	mux.Handle("/api/admin/discovery/results", withCORS(wsAdmin(http.HandlerFunc(s.handleDiscoveryResults))))
 
 	// Agent discovery routes
 	mux.Handle("/api/admin/agent-discovery/results", withCORS(wsAdmin(http.HandlerFunc(s.handleAgentDiscoveryResults))))
@@ -166,9 +167,12 @@ func withCORS(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
-		} else {
-			// Neither configured — dev mode fallback.
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if origin != "" {
+			// Neither configured — allow only loopback origins for local development.
+			if u, err := url.Parse(origin); err == nil && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1") {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")

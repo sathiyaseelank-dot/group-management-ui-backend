@@ -31,7 +31,7 @@ func (s *Server) signSessionJWT(email string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub": email,
 		"iss": jwtIssuer,
-		"exp": time.Now().Add(24 * time.Hour).Unix(),
+		"exp": time.Now().Add(4 * time.Hour).Unix(),
 		"iat": time.Now().Unix(),
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -69,7 +69,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
-		MaxAge:   86400,
+		MaxAge:   14400, // 4 hours — matches JWT expiry
 		HttpOnly: true,
 		Secure:   s.SecureCookies,
 		SameSite: http.SameSiteLaxMode,
@@ -123,7 +123,7 @@ func (s *Server) signWorkspaceJWT(email, userID, wsID, wsSlug, wsRole string) (s
 		"wslug": wsSlug,
 		"wrole": wsRole,
 		"iss":   jwtIssuer,
-		"exp":   time.Now().Add(24 * time.Hour).Unix(),
+		"exp":   time.Now().Add(4 * time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -266,7 +266,7 @@ func (s *Server) signAdminJWT(email, userID, wsID, wsSlug, wsRole, sessionID str
 		"aud":   "admin",
 		"jti":   sessionID,
 		"iss":   jwtIssuer,
-		"exp":   time.Now().Add(24 * time.Hour).Unix(),
+		"exp":   time.Now().Add(4 * time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

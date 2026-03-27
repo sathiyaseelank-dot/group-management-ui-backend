@@ -614,8 +614,8 @@ func (s *Server) handleDeviceAuthComplete(w http.ResponseWriter, r *http.Request
 			UserAgent:        r.Header.Get("User-Agent"),
 			RefreshTokenHash: refreshTokenHash,
 			CreatedAt:        now,
-			ExpiresAt:        now + 30*24*60*60, // 30 days
-			AbsoluteExpiresAt: now + 30*24*60*60, // 30 days max lifetime
+			ExpiresAt:        now + 14*24*60*60, // 14 days
+			AbsoluteExpiresAt: now + 14*24*60*60, // 14 days max lifetime
 			IPSubnet:         state.ExtractIPSubnet(r.RemoteAddr),
 			UAHash:           state.HashUserAgent(r.Header.Get("User-Agent")),
 		}
@@ -951,8 +951,8 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 			UserAgent:        r.Header.Get("User-Agent"),
 			RefreshTokenHash: refreshTokenHash,
 			CreatedAt:        now,
-			ExpiresAt:        now + 30*24*60*60, // 30 days
-			AbsoluteExpiresAt: now + 30*24*60*60, // 30 days max lifetime
+			ExpiresAt:        now + 14*24*60*60, // 14 days
+			AbsoluteExpiresAt: now + 14*24*60*60, // 14 days max lifetime
 			IPSubnet:         state.ExtractIPSubnet(r.RemoteAddr),
 			UAHash:           state.HashUserAgent(r.Header.Get("User-Agent")),
 		}

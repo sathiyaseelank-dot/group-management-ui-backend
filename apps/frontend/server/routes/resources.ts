@@ -32,7 +32,8 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json(formatted)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -45,7 +46,8 @@ router.post('/', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(resource)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -58,7 +60,8 @@ router.post('/batch', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -69,7 +72,8 @@ router.get('/:resourceId', async (req: Request, res: Response) => {
     const result = await proxyToBackend<any>(`/api/resources/${resourceId}`, {}, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -83,7 +87,8 @@ router.put('/:resourceId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -97,7 +102,8 @@ router.patch('/:resourceId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -110,7 +116,8 @@ router.delete('/:resourceId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

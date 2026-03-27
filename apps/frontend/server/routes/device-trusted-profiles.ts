@@ -9,7 +9,8 @@ router.get('/', async (req: Request, res: Response) => {
     const result = await proxyToBackend<any[]>('/api/device-trusted-profiles', {}, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -22,7 +23,8 @@ router.post('/', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -36,7 +38,8 @@ router.patch('/:id', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -49,7 +52,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json({ ok: true })
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

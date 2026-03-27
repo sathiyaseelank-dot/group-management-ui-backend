@@ -43,7 +43,8 @@ router.post('/scan', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -54,7 +55,8 @@ router.get('/scan/:requestId', async (req: Request, res: Response) => {
     const raw = await proxyToBackend(`/api/admin/discovery/scan/${requestId}`, {}, getJWTFromRequest(req)) as Record<string, unknown>
     res.json(mapScanJob(raw))
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -66,7 +68,8 @@ router.get('/results', async (req: Request, res: Response) => {
     const raw = await proxyToBackend(`/api/admin/discovery/results${query}`, {}, getJWTFromRequest(req)) as Record<string, unknown>[]
     res.json(Array.isArray(raw) ? raw.map(mapResource) : [])
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

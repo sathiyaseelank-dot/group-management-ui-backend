@@ -4,7 +4,7 @@ set -euo pipefail
 
 DB_NAME="ztna"
 DB_USER="ztnaadmin"
-DB_PASS="inkztnapass"
+DB_PASS="${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD env var}"
 
 echo "Setting up PostgreSQL for ZTNA..."
 

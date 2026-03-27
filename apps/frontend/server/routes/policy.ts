@@ -10,7 +10,8 @@ router.get('/acl/:connectorId', async (req: Request, res: Response) => {
     const policy = await proxyToBackend(`/api/policy/acl/${connectorId}`, {}, getJWTFromRequest(req))
     res.json(policy)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -21,7 +22,8 @@ router.get('/compile/:connectorId', async (req: Request, res: Response) => {
     const policy = await proxyToBackend(`/api/policy/compile/${connectorId}`, {}, getJWTFromRequest(req))
     res.json(policy)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

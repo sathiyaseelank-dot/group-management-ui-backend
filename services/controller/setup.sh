@@ -31,10 +31,14 @@ fi
 # 3. Create .env if not exists
 if [ ! -f .env ]; then
     echo "Creating .env file..."
-    cat > .env << 'ENVEOF'
+    GENERATED_ADMIN_TOKEN=$(openssl rand -hex 16)
+    GENERATED_API_TOKEN=$(openssl rand -hex 32)
+    GENERATED_JWT_SECRET=$(openssl rand -hex 32)
+    cat > .env <<ENVEOF
 TRUST_DOMAIN=mycorp.internal
-ADMIN_AUTH_TOKEN=7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4
-INTERNAL_API_TOKEN=e4b2f8d1c3a9e6f7b0d2a4c9e8f1a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3
+ADMIN_AUTH_TOKEN=${GENERATED_ADMIN_TOKEN}
+INTERNAL_API_TOKEN=${GENERATED_API_TOKEN}
+JWT_SECRET=${GENERATED_JWT_SECRET}
 CONTROLLER_ADDR=localhost:8443
 ADMIN_HTTP_ADDR=0.0.0.0:8081
 ENVEOF

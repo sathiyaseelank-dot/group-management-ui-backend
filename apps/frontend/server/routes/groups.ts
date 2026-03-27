@@ -47,7 +47,8 @@ router.get('/', async (req: Request, res: Response) => {
     const groups = await proxyToBackend<BackendGroup[]>('/api/groups', {}, getJWTFromRequest(req))
     res.json(groups.map(mapBackendGroup))
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -60,7 +61,8 @@ router.post('/', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(mapBackendGroup(group))
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -71,7 +73,8 @@ router.get('/:groupId', async (req: Request, res: Response) => {
     const payload = await proxyToBackend(`/api/groups/${groupId}`, {}, getJWTFromRequest(req))
     res.json(payload)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -85,7 +88,8 @@ router.put('/:groupId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(group)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -98,7 +102,8 @@ router.delete('/:groupId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -109,7 +114,8 @@ router.get('/:groupId/members', async (req: Request, res: Response) => {
     const members = await proxyToBackend(`/api/admin/user-groups/${groupId}/members`, {}, getJWTFromRequest(req))
     res.json(members)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -123,7 +129,8 @@ router.post('/:groupId/members', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -136,7 +143,8 @@ router.delete('/:groupId/members/:userId', async (req: Request, res: Response) =
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -150,7 +158,8 @@ router.post('/:groupId/resources', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

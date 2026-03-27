@@ -154,18 +154,30 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 
 			// Connector embeds agent statuses in the heartbeat payload.
 			if s.agentStatus != nil && len(msg.GetPayload()) > 0 {
-				var agents []struct {
+				type agentEntry struct {
 					AgentID string `json:"agent_id"`
 					Status  string `json:"status"`
 					IP      string `json:"ip"`
 				}
-				if err := json.Unmarshal(msg.GetPayload(), &agents); err == nil {
+				var agents []agentEntry
+				// Try bare array first, then wrapped {"agents":[...]} envelope.
+				if err := json.Unmarshal(msg.GetPayload(), &agents); err != nil {
+					var envelope struct {
+						Agents []agentEntry `json:"agents"`
+					}
+					if err2 := json.Unmarshal(msg.GetPayload(), &envelope); err2 == nil {
+						agents = envelope.Agents
+					}
+				}
+				{
 					for _, t := range agents {
 						s.agentStatus.Record(t.AgentID, "", msg.GetConnectorId(), t.IP)
 						log.Printf("agent heartbeat: agent_id=%s connector_id=%s status=%s ip=%s", t.AgentID, msg.GetConnectorId(), t.Status, t.IP)
 						if s.acls != nil && s.acls.DB() != nil {
 							if rec, ok := s.agentStatus.Get(t.AgentID); ok {
-								_ = state.SaveAgentToDB(s.acls.DB(), rec)
+								if err := state.SaveAgentToDB(s.acls.DB(), rec); err != nil {
+									log.Printf("agent heartbeat: failed to save agent %s: %v", t.AgentID, err)
+								}
 							}
 						}
 					}

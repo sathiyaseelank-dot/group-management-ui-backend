@@ -23,7 +23,11 @@ function getBackendUrl() {
 }
 
 function getAdminAuthToken() {
-  return process.env.ADMIN_AUTH_TOKEN || '7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4'
+  const token = process.env.ADMIN_AUTH_TOKEN
+  if (!token) {
+    throw new Error('ADMIN_AUTH_TOKEN environment variable is required')
+  }
+  return token
 }
 
 // Extract JWT from an Express request's Authorization header.

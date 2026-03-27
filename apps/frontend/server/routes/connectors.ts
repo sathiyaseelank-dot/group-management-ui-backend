@@ -9,7 +9,8 @@ router.get('/', async (req: Request, res: Response) => {
     const connectors = await proxyToBackend('/api/connectors', {}, getJWTFromRequest(req))
     res.json(connectors)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -22,7 +23,8 @@ router.post('/', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(connector)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -33,7 +35,8 @@ router.get('/:connectorId', async (req: Request, res: Response) => {
     const connector = await proxyToBackend(`/api/connectors/${connectorId}`, {}, getJWTFromRequest(req))
     res.json(connector)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -46,7 +49,8 @@ router.delete('/:connectorId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -59,7 +63,8 @@ router.post('/:connectorId/grant', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -72,7 +77,8 @@ router.post('/:connectorId/revoke', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -87,7 +93,8 @@ router.patch('/:connectorId/heartbeat', async (req: Request, res: Response) => {
       current_version: req.body.last_policy_version,
     })
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
