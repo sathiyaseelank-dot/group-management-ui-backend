@@ -287,6 +287,7 @@ func main() {
 		StreamChecker:        controlPlaneServer,
 		Allowlists:           controlPlaneServer,
 		CACertPEM:            caCertPEM,
+		TrustDomain:          trustDomain,
 		OAuthConfig:          oauthCfg,
 		ClientOAuthConfig:    clientOAuthCfg,
 		GitHubOAuthConfig:    githubOAuthCfg,

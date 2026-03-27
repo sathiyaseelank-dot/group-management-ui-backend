@@ -44,7 +44,8 @@ type Server struct {
 	StreamChecker ConnectorStreamChecker
 	Allowlists    AllowlistRefresher
 
-	CACertPEM []byte
+	CACertPEM   []byte
+	TrustDomain string
 
 	// OAuth + JWT session
 	OAuthConfig          *oauth2.Config // Google admin app (backward compat)
@@ -124,6 +125,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	// during bootstrap before any trust is established (same pattern as Vault
 	// /v1/pki/ca/pem, Consul /v1/connect/ca/roots, Teleport, etc.)
 	mux.HandleFunc("/ca.crt", s.handleCACert)
+	mux.Handle("/api/controller/config", withCORS(http.HandlerFunc(s.handleControllerConfig)))
 	mux.Handle("/api/admin/tokens", s.adminAuth(http.HandlerFunc(s.handleCreateToken)))
 	mux.Handle("/api/admin/connectors", s.adminAuth(http.HandlerFunc(s.handleListConnectors)))
 	mux.Handle("/api/admin/connectors/", s.adminAuth(http.HandlerFunc(s.handleConnectorSubroutes)))
@@ -140,6 +142,17 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/admin/remote-networks/", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworkConnectors)))
 	s.RegisterWorkspaceRoutes(mux)
 	s.RegisterUIRoutes(mux)
+}
+
+func (s *Server) handleControllerConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"trust_domain": strings.TrimSpace(s.TrustDomain),
+	})
 }
 
 type ACLNotifier interface {
@@ -254,7 +267,6 @@ func (s *Server) deviceAuth(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
-
 
 // workspaceAuth validates JWT and extracts workspace claims into context.
 // Workspace claims are optional — JWTs without them are still valid.
@@ -400,7 +412,6 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
-
 
 func (s *Server) handleListConnectors(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

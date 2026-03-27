@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { createEnrollmentToken, deleteConnector, getConnector, grantConnector, revokeConnector } from '@/lib/mock-api';
+import { createEnrollmentToken, deleteConnector, getConnector, getControllerConfig, grantConnector, revokeConnector } from '@/lib/mock-api';
 import { Connector, RemoteNetwork } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -115,6 +115,21 @@ export default function ConnectorDetailPage() {
       loadConnectorData();
     }
   }, [connectorId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getControllerConfig()
+      .then((config) => {
+        if (cancelled) return;
+        if (config.trust_domain) {
+          setControllerTrustDomain(config.trust_domain);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const didFetchToken = useRef(false);
 

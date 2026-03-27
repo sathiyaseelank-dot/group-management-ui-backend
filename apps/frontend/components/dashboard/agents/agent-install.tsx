@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { createEnrollmentToken, deleteAgent, getConnectors } from '@/lib/mock-api';
+import { createEnrollmentToken, deleteAgent, getConnectors, getControllerConfig } from '@/lib/mock-api';
 import { Connector } from '@/lib/types';
 import { toast } from 'sonner';
 import { getWorkspaceClaims } from '@/lib/jwt';
@@ -67,6 +67,21 @@ export function AgentInstall({
     didFetchToken.current = true;
     void handleCreateToken();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getControllerConfig()
+      .then((config) => {
+        if (cancelled) return;
+        if (config.trust_domain) {
+          setControllerTrustDomain(config.trust_domain);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
