@@ -415,8 +415,10 @@ export default function AgentDiscoveryPage() {
 
   const isNew = (svc: AgentDiscoveredService) => lastVisited > 0 && svc.firstSeen > lastVisited
 
+  const hasContent = !!summary
+
   return (
-    <div className="space-y-6 p-6">
+    <div className={`space-y-6 p-6${hasContent ? ' min-h-full bg-background' : ''}`}>
       <div>
         <h1 className="text-2xl font-bold">Agent Discovery</h1>
         <p className="text-muted-foreground">
