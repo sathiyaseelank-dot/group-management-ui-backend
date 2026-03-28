@@ -23,6 +23,7 @@ import diagnosticsRouter from './routes/diagnostics'
 import deviceTrustedProfilesRouter from './routes/device-trusted-profiles'
 import devicePostureRouter from './routes/device-posture'
 import devicesRouter from './routes/devices'
+import controllerConfigRouter from './routes/controller-config'
 
 const app = express()
 
@@ -49,6 +50,7 @@ app.use('/api/diagnostics', diagnosticsRouter)
 app.use('/api/device-trusted-profiles', deviceTrustedProfilesRouter)
 app.use('/api/device-posture', devicePostureRouter)
 app.use('/api/devices', devicesRouter)
+app.use('/api/controller-config', controllerConfigRouter)
 
 // POST /api/auth/logout — forwards to controller OAuth logout, then signals client to clear token
 app.post('/api/auth/logout', async (_req: Request, res: Response) => {

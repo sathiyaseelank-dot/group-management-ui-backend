@@ -193,7 +193,7 @@ After
 
 | Gap | Risk |
 |---|---|
-| Static `ADMIN_AUTH_TOKEN` bypass still exists in `adminAuth` | Internal/service callers still work; could be abused if token leaks |
-| `ADMIN_LOGIN_EMAILS` only checked on JWT path | Still irrelevant for static-token callers |
+| ~~Static `ADMIN_AUTH_TOKEN` bypass still exists in `adminAuth`~~ | **Resolved** — static token bypass removed; all admin endpoints require JWT |
+| ~~`ADMIN_LOGIN_EMAILS` only checked on JWT path~~ | **Resolved** — JWT is the only path now |
 | Signup is open (no domain allowlist) | Anyone can create a workspace |
 | `withWorkspaceContext` does not require a JWT | Handlers using it must manually enforce auth |

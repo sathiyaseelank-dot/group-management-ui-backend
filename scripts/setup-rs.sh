@@ -12,13 +12,33 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-required_envs=(CONTROLLER_ADDR CONTROLLER_HTTP_ADDR CONNECTOR_ID ENROLLMENT_TOKEN POLICY_SIGNING_KEY)
+required_envs=(CONTROLLER_ADDR CONNECTOR_ID ENROLLMENT_TOKEN)
 for var in "${required_envs[@]}"; do
   if [[ -z "${!var:-}" ]]; then
     echo "ERROR: ${var} is required." >&2
     exit 1
   fi
 done
+
+CONTROLLER_HTTP_ADDR="${CONTROLLER_HTTP_ADDR:-}"
+CONTROLLER_HTTP_URL="${CONTROLLER_HTTP_URL:-}"
+DEVICE_TUNNEL_ADDR="${DEVICE_TUNNEL_ADDR:-}"
+DEVICE_TUNNEL_ADVERTISE_ADDR="${DEVICE_TUNNEL_ADVERTISE_ADDR:-}"
+
+if [[ -z "${CONTROLLER_HTTP_ADDR}" && -n "${CONTROLLER_HTTP_URL}" ]]; then
+  CONTROLLER_HTTP_ADDR="${CONTROLLER_HTTP_URL#http://}"
+  CONTROLLER_HTTP_ADDR="${CONTROLLER_HTTP_ADDR#https://}"
+  CONTROLLER_HTTP_ADDR="${CONTROLLER_HTTP_ADDR%/}"
+fi
+
+if [[ -z "${CONTROLLER_HTTP_URL}" && -n "${CONTROLLER_HTTP_ADDR}" ]]; then
+  CONTROLLER_HTTP_URL="http://${CONTROLLER_HTTP_ADDR}"
+fi
+
+if [[ -z "${CONTROLLER_HTTP_ADDR}" ]]; then
+  echo "ERROR: CONTROLLER_HTTP_ADDR or CONTROLLER_HTTP_URL is required." >&2
+  exit 1
+fi
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
@@ -100,7 +120,13 @@ chmod 0644 "${bundled_ca}"
   echo "CONTROLLER_ADDR=${CONTROLLER_ADDR}"
   echo "CONNECTOR_ID=${CONNECTOR_ID}"
   echo "ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}"
-  echo "POLICY_SIGNING_KEY=${POLICY_SIGNING_KEY}"
+  echo "CONTROLLER_HTTP_URL=${CONTROLLER_HTTP_URL}"
+  if [[ -n "${DEVICE_TUNNEL_ADDR}" ]]; then
+    echo "DEVICE_TUNNEL_ADDR=${DEVICE_TUNNEL_ADDR}"
+  fi
+  if [[ -n "${DEVICE_TUNNEL_ADVERTISE_ADDR}" ]]; then
+    echo "DEVICE_TUNNEL_ADVERTISE_ADDR=${DEVICE_TUNNEL_ADVERTISE_ADDR}"
+  fi
   if [[ -n "${CONNECTOR_PRIVATE_IP:-}" ]]; then
     echo "CONNECTOR_PRIVATE_IP=${CONNECTOR_PRIVATE_IP}"
   fi

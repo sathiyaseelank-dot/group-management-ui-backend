@@ -36,8 +36,7 @@ DATABASE_URL="postgres://..." go test ./...  # tests skip if DATABASE_URL is uns
 sudo TRUST_DOMAIN="mycorp.internal" \
   INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
   INTERNAL_CA_KEY="$(cat ca/ca.pkcs8.key)" \
-  ADMIN_AUTH_TOKEN="<token>" \
-  INTERNAL_API_TOKEN="<token>" \
+  JWT_SECRET="<secret>" \
   ADMIN_HTTP_ADDR="0.0.0.0:8081" \
   DATABASE_URL="postgres://..." \
   go run .
@@ -331,9 +330,7 @@ All tables created via `initSchemaDialect()` in `state/db.go` on startup. New co
 | `DATABASE_URL` | ✅ | PostgreSQL connection string |
 | `INTERNAL_CA_CERT` | ✅ | PEM CA certificate |
 | `INTERNAL_CA_KEY` | ✅ | PEM PKCS#8 CA private key |
-| `ADMIN_AUTH_TOKEN` | ✅ | Bearer token for admin API |
-| `INTERNAL_API_TOKEN` | ✅ | Token for internal service auth |
-| `JWT_SECRET` | ✅ | HMAC secret for JWT signing |
+| `JWT_SECRET` | | HMAC secret for JWT signing. If unset, the controller derives one from `INTERNAL_CA_KEY`. |
 | `TRUST_DOMAIN` | | SPIFFE trust domain (default: `mycorp.internal`) |
 | `ADMIN_HTTP_ADDR` | | HTTP listen address (default: `:8081`) |
 | `OAUTH_CALLBACK_ADDR` | | Secondary listener for OAuth callbacks (default: none, uses main addr) |
@@ -349,18 +346,16 @@ All tables created via `initSchemaDialect()` in `state/db.go` on startup. New co
 | `ADMIN_LOGIN_EMAILS` | | CSV of emails allowed admin login (empty = DB role check) |
 | `DASHBOARD_URL` | | Frontend URL for post-OAuth redirect (default: `http://localhost:3000`) |
 | `INVITE_BASE_URL` | | Base URL for invite links (use frontend URL: `http://localhost:3000`) |
-| `IDP_ENCRYPTION_KEY` | | AES-256 key for workspace IdP secrets (fallback: `JWT_SECRET`) |
+| `IDP_ENCRYPTION_KEY` | | AES-256 key for workspace IdP secrets (fallback: effective JWT secret, including the derived `INTERNAL_CA_KEY` fallback) |
 | `SECURE_COOKIES` | | `true` for HTTPS-only cookies |
 | `ALLOWED_ORIGINS` | | Comma-separated CORS allowlist |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | | Email config for invites |
-| `POLICY_SIGNING_KEY` | | (default: `INTERNAL_API_TOKEN`) |
 
 ### Frontend (`apps/frontend/.env`)
 
 | Variable | Description |
 |---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | Go controller URL (default: `http://localhost:8081`) |
-| `ADMIN_AUTH_TOKEN` | Bearer token for proxying to controller |
 | `VITE_CONTROLLER_URL` | Controller base URL for browser-side redirects (default: `http://localhost:8081`) |
 
 ### Connector / Agent

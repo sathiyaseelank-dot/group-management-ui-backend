@@ -62,9 +62,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 async function requestLocal<T>(path: string, options: RequestInit = {}): Promise<T> {
   console.log(`[mock-api] Local request to: ${path}`);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
   const res = await fetch(path, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -77,6 +79,17 @@ async function requestLocal<T>(path: string, options: RequestInit = {}): Promise
   }
 
   return res.json() as Promise<T>;
+}
+
+export interface ControllerConfig {
+  trust_domain: string;
+}
+
+export async function getControllerConfig(): Promise<ControllerConfig> {
+  if (API_BASE) {
+    return request<ControllerConfig>('/api/controller/config');
+  }
+  return requestLocal<ControllerConfig>('/api/controller-config');
 }
 
 // API: Get single remote network with connectors and resources

@@ -95,6 +95,24 @@ ensure_nft() {
   echo "nft installed: $(command -v nft)"
 }
 
+warn_if_kernel_reboot_needed() {
+  if [[ "$(uname -s)" != "Linux" || ! -d /usr/lib/modules ]]; then
+    return 0
+  fi
+
+  local running_kernel latest_installed
+  running_kernel="$(uname -r)"
+  latest_installed="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -V | tail -n 1)"
+
+  if [[ -z "${latest_installed}" || "${latest_installed}" == "${running_kernel}" ]]; then
+    return 0
+  fi
+
+  echo "WARNING: running kernel (${running_kernel}) does not match newest installed kernel (${latest_installed})." >&2
+  echo "WARNING: reboot this device before relying on agent nftables/firewall enforcement." >&2
+  echo "WARNING: if nft commands fail or firewall rules do not apply, reboot first." >&2
+}
+
 resolve_nologin_shell() {
   local candidate
   for candidate in /usr/sbin/nologin /usr/bin/nologin /sbin/nologin /bin/false; do
@@ -158,6 +176,7 @@ case "${arch}" in
 esac
 
 ensure_nft
+warn_if_kernel_reboot_needed
 
 binary="agent-${os}-${arch}"
 release_url="https://github.com/vairabarath/zero-trust/releases/latest/download/${binary}"
@@ -261,5 +280,6 @@ rm -rf /var/lib/private/agent /var/lib/agent /run/agent
 systemctl start agent.service
 
 unset ENROLLMENT_TOKEN
+warn_if_kernel_reboot_needed
 
 echo "Agent setup completed."

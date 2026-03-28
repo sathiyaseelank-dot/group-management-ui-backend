@@ -78,6 +78,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			version TEXT NOT NULL DEFAULT '',
 			hostname TEXT NOT NULL DEFAULT '',
 			private_ip TEXT NOT NULL DEFAULT '',
+			connector_tunnel_addr TEXT NOT NULL DEFAULT '',
 			remote_network_id TEXT NOT NULL DEFAULT '',
 			last_seen INTEGER NOT NULL DEFAULT 0,
 			last_seen_at TEXT NOT NULL DEFAULT '',
@@ -390,6 +391,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		_, _ = db.Exec(`ALTER TABLE device_auth_requests ADD COLUMN IF NOT EXISTS nonce TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
+		_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN IF NOT EXISTS connector_tunnel_addr TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS revoked INTEGER NOT NULL DEFAULT 0`)
 		_, _ = db.Exec(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''`)
 		_, _ = db.Exec(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS installed INTEGER NOT NULL DEFAULT 0`)
@@ -428,6 +430,9 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 	if dialect == "postgres" {
 		_, _ = db.Exec(`ALTER TABLE resources ADD COLUMN IF NOT EXISTS firewall_status TEXT NOT NULL DEFAULT 'unprotected'`)
 	} else {
+		if !sqliteColumnExists(db, "connectors", "connector_tunnel_addr") {
+			_, _ = db.Exec(`ALTER TABLE connectors ADD COLUMN connector_tunnel_addr TEXT NOT NULL DEFAULT ''`)
+		}
 		if !sqliteColumnExists(db, "resources", "firewall_status") {
 			_, _ = db.Exec(`ALTER TABLE resources ADD COLUMN firewall_status TEXT NOT NULL DEFAULT 'unprotected'`)
 		}

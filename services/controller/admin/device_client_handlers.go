@@ -148,11 +148,14 @@ func lookupOnlineConnectorTunnelAddrByNetwork(db *sql.DB, remoteNetworkID string
 		return "", sql.ErrNoRows
 	}
 
-	rows, err := db.Query(state.Rebind(`SELECT c.private_ip, c.last_seen
+	rows, err := db.Query(state.Rebind(`SELECT c.connector_tunnel_addr, c.private_ip, c.last_seen
 		FROM connectors c
 		WHERE c.revoked = 0
 		  AND c.status = 'online'
-		  AND COALESCE(TRIM(c.private_ip), '') <> ''
+		  AND (
+			COALESCE(TRIM(c.connector_tunnel_addr), '') <> ''
+			OR COALESCE(TRIM(c.private_ip), '') <> ''
+		  )
 		  AND (
 			c.remote_network_id = ?
 			OR EXISTS (
@@ -169,12 +172,13 @@ func lookupOnlineConnectorTunnelAddrByNetwork(db *sql.DB, remoteNetworkID string
 	defer rows.Close()
 
 	for rows.Next() {
+		var tunnelAddr sql.NullString
 		var privateIP sql.NullString
 		var lastSeen sql.NullInt64
-		if err := rows.Scan(&privateIP, &lastSeen); err != nil {
+		if err := rows.Scan(&tunnelAddr, &privateIP, &lastSeen); err != nil {
 			return "", err
 		}
-		addr := connectorTunnelAddrFromRecord(privateIP.String, lastSeen)
+		addr := connectorTunnelAddrFromRecord(tunnelAddr.String, privateIP.String, lastSeen)
 		if addr != "" {
 			return addr, nil
 		}
@@ -190,33 +194,41 @@ func lookupOnlineConnectorTunnelAddrByID(db *sql.DB, connectorID string) (string
 		return "", sql.ErrNoRows
 	}
 
+	var tunnelAddr sql.NullString
 	var privateIP sql.NullString
 	var lastSeen sql.NullInt64
-	if err := db.QueryRow(state.Rebind(`SELECT private_ip, last_seen
+	if err := db.QueryRow(state.Rebind(`SELECT connector_tunnel_addr, private_ip, last_seen
 		FROM connectors
 		WHERE id = ?
 		  AND revoked = 0
 		  AND status = 'online'
-		  AND COALESCE(TRIM(private_ip), '') <> ''`), connectorID).Scan(&privateIP, &lastSeen); err != nil {
+		  AND (
+			COALESCE(TRIM(connector_tunnel_addr), '') <> ''
+			OR COALESCE(TRIM(private_ip), '') <> ''
+		  )`), connectorID).Scan(&tunnelAddr, &privateIP, &lastSeen); err != nil {
 		return "", err
 	}
 
-	addr := connectorTunnelAddrFromRecord(privateIP.String, lastSeen)
+	addr := connectorTunnelAddrFromRecord(tunnelAddr.String, privateIP.String, lastSeen)
 	if addr == "" {
 		return "", sql.ErrNoRows
 	}
 	return addr, nil
 }
 
-func connectorTunnelAddrFromRecord(privateIP string, lastSeen sql.NullInt64) string {
-	privateIP = strings.TrimSpace(privateIP)
-	if privateIP == "" {
-		return ""
-	}
+func connectorTunnelAddrFromRecord(tunnelAddr, privateIP string, lastSeen sql.NullInt64) string {
 	if !lastSeen.Valid || lastSeen.Int64 <= 0 {
 		return ""
 	}
 	if time.Since(time.Unix(lastSeen.Int64, 0)) > connectorStaleThreshold {
+		return ""
+	}
+	tunnelAddr = strings.TrimSpace(tunnelAddr)
+	if tunnelAddr != "" {
+		return tunnelAddr
+	}
+	privateIP = strings.TrimSpace(privateIP)
+	if privateIP == "" {
 		return ""
 	}
 	return formatTunnelAddr(privateIP, 9444)

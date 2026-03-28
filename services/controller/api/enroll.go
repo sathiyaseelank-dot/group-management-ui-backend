@@ -91,7 +91,7 @@ func (s *EnrollmentServer) EnrollConnector(
 	if workspaceID != "" && s.Registry != nil {
 		if rec, ok := s.Registry.Get(req.GetId()); ok && rec.WorkspaceID != "" {
 			if rec.WorkspaceID != workspaceID {
-				return nil, status.Error(codes.PermissionDenied, 
+				return nil, status.Error(codes.PermissionDenied,
 					"connector was enrolled with a different workspace; use original workspace token")
 			}
 		}
@@ -137,7 +137,7 @@ func (s *EnrollmentServer) EnrollConnector(
 
 	logEnrollment("connector", req.GetId(), req.GetPrivateIp(), req.GetVersion())
 	if s.Registry != nil {
-		s.Registry.RegisterWithWorkspace(req.GetId(), req.GetPrivateIp(), req.GetVersion(), workspaceID)
+		s.Registry.RegisterWithWorkspace(req.GetId(), req.GetPrivateIp(), "", req.GetVersion(), workspaceID)
 	}
 
 	return &controllerpb.EnrollResponse{
@@ -298,6 +298,9 @@ func (s *EnrollmentServer) Renew(
 		return nil, status.Errorf(codes.Internal, "certificate renewal failed: %v", err)
 	}
 	logIssuedCert("renew", spiffeID, certPEM)
+	if role == "agent" && s.Notifier != nil {
+		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), req.GetPrivateIp(), req.GetPrivateIp())
+	}
 	if role == "connector" && s.DB != nil {
 		nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 		_, _ = s.DB.Exec(

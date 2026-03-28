@@ -44,9 +44,8 @@ type Server struct {
 	StreamChecker ConnectorStreamChecker
 	Allowlists    AllowlistRefresher
 
-	AdminAuthToken    string
-	InternalAuthToken string
-	CACertPEM         []byte
+	CACertPEM   []byte
+	TrustDomain string
 
 	// OAuth + JWT session
 	OAuthConfig          *oauth2.Config // Google admin app (backward compat)
@@ -126,6 +125,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	// during bootstrap before any trust is established (same pattern as Vault
 	// /v1/pki/ca/pem, Consul /v1/connect/ca/roots, Teleport, etc.)
 	mux.HandleFunc("/ca.crt", s.handleCACert)
+	mux.Handle("/api/controller/config", withCORS(http.HandlerFunc(s.handleControllerConfig)))
 	mux.Handle("/api/admin/tokens", s.adminAuth(http.HandlerFunc(s.handleCreateToken)))
 	mux.Handle("/api/admin/connectors", s.adminAuth(http.HandlerFunc(s.handleListConnectors)))
 	mux.Handle("/api/admin/connectors/", s.adminAuth(http.HandlerFunc(s.handleConnectorSubroutes)))
@@ -140,9 +140,19 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/admin/user-groups/", s.adminAuth(http.HandlerFunc(s.handleUserGroupMembers)))
 	mux.Handle("/api/admin/remote-networks", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworks)))
 	mux.Handle("/api/admin/remote-networks/", s.adminAuth(http.HandlerFunc(s.handleRemoteNetworkConnectors)))
-	mux.Handle("/api/internal/consume-token", s.internalAuth(http.HandlerFunc(s.handleConsumeToken)))
 	s.RegisterWorkspaceRoutes(mux)
 	s.RegisterUIRoutes(mux)
+}
+
+func (s *Server) handleControllerConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"trust_domain": strings.TrimSpace(s.TrustDomain),
+	})
 }
 
 type ACLNotifier interface {
@@ -156,49 +166,40 @@ type ACLNotifier interface {
 
 func (s *Server) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.AdminAuthToken == "" {
-			http.Error(w, "admin auth not configured", http.StatusServiceUnavailable)
+		if len(s.JWTSecret) == 0 {
+			http.Error(w, "JWT not configured", http.StatusServiceUnavailable)
 			return
 		}
-		// Accept Bearer ADMIN_AUTH_TOKEN (BFF compat).
-		auth := r.Header.Get("Authorization")
-		if auth == "Bearer "+s.AdminAuthToken {
-			next.ServeHTTP(w, r)
+		claims, err := parseAllClaims(s.getTokenFromRequest(r), s.JWTSecret)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		// Accept valid JWT session.
-		if len(s.JWTSecret) > 0 {
-			claims, err := parseAllClaims(s.getTokenFromRequest(r), s.JWTSecret)
-			if err == nil {
-				// Reject device tokens on admin endpoints.
-				if claims.aud == "device" {
-					http.Error(w, "device tokens cannot access admin endpoints", http.StatusUnauthorized)
-					return
-				}
-				// Validate session not revoked (if Sessions store and jti present).
-				if s.Sessions != nil && claims.jti != "" {
-					if valid, err := s.Sessions.IsValid(claims.jti); err == nil && !valid {
-						http.Error(w, "session revoked or expired", http.StatusUnauthorized)
-						return
-					}
-				}
-				// Allow workspace owners/admins via JWT workspace role claim,
-				// OR via DB users.role check (covers invited owners whose DB role is "Member").
-				wsRole := strings.ToLower(strings.TrimSpace(claims.wsRole))
-				isWsAdmin := wsRole == "owner" || wsRole == "admin"
-				if !isWsAdmin && !s.isAdminEmail(claims.email) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				ctx := withSessionEmail(r.Context(), claims.email)
-				if claims.userID != "" {
-					ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, claims.wsRole)
-				}
-				next.ServeHTTP(w, r.WithContext(ctx))
+		// Reject device tokens on admin endpoints.
+		if claims.aud == "device" {
+			http.Error(w, "device tokens cannot access admin endpoints", http.StatusUnauthorized)
+			return
+		}
+		// Validate session not revoked (if Sessions store and jti present).
+		if s.Sessions != nil && claims.jti != "" {
+			if valid, err := s.Sessions.IsValid(claims.jti); err == nil && !valid {
+				http.Error(w, "session revoked or expired", http.StatusUnauthorized)
 				return
 			}
 		}
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		// Allow workspace owners/admins via JWT workspace role claim,
+		// OR via DB users.role check (covers invited owners whose DB role is "Member").
+		wsRole := strings.ToLower(strings.TrimSpace(claims.wsRole))
+		isWsAdmin := wsRole == "owner" || wsRole == "admin"
+		if !isWsAdmin && !s.isAdminEmail(claims.email) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		ctx := withSessionEmail(r.Context(), claims.email)
+		if claims.userID != "" {
+			ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, claims.wsRole)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -264,20 +265,6 @@ func (s *Server) deviceAuth(next http.Handler) http.Handler {
 		ctx = withWorkspace(ctx, claims.userID, claims.wsID, claims.wsSlug, role)
 		ctx = context.WithValue(ctx, contextKey("device_id"), claims.deviceID)
 		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func (s *Server) internalAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.InternalAuthToken == "" {
-			http.Error(w, "internal auth not configured", http.StatusServiceUnavailable)
-			return
-		}
-		if r.Header.Get("X-Internal-Token") != s.InternalAuthToken {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
 	})
 }
 
@@ -424,30 +411,6 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		"workspace_id": wsID,
 	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) handleConsumeToken(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		Token       string `json:"token"`
-		ConnectorID string `json:"connector_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-	if req.ConnectorID == "" {
-		http.Error(w, "missing connector_id", http.StatusBadRequest)
-		return
-	}
-	if err := s.Tokens.ConsumeToken(req.Token, req.ConnectorID); err != nil {
-		http.Error(w, fmt.Sprintf("token invalid: %v", err), http.StatusUnauthorized)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleListConnectors(w http.ResponseWriter, r *http.Request) {

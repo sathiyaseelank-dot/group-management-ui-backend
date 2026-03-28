@@ -24,12 +24,12 @@ pub struct RunConfig {
     pub agent_trust_domain: String,
     pub listen_addr: String,
     pub private_ip: String,
-    pub policy_key: Vec<u8>,
     pub stale_grace: Duration,
     pub enrollment_token: String,
     pub ca_pem: Vec<u8>,
     pub controller_http_url: String,
     pub device_tunnel_addr: String,
+    pub device_tunnel_advertise_addr: String,
 }
 
 pub fn normalize_trust_domain(v: &str) -> String {
@@ -147,11 +147,10 @@ pub fn enroll_config_from_env() -> Result<EnrollConfig> {
 }
 
 pub fn run_config_from_env() -> Result<RunConfig> {
-    let controller_addr = env::var("CONTROLLER_ADDR").unwrap_or_default();
-    let connector_id = env::var("CONNECTOR_ID").unwrap_or_default();
-    let (controller_trust_domain, agent_trust_domain) = load_trust_domains();
-    let policy_key_str = env::var("POLICY_SIGNING_KEY").unwrap_or_default();
-    let listen_addr_env = env::var("CONNECTOR_LISTEN_ADDR").unwrap_or_default();
+	let controller_addr = env::var("CONTROLLER_ADDR").unwrap_or_default();
+	let connector_id = env::var("CONNECTOR_ID").unwrap_or_default();
+	let (controller_trust_domain, agent_trust_domain) = load_trust_domains();
+	let listen_addr_env = env::var("CONNECTOR_LISTEN_ADDR").unwrap_or_default();
 
     let stale_grace = {
         let v = env::var("POLICY_STALE_GRACE_SECONDS").unwrap_or_default();
@@ -191,22 +190,27 @@ pub fn run_config_from_env() -> Result<RunConfig> {
     let device_tunnel_addr =
         env::var("DEVICE_TUNNEL_ADDR").unwrap_or_else(|_| format!("{}:9444", private_ip));
     let device_tunnel_addr = device_tunnel_addr.trim().to_string();
+    let device_tunnel_advertise_addr =
+        env::var("DEVICE_TUNNEL_ADVERTISE_ADDR").unwrap_or_else(|_| {
+            default_device_tunnel_advertise_addr(&device_tunnel_addr, &private_ip)
+        });
+    let device_tunnel_advertise_addr = device_tunnel_advertise_addr.trim().to_string();
 
     let ca_pem = load_controller_ca()?;
 
     Ok(RunConfig {
         controller_addr: controller_addr.trim().to_string(),
         connector_id: connector_id.trim().to_string(),
-        controller_trust_domain,
-        agent_trust_domain,
-        listen_addr,
-        private_ip,
-        policy_key: policy_key_str.trim().as_bytes().to_vec(),
-        stale_grace,
-        enrollment_token: enrollment_token.trim().to_string(),
-        ca_pem,
+		controller_trust_domain,
+		agent_trust_domain,
+		listen_addr,
+		private_ip,
+		stale_grace,
+		enrollment_token: enrollment_token.trim().to_string(),
+		ca_pem,
         controller_http_url,
         device_tunnel_addr,
+        device_tunnel_advertise_addr,
     })
 }
 
@@ -218,4 +222,15 @@ fn resolve_version() -> String {
         }
     }
     crate::buildinfo::version().to_string()
+}
+
+fn default_device_tunnel_advertise_addr(bind_addr: &str, private_ip: &str) -> String {
+    let bind_addr = bind_addr.trim();
+    if let Some((host, port)) = bind_addr.rsplit_once(':') {
+        let host = host.trim_matches(['[', ']']).trim();
+        if host.is_empty() || host == "0.0.0.0" || host == "::" {
+            return format!("{}:{}", private_ip.trim(), port);
+        }
+    }
+    bind_addr.to_string()
 }

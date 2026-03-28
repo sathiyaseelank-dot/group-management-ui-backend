@@ -6,7 +6,7 @@ import { AddUserModal } from '@/components/dashboard/users/add-user-modal';
 import { EditUserModal } from '@/components/dashboard/users/edit-user-modal';
 import { InviteUserModal } from '@/components/dashboard/users/invite-user-modal';
 import { Button } from '@/components/ui/button';
-import { Loader2, Mail, Plus } from 'lucide-react';
+import { Loader2, Mail, Plus, Users, UserCheck } from 'lucide-react';
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -62,28 +62,42 @@ export default function UsersPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center p-16">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <p className="text-xs text-muted-foreground font-mono tracking-wider">Loading users...</p>
+        </div>
       </div>
     );
   }
 
+  const activeCount = users.filter(u => u.status === 'active').length;
+
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
+      {/* Page Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Users</h1>
-          <p className="text-sm text-muted-foreground">
-            View all user subjects available for identity and access control
-          </p>
+        <div className="flex items-center gap-4">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
+            <Users className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="font-display text-xl font-bold uppercase tracking-wide">Users</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Identity subjects for access control
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => setIsInviteOpen(true)}>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 rounded-lg bg-muted/60 px-3 py-1.5 ring-1 ring-border/30">
+            <UserCheck className="h-3 w-3 text-secure" />
+            <span className="text-[11px] font-mono text-muted-foreground">{activeCount} active</span>
+          </div>
+          <Button variant="outline" size="sm" className="gap-2 text-[12px]" onClick={() => setIsInviteOpen(true)}>
             <Mail className="h-4 w-4" />
-            Invite User
+            Invite
           </Button>
-          <Button className="gap-2" onClick={() => setIsModalOpen(true)}>
+          <Button size="sm" className="gap-2 font-display font-semibold uppercase tracking-wider text-[12px]" onClick={() => setIsModalOpen(true)}>
             <Plus className="h-4 w-4" />
             Add User
           </Button>
@@ -98,7 +112,7 @@ export default function UsersPage() {
         onDeleteUser={handleDeleteUser}
       />
 
-      {/* Add User Modal */}
+      {/* Modals */}
       <AddUserModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

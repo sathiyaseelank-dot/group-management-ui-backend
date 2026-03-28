@@ -113,6 +113,24 @@ ensure_nft() {
   ok "nft installed → $(command -v nft)"
 }
 
+warn_if_kernel_reboot_needed() {
+  if [[ "$(uname -s)" != "Linux" || ! -d /usr/lib/modules ]]; then
+    return 0
+  fi
+
+  local running_kernel latest_installed
+  running_kernel="$(uname -r)"
+  latest_installed="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -V | tail -n 1)"
+
+  if [[ -z "${latest_installed}" || "${latest_installed}" == "${running_kernel}" ]]; then
+    return 0
+  fi
+
+  warn "Running kernel (${running_kernel}) does not match newest installed kernel (${latest_installed})"
+  warn "Reboot this device before relying on agent nftables/firewall enforcement"
+  warn "If nft commands fail or firewall rules do not apply, reboot first"
+}
+
 prompt_if_empty() {
   local varname="$1"
   local prompt_text="$2"
@@ -175,6 +193,7 @@ fi
 ok "Systemd unit file found"
 
 ensure_nft
+warn_if_kernel_reboot_needed
 echo ""
 
 # ── Create system user ─────────────────────────────────────────────────────────
@@ -244,6 +263,7 @@ systemctl restart agent.service
 ok "agent.service enabled and started"
 
 unset ENROLLMENT_TOKEN
+warn_if_kernel_reboot_needed
 
 echo ""
 echo "════════════════════════════════════════════════════"

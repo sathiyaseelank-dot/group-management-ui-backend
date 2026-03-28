@@ -8,6 +8,7 @@ import (
 type ConnectorRecord struct {
 	ID          string
 	PrivateIP   string
+	TunnelAddr  string
 	Version     string
 	LastSeen    time.Time
 	WorkspaceID string
@@ -22,25 +23,27 @@ func NewRegistry() *Registry {
 	return &Registry{records: make(map[string]ConnectorRecord)}
 }
 
-func (r *Registry) Register(id, privateIP, version string) {
+func (r *Registry) Register(id, privateIP, tunnelAddr, version string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	existing := r.records[id]
 	r.records[id] = ConnectorRecord{
 		ID:          id,
 		PrivateIP:   privateIP,
+		TunnelAddr:  tunnelAddr,
 		Version:     version,
 		LastSeen:    time.Now().UTC(),
 		WorkspaceID: existing.WorkspaceID,
 	}
 }
 
-func (r *Registry) RegisterWithWorkspace(id, privateIP, version, workspaceID string) {
+func (r *Registry) RegisterWithWorkspace(id, privateIP, tunnelAddr, version, workspaceID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.records[id] = ConnectorRecord{
 		ID:          id,
 		PrivateIP:   privateIP,
+		TunnelAddr:  tunnelAddr,
 		Version:     version,
 		LastSeen:    time.Now().UTC(),
 		WorkspaceID: workspaceID,
@@ -83,7 +86,7 @@ func (r *Registry) Delete(id string) {
 	delete(r.records, id)
 }
 
-func (r *Registry) RecordHeartbeat(connectorID, privateIP string) {
+func (r *Registry) RecordHeartbeat(connectorID, privateIP, tunnelAddr string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rec, ok := r.records[connectorID]
@@ -91,6 +94,7 @@ func (r *Registry) RecordHeartbeat(connectorID, privateIP string) {
 		rec = ConnectorRecord{ID: connectorID}
 	}
 	rec.PrivateIP = privateIP
+	rec.TunnelAddr = tunnelAddr
 	rec.LastSeen = time.Now().UTC()
 	r.records[connectorID] = rec
 }

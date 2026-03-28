@@ -44,8 +44,6 @@ sudo \
   TRUST_DOMAIN="mycorp.internal" \
   INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
   INTERNAL_CA_KEY="$(cat ca/ca.pkcs8.key)" \
-  ADMIN_AUTH_TOKEN="7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4" \
-  INTERNAL_API_TOKEN="e4b2f8d1c3a9e6f7b0d2a4c9e8f1a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3" \
   CONTROLLER_ADDR="127.0.0.1:8443" \
   ADMIN_HTTP_ADDR="0.0.0.0:8081" \
   ./controller
@@ -59,7 +57,7 @@ The controller now listens on:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8081/api/admin/tokens \
-  -H "Authorization: Bearer 7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4" | jq .
+  -H "Authorization: Bearer <admin-jwt>" | jq .
 ```
 
 Response:
@@ -88,7 +86,6 @@ sudo \
   CONNECTOR_ID="connector-local-01" \
   ENROLLMENT_TOKEN="<token-from-step-2>" \
   TRUST_DOMAIN="mycorp.internal" \
-  POLICY_SIGNING_KEY="e4b2f8d1c3a9e6f7b0d2a4c9e8f1a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3" \
   CONTROLLER_CA="$(cat /tmp/controller-ca.crt)" \
   ./target/release/connector run
 ```
@@ -104,7 +101,7 @@ INFO grpcconnector2: connector enrolled as spiffe://mycorp.internal/connector/co
 
 ```bash
 curl -s http://127.0.0.1:8081/api/admin/connectors \
-  -H "Authorization: Bearer 7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4" | jq .
+  -H "Authorization: Bearer <admin-jwt>" | jq .
 ```
 
 The connector should appear with `status: "ONLINE"`.
@@ -136,8 +133,6 @@ sudo \
   TRUST_DOMAIN="mycorp.internal" \
   INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
   INTERNAL_CA_KEY="$(cat ca/ca.pkcs8.key)" \
-  ADMIN_AUTH_TOKEN="7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4" \
-  INTERNAL_API_TOKEN="e4b2f8d1c3a9e6f7b0d2a4c9e8f1a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3" \
   CONTROLLER_ADDR="192.168.1.213:8443" \
   ADMIN_HTTP_ADDR="0.0.0.0:8081" \
   ./controller
@@ -149,7 +144,7 @@ sudo \
 
 ```bash
 curl -s -X POST http://192.168.1.213:8081/api/admin/tokens \
-  -H "Authorization: Bearer 7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4" | jq .
+  -H "Authorization: Bearer <admin-jwt>" | jq .
 ```
 
 ### Step 3: Install the Connector on Machine B
@@ -162,7 +157,6 @@ curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts
   CONTROLLER_HTTP_ADDR="192.168.1.213:8081" \
   CONNECTOR_ID="connector-lan-01" \
   ENROLLMENT_TOKEN="<token-from-step-2>" \
-  POLICY_SIGNING_KEY="e4b2f8d1c3a9e6f7b0d2a4c9e8f1a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3" \
   bash
 ```
 
@@ -182,7 +176,6 @@ sudo \
   CONNECTOR_ID="connector-lan-01" \
   ENROLLMENT_TOKEN="<token-from-step-2>" \
   TRUST_DOMAIN="mycorp.internal" \
-  POLICY_SIGNING_KEY="e4b2f8d1c3a9e6f7b0d2a4c9e8f1a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3" \
   CONTROLLER_CA="$(cat /tmp/controller-ca.crt)" \
   ./connector run
 ```
@@ -191,7 +184,7 @@ sudo \
 
 ```bash
 curl -s http://192.168.1.213:8081/api/admin/connectors \
-  -H "Authorization: Bearer 7f8e91a2b3c4d5e6f7a8b9c0d1e2f3a4" | jq .
+  -H "Authorization: Bearer <admin-jwt>" | jq .
 ```
 
 ### Step 5: Check systemd Service (if script-installed)
@@ -249,13 +242,11 @@ These scripts stop the service, remove the binary, config, systemd unit, and run
 |---|---|---|---|
 | `INTERNAL_CA_CERT` | Yes | -- | PEM CA certificate |
 | `INTERNAL_CA_KEY` | Yes | -- | PEM PKCS#8 CA private key |
-| `ADMIN_AUTH_TOKEN` | Yes | -- | Bearer token for admin API |
-| `INTERNAL_API_TOKEN` | Yes | -- | Token for internal endpoints |
+| `JWT_SECRET` | No | derived from `INTERNAL_CA_KEY` | HMAC secret for JWT signing |
 | `TRUST_DOMAIN` | No | `mycorp.internal` | SPIFFE trust domain |
 | `CONTROLLER_ADDR` | No | `:8443` | gRPC listen address |
 | `ADMIN_HTTP_ADDR` | No | `:8081` | HTTP admin listen address |
 | `DB_PATH` | No | in-memory | SQLite database path |
-| `POLICY_SIGNING_KEY` | No | falls back to `INTERNAL_API_TOKEN` | HMAC key for policy signing |
 
 ### Connector (Rust)
 
@@ -264,7 +255,6 @@ These scripts stop the service, remove the binary, config, systemd unit, and run
 | `CONTROLLER_ADDR` | Yes | -- | Controller gRPC `host:port` |
 | `CONNECTOR_ID` | Yes | -- | Unique connector identifier |
 | `ENROLLMENT_TOKEN` | Yes | -- | One-time enrollment token |
-| `POLICY_SIGNING_KEY` | No | derived from mTLS | HMAC key for policy verification (optional override if derivation fails) |
 | `TRUST_DOMAIN` | No | `mycorp.internal` | SPIFFE trust domain |
 | `CONTROLLER_CA` | No* | -- | PEM CA cert (inline) |
 | `CONTROLLER_CA_PATH` | No* | -- | Path to CA cert file |
@@ -282,7 +272,6 @@ These scripts stop the service, remove the binary, config, systemd unit, and run
 | `CONTROLLER_HTTP_ADDR` | Yes | Controller HTTP `host:port` (for CA download) |
 | `CONNECTOR_ID` | Yes | Unique connector identifier |
 | `ENROLLMENT_TOKEN` | Yes | One-time enrollment token |
-| `POLICY_SIGNING_KEY` | No | Optional override if policy key derivation fails |
 
 ---
 
@@ -318,7 +307,7 @@ The connector needs the controller's CA certificate. Provide it via one of:
 Enrollment tokens are single-use. Generate a new one via the admin API:
 ```bash
 curl -s -X POST http://<controller>:8081/api/admin/tokens \
-  -H "Authorization: Bearer <ADMIN_AUTH_TOKEN>"
+  -H "Authorization: Bearer <admin-jwt-token>"
 ```
 
 ### Connector keeps restarting
@@ -327,4 +316,4 @@ Check logs:
 sudo journalctl -u connector.service -n 50 --no-pager
 ```
 Common causes: wrong `CONTROLLER_ADDR`, expired token, missing CA cert, firewall blocking port 8443.
-about the derived policy key and POLICY_SIGNING_KEY now being optional.
+Policy signing is derived automatically from the controller-connector mTLS session.
