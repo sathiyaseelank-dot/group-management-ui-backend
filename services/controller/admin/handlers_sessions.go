@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"log"
 	"net/http"
 	"strings"
 )
@@ -48,14 +49,16 @@ func (s *Server) handleSessionSubroutes(w http.ResponseWriter, r *http.Request) 
 	if strings.HasPrefix(path, "user/") {
 		userID := strings.TrimPrefix(path, "user/")
 		if err := s.Sessions.RevokeAllForUser(userID); err != nil {
-			http.Error(w, "failed to revoke user sessions: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("session revoke all for user: %v", err)
+			http.Error(w, "failed to revoke user sessions", http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 		return
 	}
 	if err := s.Sessions.Revoke(path); err != nil {
-		http.Error(w, "failed to revoke session: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("session revoke: %v", err)
+		http.Error(w, "failed to revoke session", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})

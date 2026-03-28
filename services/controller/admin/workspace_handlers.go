@@ -3,6 +3,7 @@ package admin
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -120,6 +121,7 @@ func (s *Server) handleWorkspaceSubroutes(w http.ResponseWriter, r *http.Request
 
 // POST /api/workspaces
 func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
+	limitBody(r)
 	var req struct {
 		Name string `json:"name"`
 		Slug string `json:"slug"`
@@ -150,7 +152,8 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	// Issue workspace sub-CA
 	certPEM, keyPEM, err := ca.IssueWorkspaceCA(s.IntermediateCA, trustDomain, 365*24*time.Hour)
 	if err != nil {
-		http.Error(w, "failed to issue workspace CA: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace CA issue: %v", err)
+		http.Error(w, "failed to issue workspace CA", http.StatusInternalServerError)
 		return
 	}
 
@@ -163,7 +166,8 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		CAKeyPEM:    string(keyPEM),
 	}
 	if err := s.Workspaces.CreateWorkspace(ws); err != nil {
-		http.Error(w, "failed to create workspace: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace create: %v", err)
+		http.Error(w, "failed to create workspace", http.StatusInternalServerError)
 		return
 	}
 
@@ -194,14 +198,16 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.Workspaces.AddMember(ws.ID, userID, "owner"); err != nil {
-		http.Error(w, "failed to add owner: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace add owner: %v", err)
+		http.Error(w, "failed to add owner", http.StatusInternalServerError)
 		return
 	}
 
 	// Sign workspace JWT
 	token, err := s.signWorkspaceJWT(email, userID, ws.ID, ws.Slug, "owner")
 	if err != nil {
-		http.Error(w, "failed to sign token: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace sign token: %v", err)
+		http.Error(w, "failed to sign token", http.StatusInternalServerError)
 		return
 	}
 
@@ -228,7 +234,8 @@ func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 
 	workspaces, err := s.Workspaces.ListWorkspacesForUser(userID)
 	if err != nil {
-		http.Error(w, "failed to list workspaces: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace list: %v", err)
+		http.Error(w, "failed to list workspaces", http.StatusInternalServerError)
 		return
 	}
 
@@ -312,7 +319,8 @@ func (s *Server) handleUpdateWorkspace(w http.ResponseWriter, r *http.Request, w
 	}
 	ws.Name = req.Name
 	if err := s.Workspaces.UpdateWorkspace(ws); err != nil {
-		http.Error(w, "failed to update: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace update: %v", err)
+		http.Error(w, "failed to update workspace", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, ws)
@@ -334,7 +342,8 @@ func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request, w
 	}
 
 	if err := s.Workspaces.DeleteWorkspace(wsID); err != nil {
-		http.Error(w, "failed to delete: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace delete: %v", err)
+		http.Error(w, "failed to delete workspace", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -368,7 +377,8 @@ func (s *Server) handleSelectWorkspace(w http.ResponseWriter, r *http.Request, w
 
 	token, err := s.signWorkspaceJWT(email, userID, ws.ID, ws.Slug, member.Role)
 	if err != nil {
-		http.Error(w, "failed to sign token: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace select sign token: %v", err)
+		http.Error(w, "failed to sign token", http.StatusInternalServerError)
 		return
 	}
 
@@ -391,7 +401,8 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request, wsID 
 
 	members, err := s.Workspaces.ListMembers(wsID)
 	if err != nil {
-		http.Error(w, "failed to list members: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace list members: %v", err)
+		http.Error(w, "failed to list members", http.StatusInternalServerError)
 		return
 	}
 
@@ -467,7 +478,8 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request, wsID st
 		}
 		if s.Users != nil {
 			if err := s.Users.CreateUser(newUser); err != nil {
-				http.Error(w, "failed to create user: "+err.Error(), http.StatusInternalServerError)
+				log.Printf("workspace add member create user: %v", err)
+				http.Error(w, "failed to create user", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -478,7 +490,8 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request, wsID st
 	}
 
 	if err := s.Workspaces.AddMember(wsID, targetUser.ID, req.Role); err != nil {
-		http.Error(w, "failed to add member: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace add member: %v", err)
+		http.Error(w, "failed to add member", http.StatusInternalServerError)
 		return
 	}
 
@@ -513,7 +526,8 @@ func (s *Server) handleUpdateMemberRole(w http.ResponseWriter, r *http.Request, 
 	}
 
 	if err := s.Workspaces.UpdateMemberRole(wsID, targetUID, req.Role); err != nil {
-		http.Error(w, "failed to update role: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace update role: %v", err)
+		http.Error(w, "failed to update role", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
@@ -541,7 +555,8 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request, wsID
 	}
 
 	if err := s.Workspaces.RemoveMember(wsID, targetUID); err != nil {
-		http.Error(w, "failed to remove member: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("workspace remove member: %v", err)
+		http.Error(w, "failed to remove member", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})

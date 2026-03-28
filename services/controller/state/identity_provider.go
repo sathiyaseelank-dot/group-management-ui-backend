@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/hkdf"
 )
 
 type IdentityProvider struct {
@@ -34,8 +35,12 @@ type IdentityProviderStore struct {
 
 func NewIdentityProviderStore(db *sql.DB, encKey []byte) *IdentityProviderStore {
 	if len(encKey) != 32 {
-		hash := sha256.Sum256(encKey)
-		encKey = hash[:]
+		hkdfReader := hkdf.New(sha256.New, encKey, nil, []byte("ztna-idp-encryption-key"))
+		derived := make([]byte, 32)
+		if _, err := io.ReadFull(hkdfReader, derived); err != nil {
+			panic("hkdf: " + err.Error())
+		}
+		encKey = derived
 	}
 	return &IdentityProviderStore{db: db, encKey: encKey}
 }

@@ -89,7 +89,7 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 		wsID := workspaceIDFromContext(r.Context())
 		networkID, err := resolveResourceNetworkID(db, req.NetworkID, req.ConnectorID, wsID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "failed to resolve remote network", http.StatusBadRequest)
 			return
 		}
 		ports := buildPorts(req.PortFrom, req.PortTo)
@@ -260,7 +260,7 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 			if scanErr := db.QueryRow(state.Rebind(`SELECT remote_network_id FROM resources WHERE id = ?`+wsClause), fallbackArgs...).Scan(&current); scanErr == nil && strings.TrimSpace(current) != "" {
 				resolvedNetworkID = current
 			} else {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				http.Error(w, "failed to resolve remote network", http.StatusBadRequest)
 				return
 			}
 		}

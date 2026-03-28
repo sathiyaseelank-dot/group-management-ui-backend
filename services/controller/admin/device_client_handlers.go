@@ -458,6 +458,7 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	limitBody(r)
 	claims, err := deviceClaimsFromRequest(s, r)
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -514,7 +515,7 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 
 	pubKey, err := parsePEMPublicKey(req.PublicKeyPEM)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "invalid public key", http.StatusBadRequest)
 		return
 	}
 

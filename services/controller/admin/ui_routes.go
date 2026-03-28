@@ -96,12 +96,12 @@ func (s *Server) RegisterUIRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/admin/agent-discovery/summary", withCORS(wsAdmin(http.HandlerFunc(s.handleAgentDiscoverySummary))))
 
 	// Identity providers (Phase 1)
-	mux.Handle("/api/admin/identity-providers", withCORS(s.workspaceAuth(requireWorkspace(http.HandlerFunc(s.handleIdentityProviders)))))
-	mux.Handle("/api/admin/identity-providers/", withCORS(s.workspaceAuth(requireWorkspace(http.HandlerFunc(s.handleIdentityProviderSubroutes)))))
+	mux.Handle("/api/admin/identity-providers", withCORS(s.workspaceAuth(requireWorkspace(csrfProtect(http.HandlerFunc(s.handleIdentityProviders))))))
+	mux.Handle("/api/admin/identity-providers/", withCORS(s.workspaceAuth(requireWorkspace(csrfProtect(http.HandlerFunc(s.handleIdentityProviderSubroutes))))))
 
 	// Sessions (Phase 2)
-	mux.Handle("/api/admin/sessions", withCORS(s.workspaceAuth(requireWorkspace(http.HandlerFunc(s.handleSessions)))))
-	mux.Handle("/api/admin/sessions/", withCORS(s.workspaceAuth(requireWorkspace(http.HandlerFunc(s.handleSessionSubroutes)))))
+	mux.Handle("/api/admin/sessions", withCORS(s.workspaceAuth(requireWorkspace(csrfProtect(http.HandlerFunc(s.handleSessions))))))
+	mux.Handle("/api/admin/sessions/", withCORS(s.workspaceAuth(requireWorkspace(csrfProtect(http.HandlerFunc(s.handleSessionSubroutes))))))
 
 	// Device auth routes (Phase 3)
 	s.RegisterDeviceAuthRoutes(mux)
@@ -176,31 +176,13 @@ func withCORS(next http.Handler) http.Handler {
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
+		// Security headers
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		if csrfSecureCookie {
+			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// corsHandler wraps a handler with CORS headers, respecting AllowedOrigins if set.
-func (s *Server) corsHandler(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if len(s.AllowedOrigins) > 0 {
-			for _, allowed := range s.AllowedOrigins {
-				if allowed == origin {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					w.Header().Set("Access-Control-Allow-Credentials", "true")
-					break
-				}
-			}
-		} else {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

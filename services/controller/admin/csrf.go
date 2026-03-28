@@ -10,6 +10,15 @@ import (
 const csrfCookieName = "ztna_csrf"
 const csrfHeaderName = "X-CSRF-Token"
 
+// csrfSecureCookie controls whether the CSRF cookie sets the Secure flag.
+// Set via SetCSRFSecure from main.go before routes are registered.
+var csrfSecureCookie bool
+
+// SetCSRFSecure configures whether CSRF cookies require HTTPS.
+func SetCSRFSecure(secure bool) {
+	csrfSecureCookie = secure
+}
+
 // csrfProtect is middleware that enforces double-submit cookie CSRF protection
 // on state-changing requests (POST, PUT, PATCH, DELETE).
 // GET, HEAD, OPTIONS are exempt.
@@ -65,6 +74,7 @@ func ensureCSRFCookie(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   86400,
 		HttpOnly: false, // must be readable by JavaScript for double-submit
+		Secure:   csrfSecureCookie,
 		SameSite: http.SameSiteStrictMode,
 	})
 }

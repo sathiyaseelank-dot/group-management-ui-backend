@@ -89,7 +89,7 @@ func (s *Server) handleUIRemoteNetworks(w http.ResponseWriter, r *http.Request) 
 		_, err := db.Exec(state.Rebind(`INSERT INTO remote_networks (id, name, location, tags_json, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)`), id, req.Name, req.Location, "{}", now, now, wsID)
 		if err != nil {
 			log.Printf("remote network create: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "failed to create remote network", http.StatusInternalServerError)
 			return
 		}
 		s.audit(r, "network.create", id, "ok")

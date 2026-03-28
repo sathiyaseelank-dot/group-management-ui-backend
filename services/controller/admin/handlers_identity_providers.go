@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -56,6 +57,7 @@ func (s *Server) handleIdentityProviders(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, out)
 
 	case http.MethodPost:
+		limitBody(r)
 		var req struct {
 			ProviderType string `json:"provider_type"`
 			ClientID     string `json:"client_id"`
@@ -86,7 +88,8 @@ func (s *Server) handleIdentityProviders(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if err := s.IdPs.Create(idp); err != nil {
-			http.Error(w, "failed to create identity provider: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("idp create: %v", err)
+			http.Error(w, "failed to create identity provider", http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]string{"id": idp.ID, "status": "created"})
@@ -140,14 +143,16 @@ func (s *Server) handleIdentityProviderSubroutes(w http.ResponseWriter, r *http.
 			}
 		}
 		if err := s.IdPs.Update(idp); err != nil {
-			http.Error(w, "failed to update identity provider: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("idp update: %v", err)
+			http.Error(w, "failed to update identity provider", http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 
 	case http.MethodDelete:
 		if err := s.IdPs.Delete(id); err != nil {
-			http.Error(w, "failed to delete identity provider: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("idp delete: %v", err)
+			http.Error(w, "failed to delete identity provider", http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

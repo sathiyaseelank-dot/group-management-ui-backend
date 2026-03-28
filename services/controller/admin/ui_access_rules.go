@@ -77,7 +77,7 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 		tx, err := db.Begin()
 		if err != nil {
 			log.Printf("access rule: begin tx: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		wsID := workspaceIDFromContext(r.Context())
@@ -85,14 +85,14 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			_ = tx.Rollback()
 			log.Printf("access rule: insert rule: %v", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "failed to create access rule", http.StatusBadRequest)
 			return
 		}
 		stmt, err := tx.Prepare(state.Rebind(`INSERT INTO access_rule_groups (rule_id, group_id) VALUES (?, ?)`))
 		if err != nil {
 			_ = tx.Rollback()
 			log.Printf("access rule: prepare group insert: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		for _, gid := range req.GroupIDs {

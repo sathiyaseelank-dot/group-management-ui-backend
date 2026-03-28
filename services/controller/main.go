@@ -110,6 +110,7 @@ func main() {
 
 	idpEncKey := []byte(os.Getenv("IDP_ENCRYPTION_KEY"))
 	if len(idpEncKey) == 0 {
+		log.Println("WARNING: IDP_ENCRYPTION_KEY not set, falling back to JWT secret. Set a dedicated key for production.")
 		idpEncKey = jwtSecret
 	}
 	// Encrypt workspace CA private keys at rest using the same key as IdP secrets.
@@ -272,6 +273,12 @@ func main() {
 		)
 	}
 
+	auditKey := []byte(os.Getenv("AUDIT_HMAC_KEY"))
+	if len(auditKey) == 0 {
+		log.Println("WARNING: AUDIT_HMAC_KEY not set, falling back to JWT secret. Set a dedicated key for production.")
+		auditKey = jwtSecret
+	}
+
 	// ---- admin HTTP server ----
 	adminMux := http.NewServeMux()
 	adminServer := &admin.Server{
@@ -307,9 +314,10 @@ func main() {
 		MaxSessionsPerUser:   parseIntEnv("MAX_SESSIONS_PER_USER", 5),
 		StrictSessionBinding: os.Getenv("STRICT_SESSION_BINDING") == "true",
 		AccessRequests:       state.NewAccessRequestStore(db),
-		AuditKey:             jwtSecret,
+		AuditKey:             auditKey,
 	}
 	admin.SetCORSOrigins(parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")), os.Getenv("DASHBOARD_URL"))
+	admin.SetCSRFSecure(os.Getenv("SECURE_COOKIES") == "true")
 	adminServer.RegisterRoutes(adminMux)
 	adminServer.RegisterOAuthRoutes(adminMux)
 	adminMux.HandleFunc("/ca.crl", func(w http.ResponseWriter, r *http.Request) {

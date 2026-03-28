@@ -679,7 +679,7 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.ACLs.UpsertResource(res); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "failed to upsert resource", http.StatusBadRequest)
 			return
 		}
 		if s.ACLs != nil && s.ACLs.DB() != nil {
@@ -734,7 +734,7 @@ func (s *Server) handleResourceSubroutes(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if err := s.ACLs.UpdateFilters(resourceID, filters); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "failed to update filters", http.StatusBadRequest)
 			return
 		}
 		if s.ACLs != nil && s.ACLs.DB() != nil {
@@ -765,7 +765,7 @@ func (s *Server) handleResourceSubroutes(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			if err := s.ACLs.AssignPrincipal(resourceID, req.PrincipalSPIFFE, req.Filters); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				http.Error(w, "failed to assign principal", http.StatusBadRequest)
 				return
 			}
 			auth := state.Authorization{PrincipalSPIFFE: req.PrincipalSPIFFE, ResourceID: resourceID, Filters: req.Filters}
@@ -809,6 +809,13 @@ func (s *Server) handleCACert(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="ca.crt"`)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(s.CACertPEM)
+}
+
+// limitBody caps the request body to prevent memory exhaustion from oversized payloads.
+// 1 MB is sufficient for all API endpoints; adjust if file uploads are added.
+func limitBody(r *http.Request) {
+	const maxBodySize = 1 << 20 // 1 MB
+	r.Body = http.MaxBytesReader(nil, r.Body, maxBodySize)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
