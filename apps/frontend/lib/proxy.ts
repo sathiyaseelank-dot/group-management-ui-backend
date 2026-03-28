@@ -22,11 +22,21 @@ function getBackendUrl() {
   return process.env.BACKEND_URL || 'http://localhost:8081'
 }
 
-// Extract JWT from an Express request's Authorization header.
-export function getJWTFromRequest(req: { headers: { authorization?: string } }): string | undefined {
+function getCookieValue(cookieHeader: string | undefined, name: string): string | undefined {
+  if (!cookieHeader) return undefined
+  for (const part of cookieHeader.split(';')) {
+    const [rawKey, ...rawValue] = part.trim().split('=')
+    if (rawKey !== name || rawValue.length === 0) continue
+    return decodeURIComponent(rawValue.join('='))
+  }
+  return undefined
+}
+
+// Extract JWT from an Express request's Authorization header or session cookie.
+export function getJWTFromRequest(req: { headers: { authorization?: string; cookie?: string } }): string | undefined {
   const auth = req.headers.authorization
   if (auth?.startsWith('Bearer ')) return auth.slice(7)
-  return undefined
+  return getCookieValue(req.headers.cookie, 'ztna_session')
 }
 
 export async function proxyToBackend<T = any>(

@@ -40,7 +40,11 @@ export default function AuditLogsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/audit-logs')
+    const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    fetch('/api/audit-logs', {
+      credentials: 'same-origin',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
       .then((r) => r.json())
       .then((data) => setLogs(Array.isArray(data) ? data : []))
       .catch(console.error)

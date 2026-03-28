@@ -12,18 +12,36 @@ export default function AgentsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
-    const loadAgents = async () => {
+    let cancelled = false;
+
+    const loadAgents = async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) {
+        setLoading(true);
+      }
       try {
         const data = await getAgents();
-        setAgents(data);
+        if (!cancelled) {
+          setAgents(data);
+        }
       } catch (error) {
         console.error('Failed to load agents:', error);
       } finally {
-        setLoading(false);
+        if (!cancelled && !opts?.silent) {
+          setLoading(false);
+        }
       }
     };
 
     loadAgents();
+
+    const interval = setInterval(() => {
+      void loadAgents({ silent: true });
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   if (loading) {

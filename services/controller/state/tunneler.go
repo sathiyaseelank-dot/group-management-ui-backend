@@ -60,6 +60,10 @@ func NewAgentStatusRegistry() *AgentStatusRegistry {
 func (r *AgentStatusRegistry) Record(agentID, spiffeID, connectorID, ip string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	existing := r.records[agentID]
+	if spiffeID == "" {
+		spiffeID = existing.SPIFFEID
+	}
 	r.records[agentID] = AgentStatusRecord{
 		ID:          agentID,
 		SPIFFEID:    spiffeID,

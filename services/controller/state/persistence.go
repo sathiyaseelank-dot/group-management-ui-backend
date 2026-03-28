@@ -85,7 +85,14 @@ func SaveAgentToDB(db *sql.DB, rec AgentStatusRecord) error {
 	_, err := db.Exec(
 		Rebind(`INSERT INTO agents (id, spiffe_id, connector_id, last_seen, last_seen_at, status, installed, ip)
 		VALUES (?, ?, ?, ?, ?, 'online', 1, ?)
-		ON CONFLICT(id) DO UPDATE SET spiffe_id=excluded.spiffe_id, connector_id=excluded.connector_id, last_seen=excluded.last_seen, last_seen_at=excluded.last_seen_at, status='online', installed=1, ip=excluded.ip`),
+		ON CONFLICT(id) DO UPDATE SET
+			spiffe_id=CASE WHEN excluded.spiffe_id = '' THEN agents.spiffe_id ELSE excluded.spiffe_id END,
+			connector_id=excluded.connector_id,
+			last_seen=excluded.last_seen,
+			last_seen_at=excluded.last_seen_at,
+			status='online',
+			installed=1,
+			ip=excluded.ip`),
 		rec.ID, rec.SPIFFEID, rec.ConnectorID, rec.LastSeen.Unix(), lastSeenAt, rec.IP,
 	)
 	return err

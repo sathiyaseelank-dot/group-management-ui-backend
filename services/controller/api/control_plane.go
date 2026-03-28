@@ -191,6 +191,11 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 				}
 			}
 			log.Printf("heartbeat: connector_id=%s private_ip=%s tunnel_addr=%s status=%s", msg.GetConnectorId(), msg.GetPrivateIp(), deviceTunnelAddr, msg.GetStatus())
+			// Refresh agent allowlist on every heartbeat for self-healing.
+			connectorID := msg.GetConnectorId()
+			if s.db != nil && connectorID != "" {
+				_ = s.RefreshConnectorAllowlist(connectorID)
+			}
 		}
 		if msg.GetType() == "agent_heartbeat" && s.agentStatus != nil {
 			var payload struct {

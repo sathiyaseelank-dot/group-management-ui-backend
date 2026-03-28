@@ -298,6 +298,9 @@ func (s *EnrollmentServer) Renew(
 		return nil, status.Errorf(codes.Internal, "certificate renewal failed: %v", err)
 	}
 	logIssuedCert("renew", spiffeID, certPEM)
+	if role == "agent" && s.Notifier != nil {
+		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), req.GetPrivateIp(), req.GetPrivateIp())
+	}
 	if role == "connector" && s.DB != nil {
 		nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 		_, _ = s.DB.Exec(

@@ -27,7 +27,7 @@ import type { Connector, ScanJob, DiscoveredResource } from '@/lib/types'
 export default function NetworkDiscoveryPage() {
   const [connectors, setConnectors] = useState<Connector[]>([])
   const [selectedConnector, setSelectedConnector] = useState('')
-  const [cidrInput, setCidrInput] = useState('')
+  const [cidrInput, setCidrInput] = useState('192.168.1.0/24')
   const [portsInput, setPortsInput] = useState('22,80,443,3389,8080')
   const [scanning, setScanning] = useState(false)
   const [scanJob, setScanJob] = useState<ScanJob | null>(null)

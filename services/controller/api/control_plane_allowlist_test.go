@@ -247,3 +247,38 @@ func TestSaveAgentToDBPreservesAssignedRemoteNetwork(t *testing.T) {
 		t.Fatalf("unexpected runtime-updated fields: connector_id=%q ip=%q", connectorID, ip)
 	}
 }
+
+func TestSaveAgentToDBPreservesSPIFFEIDWhenHeartbeatOmitsIt(t *testing.T) {
+	db := newAllowlistTestDB(t)
+
+	insertRemoteNetwork(t, db, "net-a")
+	insertAgentRow(t, db, "agent-heartbeat", "spiffe://test.internal/agent/agent-heartbeat", "net-a", 0)
+
+	rec := state.AgentStatusRecord{
+		ID:          "agent-heartbeat",
+		SPIFFEID:    "",
+		ConnectorID: "conn-a",
+		LastSeen:    time.Unix(1_700_000_100, 0).UTC(),
+		IP:          "10.0.0.31",
+	}
+	if err := state.SaveAgentToDB(db, rec); err != nil {
+		t.Fatalf("SaveAgentToDB: %v", err)
+	}
+
+	var spiffeID, remoteNetworkID, connectorID string
+	if err := db.QueryRow(
+		`SELECT spiffe_id, remote_network_id, connector_id FROM agents WHERE id = ?`,
+		"agent-heartbeat",
+	).Scan(&spiffeID, &remoteNetworkID, &connectorID); err != nil {
+		t.Fatalf("query saved agent: %v", err)
+	}
+	if spiffeID != "spiffe://test.internal/agent/agent-heartbeat" {
+		t.Fatalf("expected spiffe_id to be preserved, got %q", spiffeID)
+	}
+	if remoteNetworkID != "net-a" {
+		t.Fatalf("expected remote_network_id net-a, got %q", remoteNetworkID)
+	}
+	if connectorID != "conn-a" {
+		t.Fatalf("expected connector_id conn-a, got %q", connectorID)
+	}
+}
