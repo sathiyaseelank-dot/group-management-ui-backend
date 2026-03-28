@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -14,8 +15,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"controller/admin"
@@ -354,9 +357,10 @@ func main() {
 			}
 		}
 	}()
+	adminHTTP := &http.Server{Addr: adminAddr, Handler: adminMux}
 	go func() {
 		log.Printf("admin HTTP server listening %s", adminAddr)
-		if err := http.ListenAndServe(adminAddr, adminMux); err != nil {
+		if err := adminHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("admin HTTP server failed: %v", err)
 		}
 	}()
@@ -365,10 +369,12 @@ func main() {
 	// Google OAuth apps register specific redirect URIs (e.g. :8080).
 	// If OAUTH_CALLBACK_ADDR is set, start an additional listener on that address
 	// serving the same mux so the registered callback URIs resolve correctly.
+	var oauthHTTP *http.Server
 	if oauthCallbackAddr := strings.TrimSpace(os.Getenv("OAUTH_CALLBACK_ADDR")); oauthCallbackAddr != "" && oauthCallbackAddr != adminAddr {
+		oauthHTTP = &http.Server{Addr: oauthCallbackAddr, Handler: adminMux}
 		go func() {
 			log.Printf("OAuth callback listener on %s", oauthCallbackAddr)
-			if err := http.ListenAndServe(oauthCallbackAddr, adminMux); err != nil {
+			if err := oauthHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Fatalf("OAuth callback listener failed: %v", err)
 			}
 		}()
@@ -379,12 +385,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
+	go func() {
+		log.Println("controller gRPC server listening on :8443")
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("gRPC server failed: %v", err)
+		}
+	}()
 
-	log.Println("controller gRPC server listening on :8443")
+	// ---- graceful shutdown ----
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	sig := <-sigCh
+	log.Printf("received %s, shutting down gracefully...", sig)
 
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("gRPC server failed: %v", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	grpcServer.GracefulStop()
+	_ = adminHTTP.Shutdown(ctx)
+	if oauthHTTP != nil {
+		_ = oauthHTTP.Shutdown(ctx)
 	}
+	log.Println("controller shut down")
 }
 
 func loadCA() ([]byte, []byte, error) {

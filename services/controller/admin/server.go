@@ -121,6 +121,17 @@ func (s *Server) audit(r *http.Request, action, target, result string) {
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if db := s.db(); db != nil {
+			if err := db.Ping(); err != nil {
+				http.Error(w, "db unhealthy", http.StatusServiceUnavailable)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
 	// CA cert is public — no auth required. Connectors and agents fetch it
 	// during bootstrap before any trust is established (same pattern as Vault
 	// /v1/pki/ca/pem, Consul /v1/connect/ca/roots, Teleport, etc.)
