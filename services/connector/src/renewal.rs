@@ -1,6 +1,8 @@
 use crate::tls::cert_store::CertStore;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use tracing::{info, warn};
+use tokio::sync::Notify;
+use tracing::{error, info, warn};
 
 /// Background task: renews the workload certificate before it expires.
 pub async fn renewal_loop(
@@ -10,6 +12,7 @@ pub async fn renewal_loop(
     store: CertStore,
     controller_ca_pem: Vec<u8>,
     workload_ca_pem: Vec<u8>,
+    shutdown: Arc<Notify>,
 ) {
     loop {
         let sleep_dur = next_renewal_delay(store.not_after(), store.total_ttl());
@@ -47,6 +50,15 @@ pub async fn renewal_loop(
                 info!("certificate renewed successfully");
             }
             Err(e) => {
+                let msg = format!("{}", e);
+                if msg.contains("PermissionDenied") {
+                    error!(
+                        "certificate renewal permanently rejected: {} ; shutting down",
+                        e
+                    );
+                    shutdown.notify_one();
+                    return;
+                }
                 warn!("certificate renewal failed: {}", e);
             }
         }

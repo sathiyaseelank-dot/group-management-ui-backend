@@ -25,8 +25,31 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 use tls::cert_store::CertStore;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Notify};
 use tracing::{error, info, warn};
+
+#[derive(serde::Deserialize)]
+struct AgentShutdownRequest {
+    agent_id: String,
+    #[serde(default)]
+    reason: String,
+}
+
+#[derive(serde::Deserialize)]
+struct ConnectorShutdownRequest {
+    #[serde(default)]
+    reason: String,
+}
+
+enum ControlPlaneAction {
+    Continue,
+    Shutdown,
+}
+
+fn is_permission_denied(err: &anyhow::Error) -> bool {
+    let msg = format!("{}", err);
+    msg.contains("PermissionDenied")
+}
 
 /// Stores the latest protected resources so each agent can receive
 /// a personalized firewall policy based on its own IP.
@@ -185,12 +208,22 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
                 version: buildinfo::version().to_string(),
                 ca_pem: cfg.ca_pem.clone(),
             };
-            let enrolled = enroll::enroll(&enroll_cfg).await?;
-            info!("connector enrolled as {}", enrolled.spiffe_id);
-            if let Err(e) = persistence::save_enrollment(&enrolled) {
-                warn!("failed to persist enrollment state: {}", e);
+            match enroll::enroll(&enroll_cfg).await {
+                Ok(enrolled) => {
+                    info!("connector enrolled as {}", enrolled.spiffe_id);
+                    if let Err(e) = persistence::save_enrollment(&enrolled) {
+                        warn!("failed to persist enrollment state: {}", e);
+                    }
+                    enrolled
+                }
+                Err(e) => {
+                    if is_permission_denied(&e) {
+                        error!("enrollment rejected: connector token was revoked or deleted; shutting down");
+                        return Ok(());
+                    }
+                    return Err(e);
+                }
             }
-            enrolled
         }
     };
 
@@ -223,6 +256,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     let agent_tunnel_hub = AgentTunnelHub::new();
     let (firewall_tx, _) = broadcast::channel::<()>(16);
     let latest_fw_policy = LatestFirewallPolicy::new();
+    let shutdown = Arc::new(Notify::new());
 
     if !cfg.device_tunnel_addr.is_empty() && !cfg.controller_http_url.is_empty() {
         // TLS/TCP device tunnel
@@ -285,6 +319,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         store.clone(),
         cfg.ca_pem.clone(),
         result.ca_pem.clone(),
+        shutdown.clone(),
     ));
 
     // Run control plane loop (blocks until context cancelled)
@@ -301,8 +336,10 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         send_ch,
         recv_ch,
         agent_registry,
+        agent_tunnel_hub,
         firewall_tx,
         latest_fw_policy,
+        shutdown,
     )
     .await;
 
@@ -324,12 +361,14 @@ async fn control_plane_loop(
     send_ch: mpsc::Sender<ControlMessage>,
     mut recv_ch: mpsc::Receiver<ControlMessage>,
     agent_registry: Arc<AgentRegistry>,
+    agent_tunnel_hub: AgentTunnelHub,
     firewall_tx: broadcast::Sender<()>,
     latest_fw_policy: LatestFirewallPolicy,
+    shutdown: Arc<Notify>,
 ) {
     let mut backoff = Duration::from_secs(2);
     loop {
-        match connect_control_plane(
+        let connect = connect_control_plane(
             &controller_addr,
             &controller_trust_domain,
             &connector_id,
@@ -342,16 +381,40 @@ async fn control_plane_loop(
             &send_ch,
             &mut recv_ch,
             &agent_registry,
+            &agent_tunnel_hub,
             &firewall_tx,
             &latest_fw_policy,
-        )
-        .await
-        {
-            Ok(()) => {}
-            Err(e) => warn!("control-plane connection ended: {}", e),
+            &shutdown,
+        );
+        tokio::pin!(connect);
+
+        let should_sleep = tokio::select! {
+            result = &mut connect => {
+                match result {
+                    Ok(ControlPlaneAction::Continue) => true,
+                    Ok(ControlPlaneAction::Shutdown) => return,
+                    Err(e) => {
+                        warn!("control-plane connection ended: {}", e);
+                        if is_permission_denied(&e) {
+                            error!("controller rejected connector permanently; shutting down");
+                            shutdown.notify_one();
+                            return;
+                        }
+                        true
+                    }
+                }
+            }
+            _ = shutdown.notified() => return,
+        };
+
+        if !should_sleep {
+            continue;
         }
 
-        tokio::time::sleep(backoff).await;
+        tokio::select! {
+            _ = tokio::time::sleep(backoff) => {}
+            _ = shutdown.notified() => return,
+        }
         if backoff < Duration::from_secs(30) {
             backoff *= 2;
         }
@@ -372,9 +435,11 @@ async fn connect_control_plane(
     _send_ch: &mpsc::Sender<ControlMessage>,
     recv_ch: &mut mpsc::Receiver<ControlMessage>,
     agent_registry: &Arc<AgentRegistry>,
+    agent_tunnel_hub: &AgentTunnelHub,
     firewall_tx: &broadcast::Sender<()>,
     latest_fw_policy: &LatestFirewallPolicy,
-) -> Result<()> {
+    shutdown: &Arc<Notify>,
+) -> Result<ControlPlaneAction> {
     let policy_cb = {
         let acl = acl.clone();
         Arc::new(move |key: Vec<u8>| {
@@ -437,10 +502,22 @@ async fn connect_control_plane(
                                 }
                             });
                         } else {
-                            handle_control_message(&m, allowlist, acl, firewall_tx, latest_fw_policy, agent_registry).await;
+                            let action = handle_control_message(
+                                &m,
+                                allowlist,
+                                acl,
+                                firewall_tx,
+                                latest_fw_policy,
+                                agent_registry,
+                                agent_tunnel_hub,
+                                shutdown,
+                            ).await;
+                            if matches!(action, ControlPlaneAction::Shutdown) {
+                                return Ok(ControlPlaneAction::Shutdown);
+                            }
                         }
                     }
-                    Ok(None) => return Ok(()),
+                    Ok(None) => return Ok(ControlPlaneAction::Continue),
                     Err(e) => return Err(anyhow::anyhow!("stream recv: {}", e)),
                 }
             }
@@ -473,7 +550,9 @@ async fn handle_control_message(
     firewall_tx: &broadcast::Sender<()>,
     latest_fw_policy: &LatestFirewallPolicy,
     agent_registry: &Arc<AgentRegistry>,
-) {
+    agent_tunnel_hub: &AgentTunnelHub,
+    shutdown: &Arc<Notify>,
+) -> ControlPlaneAction {
     match msg.r#type.as_str() {
         "agent_allowlist" => {
             if let Ok(items) = serde_json::from_slice::<Vec<AgentInfo>>(&msg.payload) {
@@ -481,6 +560,40 @@ async fn handle_control_message(
                 allowlist.replace(items);
                 info!("agent allowlist replaced: entries={}", count);
             }
+        }
+        "agent_shutdown" => {
+            if let Ok(req) = serde_json::from_slice::<AgentShutdownRequest>(&msg.payload) {
+                let payload = serde_json::json!({
+                    "reason": req.reason,
+                });
+                if let Err(e) = agent_tunnel_hub
+                    .send_message(&req.agent_id, "shutdown", &payload)
+                    .await
+                {
+                    warn!(
+                        "failed to forward shutdown to agent {}: {}",
+                        req.agent_id, e
+                    );
+                } else {
+                    info!(
+                        "forwarded shutdown to agent {} reason={}",
+                        req.agent_id, req.reason
+                    );
+                }
+            }
+        }
+        "connector_shutdown" => {
+            let req = serde_json::from_slice::<ConnectorShutdownRequest>(&msg.payload).unwrap_or(
+                ConnectorShutdownRequest {
+                    reason: "deleted".to_string(),
+                },
+            );
+            error!(
+                "received shutdown from controller: connector was {}",
+                req.reason
+            );
+            shutdown.notify_one();
+            return ControlPlaneAction::Shutdown;
         }
         "agent_allow" => {
             if let Ok(item) = serde_json::from_slice::<AgentInfo>(&msg.payload) {
@@ -535,6 +648,7 @@ async fn handle_control_message(
         }
         _ => {}
     }
+    ControlPlaneAction::Continue
 }
 
 #[derive(Default)]

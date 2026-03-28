@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -80,6 +81,15 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 	wsClause, wsArgs := wsWhere(wsID, "")
 	if len(parts) == 1 {
 		if r.Method == http.MethodDelete {
+			if s.ControlPlane != nil {
+				payload, _ := json.Marshal(map[string]string{
+					"connector_id": connectorID,
+					"reason":       "deleted",
+				})
+				if err := s.ControlPlane.SendToConnector(connectorID, "connector_shutdown", payload); err != nil && !strings.Contains(err.Error(), "not connected") {
+					log.Printf("connector delete shutdown send failed: connector_id=%s err=%v", connectorID, err)
+				}
+			}
 			// Cascade-delete agents (tunnelers) bound to this connector.
 			var agentIDs []string
 			delArgs := append([]interface{}{connectorID}, wsArgs...)
@@ -119,7 +129,7 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 				_ = state.RevokeConnectorInDB(s.ACLs.DB(), connectorID)
 			}
 			revokeArgs := append([]interface{}{connectorID}, wsArgs...)
-		_, _ = db.Exec(state.Rebind(`UPDATE connectors SET revoked = 1, status = 'offline' WHERE id = ?`+wsClause), revokeArgs...)
+			_, _ = db.Exec(state.Rebind(`UPDATE connectors SET revoked = 1, status = 'offline' WHERE id = ?`+wsClause), revokeArgs...)
 
 			s.audit(r, "connector.delete", connectorID, "ok")
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -203,6 +213,15 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
+		}
+		if s.ControlPlane != nil {
+			payload, _ := json.Marshal(map[string]string{
+				"connector_id": connectorID,
+				"reason":       "revoked",
+			})
+			if err := s.ControlPlane.SendToConnector(connectorID, "connector_shutdown", payload); err != nil && !strings.Contains(err.Error(), "not connected") {
+				log.Printf("connector revoke shutdown send failed: connector_id=%s err=%v", connectorID, err)
+			}
 		}
 		if s.Reg != nil {
 			s.Reg.Delete(connectorID)

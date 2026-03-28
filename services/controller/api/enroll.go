@@ -248,6 +248,9 @@ func (s *EnrollmentServer) Renew(
 		if err == sql.ErrNoRows {
 			return nil, status.Error(codes.PermissionDenied, "certificate renewal denied: entity deleted")
 		}
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "certificate renewal lookup failed: %v", err)
+		}
 		if err == nil && revoked != 0 {
 			return nil, status.Error(codes.PermissionDenied, "certificate renewal denied: entity revoked")
 		}

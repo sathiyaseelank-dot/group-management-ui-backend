@@ -10,7 +10,7 @@ EnvironmentFile=/etc/connector/connector.conf
 Environment=CONNECTOR_API_ENDPOINT=/run/connector/connector.sock
 LoadCredential=CONTROLLER_CA:/etc/connector/ca.crt
 
-Restart=always
+Restart=on-failure
 RestartSec=10
 
 ExecStart=/usr/bin/connector run --systemd-watchdog

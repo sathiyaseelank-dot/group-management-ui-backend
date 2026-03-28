@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::Notify;
@@ -11,6 +12,12 @@ use crate::enroll::pb::ControlMessage;
 use crate::firewall::FirewallEnforcer;
 use crate::tls::cert_store::CertStore;
 use crate::tunnel::{AgentTunnelManager, TunnelClose, TunnelData, TunnelOpen};
+
+#[derive(serde::Deserialize)]
+struct ShutdownPayload {
+    #[serde(default)]
+    reason: String,
+}
 
 /// Check if an error indicates a permanent PermissionDenied rejection.
 fn is_permission_denied(err: &anyhow::Error) -> bool {
@@ -92,6 +99,7 @@ pub async fn run() -> Result<()> {
 
     let reload = Arc::new(Notify::new());
     let shutdown = Arc::new(Notify::new());
+    let firewall_cleaned = Arc::new(AtomicBool::new(false));
     let tunnel_manager = Arc::new(AgentTunnelManager::new());
 
     // Start control plane loop (connects to connector)
@@ -106,6 +114,7 @@ pub async fn run() -> Result<()> {
         enforcer.clone(),
         tunnel_manager.clone(),
         shutdown.clone(),
+        firewall_cleaned.clone(),
     ));
 
     // Start certificate renewal loop
@@ -129,7 +138,7 @@ pub async fn run() -> Result<()> {
             info!("fatal rejection detected, cleaning up firewall rules");
         }
     }
-    enforcer.cleanup_all().await;
+    cleanup_firewall_once(&enforcer, &firewall_cleaned).await;
 
     Ok(())
 }
@@ -146,6 +155,7 @@ async fn control_plane_loop(
     enforcer: Arc<FirewallEnforcer>,
     tunnel_manager: Arc<AgentTunnelManager>,
     shutdown: Arc<Notify>,
+    firewall_cleaned: Arc<AtomicBool>,
 ) {
     let mut backoff = Duration::from_secs(2);
     let mut permission_denied_count: u32 = 0;
@@ -160,6 +170,8 @@ async fn control_plane_loop(
                 &agent_id,
                 &enforcer,
                 &tunnel_manager,
+                &shutdown,
+                &firewall_cleaned,
             ) => {
                 match result {
                     Ok(()) => {
@@ -213,6 +225,8 @@ async fn connect_to_connector(
     agent_id: &str,
     enforcer: &Arc<FirewallEnforcer>,
     tunnel_manager: &Arc<AgentTunnelManager>,
+    shutdown: &Arc<Notify>,
+    firewall_cleaned: &Arc<AtomicBool>,
 ) -> Result<()> {
     let channel = crate::tls::client_cfg::build_tonic_channel_with_role(
         connector_addr,
@@ -279,7 +293,7 @@ async fn connect_to_connector(
             msg = stream.message() => {
                 match msg {
                     Ok(Some(m)) => {
-                        if let Err(e) = handle_inbound_message(&m, enforcer, &stream_tx, agent_id, spiffe_id, tunnel_manager).await {
+                        if let Err(e) = handle_inbound_message(&m, enforcer, &stream_tx, agent_id, spiffe_id, tunnel_manager, shutdown, firewall_cleaned).await {
                             warn!("failed to handle message type={}: {}", m.r#type, e);
                         }
                     }
@@ -388,6 +402,8 @@ async fn handle_inbound_message(
     agent_id: &str,
     spiffe_id: &str,
     tunnel_manager: &Arc<AgentTunnelManager>,
+    shutdown: &Arc<Notify>,
+    firewall_cleaned: &Arc<AtomicBool>,
 ) -> Result<()> {
     match msg.r#type.as_str() {
         "firewall_policy" => {
@@ -460,9 +476,45 @@ async fn handle_inbound_message(
             tunnel_manager.close(close).await?;
         }
         "pong" => { /* expected response to ping */ }
+        "shutdown" => {
+            let payload = serde_json::from_slice::<ShutdownPayload>(&msg.payload).unwrap_or(
+                ShutdownPayload {
+                    reason: "deleted".to_string(),
+                },
+            );
+            cleanup_firewall_once(enforcer, firewall_cleaned).await;
+            let ack_payload = serde_json::json!({
+                "agent_id": agent_id,
+                "message": format!("shutdown ack: firewall cleanup complete reason={}", payload.reason),
+            });
+            let _ = stream_tx
+                .send(ControlMessage {
+                    r#type: "agent_log".to_string(),
+                    payload: serde_json::to_vec(&ack_payload).unwrap_or_default(),
+                    ..Default::default()
+                })
+                .await;
+            error!(
+                "received shutdown from connector: agent {} was {}",
+                agent_id, payload.reason
+            );
+            shutdown.notify_one();
+        }
         other => {
             info!("received unhandled message type: {}", other);
         }
     }
     Ok(())
+}
+
+async fn cleanup_firewall_once(
+    enforcer: &Arc<FirewallEnforcer>,
+    firewall_cleaned: &Arc<AtomicBool>,
+) {
+    if firewall_cleaned
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        enforcer.cleanup_all().await;
+    }
 }

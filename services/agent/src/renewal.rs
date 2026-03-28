@@ -53,7 +53,10 @@ pub async fn renewal_loop(
             Err(e) => {
                 let msg = format!("{}", e);
                 if msg.contains("PermissionDenied") {
-                    error!("certificate renewal permanently rejected: {} — shutting down", e);
+                    error!(
+                        "certificate renewal permanently rejected: {} — shutting down",
+                        e
+                    );
                     shutdown.notify_one();
                     return;
                 }

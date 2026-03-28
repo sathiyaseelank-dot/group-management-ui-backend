@@ -4,12 +4,37 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"controller/state"
 )
+
+const agentShutdownAckWait = 5 * time.Second
+
+func waitForAgentShutdownAck(db *sql.DB, agentID, reason string, timeout time.Duration) bool {
+	if db == nil || strings.TrimSpace(agentID) == "" {
+		return false
+	}
+	want := fmt.Sprintf("shutdown ack: firewall cleanup complete reason=%s", reason)
+	deadline := time.Now().Add(timeout)
+	for {
+		var count int
+		if err := db.QueryRow(
+			state.Rebind(`SELECT COUNT(*) FROM agent_logs WHERE agent_id = ? AND message = ?`),
+			agentID,
+			want,
+		).Scan(&count); err == nil && count > 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
 
 func (s *Server) handleUIAgents(w http.ResponseWriter, r *http.Request) {
 	db, ok := s.uiDB(w)
@@ -90,6 +115,19 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 			// Look up connector before deleting so we can refresh its allowlist.
 			var connID string
 			_ = db.QueryRow(state.Rebind(`SELECT connector_id FROM agents WHERE id = ?`), agentID).Scan(&connID)
+			if s.ControlPlane != nil && connID != "" {
+				payload, _ := json.Marshal(map[string]string{
+					"agent_id": agentID,
+					"reason":   "deleted",
+				})
+				if err := s.ControlPlane.SendToConnector(connID, "agent_shutdown", payload); err != nil {
+					if !strings.Contains(err.Error(), "not connected") {
+						log.Printf("agent delete shutdown send failed: agent_id=%s connector_id=%s err=%v", agentID, connID, err)
+					}
+				} else if !waitForAgentShutdownAck(db, agentID, "deleted", agentShutdownAckWait) {
+					log.Printf("agent delete shutdown ack timed out: agent_id=%s connector_id=%s", agentID, connID)
+				}
+			}
 			_ = state.DeleteAgentFromDB(db, agentID)
 			// Delete enrollment token so the agent cannot re-enroll after deletion.
 			if s.Tokens != nil {
@@ -188,6 +226,19 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 		}
 		var connID string
 		_ = db.QueryRow(state.Rebind(`SELECT connector_id FROM agents WHERE id = ?`), agentID).Scan(&connID)
+		if s.ControlPlane != nil && connID != "" {
+			payload, _ := json.Marshal(map[string]string{
+				"agent_id": agentID,
+				"reason":   "revoked",
+			})
+			if err := s.ControlPlane.SendToConnector(connID, "agent_shutdown", payload); err != nil {
+				if !strings.Contains(err.Error(), "not connected") {
+					log.Printf("agent revoke shutdown send failed: agent_id=%s connector_id=%s err=%v", agentID, connID, err)
+				}
+			} else if !waitForAgentShutdownAck(db, agentID, "revoked", agentShutdownAckWait) {
+				log.Printf("agent revoke shutdown ack timed out: agent_id=%s connector_id=%s", agentID, connID)
+			}
+		}
 		_ = state.RevokeAgentInDB(db, agentID)
 		if s.Allowlists != nil && connID != "" {
 			_ = s.Allowlists.RefreshConnectorAllowlist(connID)
