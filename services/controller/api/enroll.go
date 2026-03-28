@@ -203,7 +203,7 @@ func (s *EnrollmentServer) EnrollTunneler(
 	}
 	logIssuedCert("enroll-agent", spiffeID, certPEM)
 	if s.Notifier != nil {
-		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), req.GetPrivateIp(), req.GetPrivateIp())
+		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), "", req.GetPrivateIp())
 	}
 
 	return &controllerpb.EnrollResponse{
@@ -299,7 +299,7 @@ func (s *EnrollmentServer) Renew(
 	}
 	logIssuedCert("renew", spiffeID, certPEM)
 	if role == "agent" && s.Notifier != nil {
-		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), req.GetPrivateIp(), req.GetPrivateIp())
+		s.Notifier.NotifyAgentAllowed(req.GetId(), spiffeID, req.GetVersion(), "", req.GetPrivateIp())
 	}
 	if role == "connector" && s.DB != nil {
 		nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")

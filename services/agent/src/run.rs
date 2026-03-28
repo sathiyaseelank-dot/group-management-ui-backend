@@ -227,7 +227,6 @@ async fn connect_to_connector(
     }
 
     let mut posture_interval = tokio::time::interval(Duration::from_secs(300));
-    posture_interval.tick().await; // skip immediate first tick
 
     loop {
         tokio::select! {

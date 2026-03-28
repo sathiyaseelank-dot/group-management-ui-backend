@@ -233,6 +233,9 @@ async fn handle_agent_message(
         "agent_log" => {
             let _ = send_ch.send(msg.clone()).await;
         }
+        "agent_posture" => {
+            let _ = send_ch.send(msg.clone()).await;
+        }
         "agent_discovery_diff" => {
             let _ = send_ch.send(msg.clone()).await;
         }

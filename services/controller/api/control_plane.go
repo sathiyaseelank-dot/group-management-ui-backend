@@ -244,6 +244,18 @@ func (s *ControlPlaneServer) Connect(stream controllerpb.ControlPlane_ConnectSer
 				if err := state.UpsertDevicePosture(s.db, posture); err != nil {
 					log.Printf("device posture upsert failed: %v", err)
 				}
+				// Sync version/hostname from posture into agents table
+				if payload.ClientVersion != "" || payload.Hostname != "" {
+					_, _ = s.db.Exec(
+						state.Rebind(`UPDATE agents SET
+							version = CASE WHEN ? != '' THEN ? ELSE version END,
+							hostname = CASE WHEN ? != '' THEN ? ELSE hostname END
+							WHERE id = ?`),
+						payload.ClientVersion, payload.ClientVersion,
+						payload.Hostname, payload.Hostname,
+						payload.AgentID,
+					)
+				}
 				log.Printf("device_posture: agent_id=%s os=%s/%s firewall=%v encrypted=%v",
 					payload.AgentID, payload.OSType, payload.OSVersion, payload.FirewallEnabled, payload.DiskEncrypted)
 			}
@@ -575,10 +587,10 @@ func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, host
 			VALUES (?, ?, '', ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				spiffe_id=excluded.spiffe_id,
-				version=excluded.version,
-				hostname=excluded.hostname,
+				version=CASE WHEN excluded.version = '' THEN agents.version ELSE excluded.version END,
+				hostname=CASE WHEN excluded.hostname = '' THEN agents.hostname ELSE excluded.hostname END,
 				last_seen=excluded.last_seen,
-				ip=excluded.ip,
+				ip=CASE WHEN excluded.ip = '' THEN agents.ip ELSE excluded.ip END,
 				workspace_id=CASE WHEN excluded.workspace_id = '' THEN agents.workspace_id ELSE excluded.workspace_id END`),
 			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(), ip, workspaceID,
 		); err != nil {

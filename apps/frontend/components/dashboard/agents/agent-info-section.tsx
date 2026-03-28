@@ -56,6 +56,12 @@ export function AgentInfoSection({ agent, network }: AgentInfoSectionProps) {
           </p>
         </div>
         <div className="flex flex-col space-y-1.5">
+          <Label htmlFor="hostPrivateIp">Host Private IP</Label>
+          <p id="hostPrivateIp" className="font-mono text-xs text-muted-foreground">
+            {agent.ip || '—'}
+          </p>
+        </div>
+        <div className="flex flex-col space-y-1.5">
           <Label htmlFor="network">Remote Network</Label>
           {network ? (
             <Link to={`/dashboard/remote-networks/${network.id}`}>
