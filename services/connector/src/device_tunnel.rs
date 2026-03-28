@@ -8,7 +8,7 @@ use tracing::{info, warn};
 
 use crate::tls::cert_store::CertStore;
 use crate::tls::server_cfg::build_device_tunnel_tls;
-use crate::{agent_tunnel::AgentTunnelHub, policy::PolicyCache};
+use crate::{agent_tunnel::AgentTunnelHub, policy::PolicyCache, AgentRegistry};
 
 fn default_tcp() -> String {
     "tcp".to_string()
@@ -55,6 +55,7 @@ pub async fn listen(
     store: CertStore,
     acl: Arc<PolicyCache>,
     tunnel_hub: AgentTunnelHub,
+    agent_registry: Arc<AgentRegistry>,
 ) -> Result<()> {
     let tls_config = build_device_tunnel_tls(&store)?;
     let acceptor = TlsAcceptor::from(Arc::new(tls_config));
@@ -67,11 +68,14 @@ pub async fn listen(
                 let ctrl = controller_http_url.clone();
                 let acl = acl.clone();
                 let tunnel_hub = tunnel_hub.clone();
+                let agent_registry = agent_registry.clone();
                 let acc = acceptor.clone();
                 tokio::spawn(async move {
                     match acc.accept(stream).await {
                         Ok(tls) => {
-                            if let Err(e) = handle_stream(tls, &ctrl, acl, tunnel_hub).await {
+                            if let Err(e) =
+                                handle_stream(tls, &ctrl, acl, tunnel_hub, agent_registry).await
+                            {
                                 warn!("device tunnel client error from {}: {}", peer, e);
                             }
                         }
@@ -128,6 +132,7 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     controller_http_url: &str,
     acl: Arc<PolicyCache>,
     tunnel_hub: AgentTunnelHub,
+    agent_registry: Arc<AgentRegistry>,
 ) -> Result<()> {
     let line = read_line(&mut stream).await?;
     let req: TunnelRequest =
@@ -155,11 +160,15 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
                 .resource_by_id(&resp.resource_id)
                 .map(|resource| resource.firewall_status.eq_ignore_ascii_case("protected"))
                 .unwrap_or(false);
-            send_response(&mut stream, true, None).await?;
             if protected {
-                let agent_id = tunnel_hub
-                    .first_agent_id()
-                    .ok_or_else(|| anyhow::anyhow!("no connected agent for protected resource"))?;
+                let agent_id = resolve_protected_resource_owner(&req.destination, &agent_registry)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "no uniquely connected owning agent for protected resource {}",
+                            req.destination
+                        )
+                    })?;
+                send_response(&mut stream, true, None).await?;
                 info!(
                     "routing protected device tunnel {}:{} via agent {}",
                     req.destination, req.port, agent_id
@@ -174,6 +183,7 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
                 )
                 .await;
             }
+            send_response(&mut stream, true, None).await?;
         }
     }
 
@@ -272,4 +282,47 @@ async fn relay_udp_direct<S: AsyncRead + AsyncWrite + Unpin>(
     }
     info!("UDP relay closed {}", dest);
     Ok(())
+}
+
+fn resolve_protected_resource_owner(
+    destination: &str,
+    agent_registry: &AgentRegistry,
+) -> Option<String> {
+    let destination = destination.trim();
+    if destination.is_empty() {
+        return None;
+    }
+
+    let mut matches = agent_registry
+        .snapshot()
+        .into_iter()
+        .filter(|agent| agent.ip.trim() == destination)
+        .map(|agent| agent.agent_id);
+
+    let owner = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    Some(owner)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_protected_resource_owner_requires_unique_ip_match() {
+        let registry = AgentRegistry::new();
+        registry.update("alpha-1", "ONLINE", "192.168.1.85");
+        registry.update("beta-1", "ONLINE", "192.168.1.86");
+
+        assert_eq!(
+            resolve_protected_resource_owner("192.168.1.85", &registry).as_deref(),
+            Some("alpha-1")
+        );
+        assert_eq!(resolve_protected_resource_owner("192.168.1.99", &registry), None);
+
+        registry.update("gamma-1", "ONLINE", "192.168.1.85");
+        assert_eq!(resolve_protected_resource_owner("192.168.1.85", &registry), None);
+    }
 }

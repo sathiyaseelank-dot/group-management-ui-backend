@@ -14,6 +14,7 @@ use crate::device_tunnel;
 use crate::policy::PolicyCache;
 use crate::tls::cert_store::CertStore;
 use crate::tls::server_cfg::build_device_tunnel_tls;
+use crate::AgentRegistry;
 
 /// Start the QUIC listener for device tunnel connections.
 ///
@@ -27,6 +28,7 @@ pub async fn listen(
     store: CertStore,
     acl: Arc<PolicyCache>,
     tunnel_hub: AgentTunnelHub,
+    agent_registry: Arc<AgentRegistry>,
 ) -> Result<()> {
     let tls_config = build_device_tunnel_tls(&store)?;
 
@@ -49,6 +51,7 @@ pub async fn listen(
                 let ctrl = controller_http_url.clone();
                 let acl = acl.clone();
                 let hub = tunnel_hub.clone();
+                let agent_registry = agent_registry.clone();
                 tokio::spawn(async move {
                     match incoming.await {
                         Ok(conn) => {
@@ -60,10 +63,15 @@ pub async fn listen(
                                         let ctrl = ctrl.clone();
                                         let acl = acl.clone();
                                         let hub = hub.clone();
+                                        let agent_registry = agent_registry.clone();
                                         tokio::spawn(async move {
                                             let stream = QuicBiStream { send, recv };
                                             if let Err(e) = device_tunnel::handle_stream(
-                                                stream, &ctrl, acl, hub,
+                                                stream,
+                                                &ctrl,
+                                                acl,
+                                                hub,
+                                                agent_registry,
                                             )
                                             .await
                                             {
