@@ -2,7 +2,7 @@ use crate::tls::cert_store::CertStore;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::Notify;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 pub async fn renewal_loop(
     controller_addr: String,
@@ -12,6 +12,7 @@ pub async fn renewal_loop(
     controller_ca_pem: Vec<u8>,
     workload_ca_pem: Vec<u8>,
     reload: Arc<Notify>,
+    shutdown: Arc<Notify>,
 ) {
     loop {
         let sleep_dur = next_renewal_delay(store.not_after(), store.total_ttl());
@@ -50,6 +51,12 @@ pub async fn renewal_loop(
                 reload.notify_one();
             }
             Err(e) => {
+                let msg = format!("{}", e);
+                if msg.contains("PermissionDenied") {
+                    error!("certificate renewal permanently rejected: {} — shutting down", e);
+                    shutdown.notify_one();
+                    return;
+                }
                 warn!("certificate renewal failed: {}", e);
             }
         }

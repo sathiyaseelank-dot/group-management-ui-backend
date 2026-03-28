@@ -48,11 +48,10 @@ func (s *Server) handleUIAgents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		id := fmt.Sprintf("tun_%d", time.Now().UTC().UnixMilli())
-		hostname := strings.ToLower(strings.ReplaceAll(req.Name, " ", "-")) + ".local"
 		nowUnix := time.Now().UTC().Unix()
 		nowISO := isoStringNow()
 		wsID := workspaceIDFromContext(r.Context())
-		_, err := db.Exec(state.Rebind(`INSERT INTO agents (id, name, status, version, hostname, remote_network_id, connector_id, last_seen, last_seen_at, installed, workspace_id) VALUES (?, ?, 'offline', '1.0.0', ?, ?, ?, ?, ?, 0, ?)`), id, req.Name, hostname, req.RemoteNetworkID, req.ConnectorID, nowUnix, nowISO, wsID)
+		_, err := db.Exec(state.Rebind(`INSERT INTO agents (id, name, status, version, hostname, remote_network_id, connector_id, last_seen, last_seen_at, installed, workspace_id) VALUES (?, ?, 'offline', '1.0.0', '', ?, ?, ?, ?, 0, ?)`), id, req.Name, req.RemoteNetworkID, req.ConnectorID, nowUnix, nowISO, wsID)
 		if err != nil {
 			http.Error(w, "failed to create agent", http.StatusBadRequest)
 			return
@@ -88,7 +87,22 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 				http.Error(w, "agent not found", http.StatusNotFound)
 				return
 			}
+			// Look up connector before deleting so we can refresh its allowlist.
+			var connID string
+			_ = db.QueryRow(state.Rebind(`SELECT connector_id FROM agents WHERE id = ?`), agentID).Scan(&connID)
 			_ = state.DeleteAgentFromDB(db, agentID)
+			// Delete enrollment token so the agent cannot re-enroll after deletion.
+			if s.Tokens != nil {
+				_ = s.Tokens.DeleteByConnectorID(agentID)
+			}
+			_, _ = db.Exec(state.Rebind(`DELETE FROM tokens WHERE connector_id = ?`), agentID)
+			// Remove from in-memory registry.
+			if s.Agents != nil {
+				s.Agents.Delete(agentID)
+			}
+			if s.Allowlists != nil && connID != "" {
+				_ = s.Allowlists.RefreshConnectorAllowlist(connID)
+			}
 			s.audit(r, "agent.delete", agentID, "ok")
 			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
@@ -172,7 +186,12 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		var connID string
+		_ = db.QueryRow(state.Rebind(`SELECT connector_id FROM agents WHERE id = ?`), agentID).Scan(&connID)
 		_ = state.RevokeAgentInDB(db, agentID)
+		if s.Allowlists != nil && connID != "" {
+			_ = s.Allowlists.RefreshConnectorAllowlist(connID)
+		}
 		nowISO := isoStringNow()
 		_, _ = db.Exec(state.Rebind(`INSERT INTO agent_logs (agent_id, timestamp, message) VALUES (?, ?, ?)`), agentID, nowISO, "agent revoked")
 		s.audit(r, "agent.revoke", agentID, "ok")

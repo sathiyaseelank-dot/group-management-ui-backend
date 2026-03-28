@@ -591,7 +591,8 @@ func (s *ControlPlaneServer) NotifyAgentAllowed(agentID, spiffeID, version, host
 				hostname=CASE WHEN excluded.hostname = '' THEN agents.hostname ELSE excluded.hostname END,
 				last_seen=excluded.last_seen,
 				ip=CASE WHEN excluded.ip = '' THEN agents.ip ELSE excluded.ip END,
-				workspace_id=CASE WHEN excluded.workspace_id = '' THEN agents.workspace_id ELSE excluded.workspace_id END`),
+				workspace_id=CASE WHEN excluded.workspace_id = '' THEN agents.workspace_id ELSE excluded.workspace_id END
+			WHERE agents.revoked = 0`),
 			agentID, spiffeID, version, hostname, time.Now().UTC().Unix(), ip, workspaceID,
 		); err != nil {
 			log.Printf("failed to persist enrolled agent %s: %v", agentID, err)

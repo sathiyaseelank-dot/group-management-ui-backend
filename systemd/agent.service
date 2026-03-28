@@ -16,7 +16,7 @@ Group=zero-trust-agent
 EnvironmentFile=/etc/agent/agent.conf
 LoadCredential=CONTROLLER_CA:/etc/agent/ca.crt
 
-Restart=always
+Restart=on-failure
 RestartSec=10
 
 ExecStart=/usr/bin/agent run

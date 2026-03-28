@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::Notify;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::config;
 use crate::enroll;
@@ -11,6 +11,12 @@ use crate::enroll::pb::ControlMessage;
 use crate::firewall::FirewallEnforcer;
 use crate::tls::cert_store::CertStore;
 use crate::tunnel::{AgentTunnelManager, TunnelClose, TunnelData, TunnelOpen};
+
+/// Check if an error indicates a permanent PermissionDenied rejection.
+fn is_permission_denied(err: &anyhow::Error) -> bool {
+    let msg = format!("{}", err);
+    msg.contains("PermissionDenied")
+}
 
 pub async fn run() -> Result<()> {
     let cfg = config::run_config_from_env()?;
@@ -29,12 +35,22 @@ pub async fn run() -> Result<()> {
                 token: cfg.enrollment_token.clone(),
                 ca_pem: cfg.ca_pem.clone(),
             };
-            let enrolled = enroll::enroll(&enroll_cfg).await?;
-            info!("agent enrolled as {}", enrolled.spiffe_id);
-            if let Err(e) = crate::persistence::save_enrollment(&enrolled) {
-                warn!("failed to persist enrollment state: {}", e);
+            match enroll::enroll(&enroll_cfg).await {
+                Ok(enrolled) => {
+                    info!("agent enrolled as {}", enrolled.spiffe_id);
+                    if let Err(e) = crate::persistence::save_enrollment(&enrolled) {
+                        warn!("failed to persist enrollment state: {}", e);
+                    }
+                    enrolled
+                }
+                Err(e) => {
+                    if is_permission_denied(&e) {
+                        error!("enrollment rejected: agent token was revoked or deleted — shutting down");
+                        return Ok(());
+                    }
+                    return Err(e);
+                }
             }
-            enrolled
         }
     };
 
@@ -75,6 +91,7 @@ pub async fn run() -> Result<()> {
     }
 
     let reload = Arc::new(Notify::new());
+    let shutdown = Arc::new(Notify::new());
     let tunnel_manager = Arc::new(AgentTunnelManager::new());
 
     // Start control plane loop (connects to connector)
@@ -88,6 +105,7 @@ pub async fn run() -> Result<()> {
         reload.clone(),
         enforcer.clone(),
         tunnel_manager.clone(),
+        shutdown.clone(),
     ));
 
     // Start certificate renewal loop
@@ -99,11 +117,18 @@ pub async fn run() -> Result<()> {
         cfg.ca_pem.clone(),
         result.ca_pem.clone(),
         reload.clone(),
+        shutdown.clone(),
     ));
 
-    // Wait for shutdown signal
-    tokio::signal::ctrl_c().await.ok();
-    info!("shutting down, cleaning up firewall rules");
+    // Wait for shutdown signal (ctrl-c or fatal rejection)
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!("shutting down, cleaning up firewall rules");
+        }
+        _ = shutdown.notified() => {
+            info!("fatal rejection detected, cleaning up firewall rules");
+        }
+    }
     enforcer.cleanup_all().await;
 
     Ok(())
@@ -120,8 +145,10 @@ async fn control_plane_loop(
     reload: Arc<Notify>,
     enforcer: Arc<FirewallEnforcer>,
     tunnel_manager: Arc<AgentTunnelManager>,
+    shutdown: Arc<Notify>,
 ) {
     let mut backoff = Duration::from_secs(2);
+    let mut permission_denied_count: u32 = 0;
     loop {
         let is_cert_reload = tokio::select! {
             result = connect_to_connector(
@@ -134,13 +161,32 @@ async fn control_plane_loop(
                 &enforcer,
                 &tunnel_manager,
             ) => {
-                if let Err(e) = result {
-                    warn!("connector connection ended: {}", e);
+                match result {
+                    Ok(()) => {
+                        permission_denied_count = 0;
+                    }
+                    Err(ref e) => {
+                        warn!("connector connection ended: {}", e);
+                        if is_permission_denied(e) {
+                            permission_denied_count += 1;
+                            if permission_denied_count >= 3 {
+                                error!(
+                                    "agent permanently rejected by connector ({} consecutive denials) — shutting down",
+                                    permission_denied_count
+                                );
+                                shutdown.notify_one();
+                                return;
+                            }
+                        } else {
+                            permission_denied_count = 0;
+                        }
+                    }
                 }
                 false
             }
             _ = reload.notified() => {
                 info!("cert reload signal received, reconnecting");
+                permission_denied_count = 0;
                 true
             }
         };

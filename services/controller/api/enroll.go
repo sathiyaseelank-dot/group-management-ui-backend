@@ -237,14 +237,18 @@ func (s *EnrollmentServer) Renew(
 		return nil, status.Error(codes.PermissionDenied, "id mismatch for renewal")
 	}
 
-	// Check if the connector/agent is revoked before renewing.
-	if s.CRL != nil && s.DB != nil {
+	// Check if the connector/agent is revoked or deleted before renewing.
+	if s.DB != nil {
 		table := "connectors"
 		if role == "agent" {
 			table = "agents"
 		}
 		var revoked int
-		if err := s.DB.QueryRow(state.Rebind(fmt.Sprintf(`SELECT revoked FROM %s WHERE id = ?`, table)), req.GetId()).Scan(&revoked); err == nil && revoked != 0 {
+		err := s.DB.QueryRow(state.Rebind(fmt.Sprintf(`SELECT revoked FROM %s WHERE id = ?`, table)), req.GetId()).Scan(&revoked)
+		if err == sql.ErrNoRows {
+			return nil, status.Error(codes.PermissionDenied, "certificate renewal denied: entity deleted")
+		}
+		if err == nil && revoked != 0 {
 			return nil, status.Error(codes.PermissionDenied, "certificate renewal denied: entity revoked")
 		}
 	}

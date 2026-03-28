@@ -82,18 +82,18 @@ func LoadConnectorsFromDB(db *sql.DB, registry *Registry) error {
 
 func SaveAgentToDB(db *sql.DB, rec AgentStatusRecord) error {
 	lastSeenAt := rec.LastSeen.UTC().Format(time.RFC3339)
+	// UPDATE only — never re-create a deleted agent, never mark a revoked agent online.
 	_, err := db.Exec(
-		Rebind(`INSERT INTO agents (id, spiffe_id, connector_id, last_seen, last_seen_at, status, installed, ip)
-		VALUES (?, ?, ?, ?, ?, 'online', 1, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			spiffe_id=CASE WHEN excluded.spiffe_id = '' THEN agents.spiffe_id ELSE excluded.spiffe_id END,
-			connector_id=excluded.connector_id,
-			last_seen=excluded.last_seen,
-			last_seen_at=excluded.last_seen_at,
+		Rebind(`UPDATE agents SET
+			spiffe_id=CASE WHEN ? = '' THEN spiffe_id ELSE ? END,
+			connector_id=?,
+			last_seen=?,
+			last_seen_at=?,
 			status='online',
 			installed=1,
-			ip=excluded.ip`),
-		rec.ID, rec.SPIFFEID, rec.ConnectorID, rec.LastSeen.Unix(), lastSeenAt, rec.IP,
+			ip=?
+		WHERE id = ? AND revoked = 0`),
+		rec.SPIFFEID, rec.SPIFFEID, rec.ConnectorID, rec.LastSeen.Unix(), lastSeenAt, rec.IP, rec.ID,
 	)
 	return err
 }
