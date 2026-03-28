@@ -229,11 +229,6 @@ func (s *Server) isAdminEmail(email string) bool {
 	return role == "admin" || role == "owner"
 }
 
-// isAdminBearerToken checks if the request uses the BFF admin bearer token (not a JWT).
-func (s *Server) isAdminBearerToken(r *http.Request) bool {
-	return s.AdminAuthToken != "" && r.Header.Get("Authorization") == "Bearer "+s.AdminAuthToken
-}
-
 // deviceAuth accepts only device JWTs (aud:"device").
 func (s *Server) deviceAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -472,8 +467,8 @@ func (s *Server) handleConnectorSubroutes(w http.ResponseWriter, r *http.Request
 			http.Error(w, "connector not found in this workspace", http.StatusNotFound)
 			return
 		}
-	} else if !s.isAdminBearerToken(r) {
-		// JWT-authenticated requests must have workspace context for destructive operations.
+	} else if !s.isAdminEmail(sessionEmailFromContext(r.Context())) {
+		// Workspace-scoped users must have workspace context for destructive operations.
 		http.Error(w, "workspace context required", http.StatusForbidden)
 		return
 	}
@@ -592,8 +587,8 @@ func (s *Server) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wsID := workspaceIDFromContext(r.Context())
-	if wsID == "" && !s.isAdminBearerToken(r) {
-		// JWT-authenticated requests must have workspace context for destructive operations.
+	if wsID == "" && !s.isAdminEmail(sessionEmailFromContext(r.Context())) {
+		// Workspace-scoped users must have workspace context for destructive operations.
 		http.Error(w, "workspace context required", http.StatusForbidden)
 		return
 	}
