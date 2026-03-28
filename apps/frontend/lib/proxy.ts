@@ -32,14 +32,6 @@ function getCookieValue(cookieHeader: string | undefined, name: string): string 
   return undefined
 }
 
-function getAdminAuthToken() {
-  const token = process.env.ADMIN_AUTH_TOKEN
-  if (!token) {
-    throw new Error('ADMIN_AUTH_TOKEN environment variable is required')
-  }
-  return token
-}
-
 // Extract JWT from an Express request's Authorization header or session cookie.
 export function getJWTFromRequest(req: { headers: { authorization?: string; cookie?: string } }): string | undefined {
   const auth = req.headers.authorization
@@ -54,17 +46,17 @@ export async function proxyToBackend<T = any>(
 ): Promise<T> {
   const url = `${getBackendUrl()}${path}`;
 
-  const authHeader = userJWT
-    ? `Bearer ${userJWT}`
-    : `Bearer ${getAdminAuthToken()}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+  if (userJWT) {
+    headers['Authorization'] = `Bearer ${userJWT}`;
+  }
 
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': authHeader,
-      ...(options.headers as Record<string, string>),
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -103,4 +95,4 @@ export async function proxyWithJWT<T = any>(
   return response.json();
 }
 
-export { getBackendUrl, getAdminAuthToken };
+export { getBackendUrl };

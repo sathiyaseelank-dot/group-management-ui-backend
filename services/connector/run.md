@@ -44,8 +44,6 @@ sudo \
   TRUST_DOMAIN="mycorp.internal" \
   INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
   INTERNAL_CA_KEY="$(cat ca/ca.pkcs8.key)" \
-  ADMIN_AUTH_TOKEN="<YOUR_ADMIN_AUTH_TOKEN>" \
-  INTERNAL_API_TOKEN="<YOUR_INTERNAL_API_TOKEN>" \
   CONTROLLER_ADDR="127.0.0.1:8443" \
   ADMIN_HTTP_ADDR="0.0.0.0:8081" \
   ./controller
@@ -59,7 +57,7 @@ The controller now listens on:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8081/api/admin/tokens \
-  -H "Authorization: Bearer <YOUR_ADMIN_AUTH_TOKEN>" | jq .
+  -H "Authorization: Bearer <admin-jwt>" | jq .
 ```
 
 Response:
@@ -88,7 +86,6 @@ sudo \
   CONNECTOR_ID="connector-local-01" \
   ENROLLMENT_TOKEN="<token-from-step-2>" \
   TRUST_DOMAIN="mycorp.internal" \
-  POLICY_SIGNING_KEY="<YOUR_INTERNAL_API_TOKEN>" \
   CONTROLLER_CA="$(cat /tmp/controller-ca.crt)" \
   ./target/release/connector run
 ```
@@ -104,7 +101,7 @@ INFO grpcconnector2: connector enrolled as spiffe://mycorp.internal/connector/co
 
 ```bash
 curl -s http://127.0.0.1:8081/api/admin/connectors \
-  -H "Authorization: Bearer <YOUR_ADMIN_AUTH_TOKEN>" | jq .
+  -H "Authorization: Bearer <admin-jwt>" | jq .
 ```
 
 The connector should appear with `status: "ONLINE"`.
@@ -136,8 +133,6 @@ sudo \
   TRUST_DOMAIN="mycorp.internal" \
   INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
   INTERNAL_CA_KEY="$(cat ca/ca.pkcs8.key)" \
-  ADMIN_AUTH_TOKEN="<YOUR_ADMIN_AUTH_TOKEN>" \
-  INTERNAL_API_TOKEN="<YOUR_INTERNAL_API_TOKEN>" \
   CONTROLLER_ADDR="192.168.1.213:8443" \
   ADMIN_HTTP_ADDR="0.0.0.0:8081" \
   ./controller
@@ -149,7 +144,7 @@ sudo \
 
 ```bash
 curl -s -X POST http://192.168.1.213:8081/api/admin/tokens \
-  -H "Authorization: Bearer <YOUR_ADMIN_AUTH_TOKEN>" | jq .
+  -H "Authorization: Bearer <admin-jwt>" | jq .
 ```
 
 ### Step 3: Install the Connector on Machine B
@@ -162,7 +157,6 @@ curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/main/scripts
   CONTROLLER_HTTP_ADDR="192.168.1.213:8081" \
   CONNECTOR_ID="connector-lan-01" \
   ENROLLMENT_TOKEN="<token-from-step-2>" \
-  POLICY_SIGNING_KEY="<YOUR_INTERNAL_API_TOKEN>" \
   bash
 ```
 
@@ -182,7 +176,6 @@ sudo \
   CONNECTOR_ID="connector-lan-01" \
   ENROLLMENT_TOKEN="<token-from-step-2>" \
   TRUST_DOMAIN="mycorp.internal" \
-  POLICY_SIGNING_KEY="<YOUR_INTERNAL_API_TOKEN>" \
   CONTROLLER_CA="$(cat /tmp/controller-ca.crt)" \
   ./connector run
 ```
@@ -191,7 +184,7 @@ sudo \
 
 ```bash
 curl -s http://192.168.1.213:8081/api/admin/connectors \
-  -H "Authorization: Bearer <YOUR_ADMIN_AUTH_TOKEN>" | jq .
+  -H "Authorization: Bearer <admin-jwt>" | jq .
 ```
 
 ### Step 5: Check systemd Service (if script-installed)

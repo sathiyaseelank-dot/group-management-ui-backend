@@ -7,8 +7,6 @@ cd ~/Desktop/tls-mtls/grpccontroller/backend/controller
   sudo TRUST_DOMAIN="mycorp.internal" \
     INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
     INTERNAL_CA_KEY="$(cat ca/ca.pkcs8.key)" \
-    ADMIN_AUTH_TOKEN="<YOUR_ADMIN_AUTH_TOKEN>" \
-    INTERNAL_API_TOKEN="<YOUR_INTERNAL_API_TOKEN>" \
     ./controller
 
 # Run command v2
@@ -16,8 +14,6 @@ cd ~/Desktop/tls-mtls/grpccontroller/backend/controller
       TRUST_DOMAIN="mycorp.internal" \
       INTERNAL_CA_CERT="$(cat ca/ca.crt)" \
       INTERNAL_CA_KEY="$(cat ca/ca.pkcs8.key)" \
-      ADMIN_AUTH_TOKEN="<YOUR_ADMIN_AUTH_TOKEN>" \
-      INTERNAL_API_TOKEN="<YOUR_INTERNAL_API_TOKEN>" \
       CONTROLLER_ADDR="192.168.1.213:8443" \
       ADMIN_HTTP_ADDR="0.0.0.0:8081" \
       ./controller
