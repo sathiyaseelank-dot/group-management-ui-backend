@@ -4,10 +4,22 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	_ "github.com/lib/pq"
 )
+
+// safeTableName validates that a table name contains only lowercase alphanumeric
+// characters and underscores, preventing SQL injection in DDL statements.
+var safeTableNameRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+
+func validateTableName(name string) string {
+	if !safeTableNameRe.MatchString(name) {
+		panic(fmt.Sprintf("invalid table name: %q", name))
+	}
+	return name
+}
 
 // Open returns a *sql.DB connected to PostgreSQL. SQLite is not supported.
 func Open(databaseURL, sqlitePath string) (*sql.DB, error) {
@@ -447,6 +459,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			"device_trusted_profiles", "device_auth_requests",
 		}
 		for _, t := range rlsTables {
+			t = validateTableName(t)
 			_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", t))
 			_, _ = db.Exec(fmt.Sprintf(
 				"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='%s' AND policyname='ws_isolation') THEN "+
@@ -470,6 +483,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 		"service_accounts",
 	}
 	for _, tbl := range backfillTables {
+		tbl = validateTableName(tbl)
 		_, _ = db.Exec(fmt.Sprintf(
 			`UPDATE %s SET workspace_id = (SELECT id FROM workspaces ORDER BY created_at ASC LIMIT 1)
 			 WHERE workspace_id = '' AND (SELECT id FROM workspaces LIMIT 1) IS NOT NULL`, tbl))
@@ -487,6 +501,7 @@ func migrateWorkspaceColumns(db *sql.DB, dialect string) error {
 		"service_accounts", "audit_logs",
 	}
 	for _, table := range tables {
+		table = validateTableName(table)
 		if dialect == "postgres" {
 			stmt := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT ''`, table)
 			if _, err := db.Exec(stmt); err != nil {

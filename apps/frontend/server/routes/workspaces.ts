@@ -50,7 +50,8 @@ router.get('/lookup', async (req: Request, res: Response) => {
     const data = await response.json()
     res.json(data)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -61,7 +62,8 @@ router.get('/', async (req: Request, res: Response) => {
     const workspaces = await proxyWithJWT<BackendWorkspace[]>('/api/workspaces', jwt)
     res.json(workspaces.map(mapWorkspace))
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -78,7 +80,8 @@ router.post('/', async (req: Request, res: Response) => {
     }
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -89,7 +92,8 @@ router.get('/:id', async (req: Request, res: Response) => {
     const ws = await proxyWithJWT<BackendWorkspace>(`/api/workspaces/${req.params.id}`, jwt)
     res.json(mapWorkspace(ws))
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -103,7 +107,8 @@ router.put('/:id', async (req: Request, res: Response) => {
     })
     res.json(ws)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -116,7 +121,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
     })
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -129,7 +135,8 @@ router.post('/:id/select', async (req: Request, res: Response) => {
     })
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -140,7 +147,8 @@ router.get('/:id/members', async (req: Request, res: Response) => {
     const members = await proxyWithJWT(`/api/workspaces/${req.params.id}/members`, jwt)
     res.json(members)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -154,7 +162,8 @@ router.post('/:id/members', async (req: Request, res: Response) => {
     })
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -168,7 +177,8 @@ router.put('/:id/members/:uid', async (req: Request, res: Response) => {
     })
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -181,7 +191,8 @@ router.delete('/:id/members/:uid', async (req: Request, res: Response) => {
     })
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

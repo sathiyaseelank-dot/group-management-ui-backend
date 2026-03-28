@@ -9,7 +9,8 @@ router.get('/', async (req: Request, res: Response) => {
     const agents = await proxyToBackend('/api/agents', {}, getJWTFromRequest(req))
     res.json(Array.isArray(agents) ? agents : [])
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -22,7 +23,8 @@ router.post('/', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -33,7 +35,8 @@ router.get('/:agentId', async (req: Request, res: Response) => {
     const result = await proxyToBackend(`/api/agents/${agentId}`, {}, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -46,7 +49,8 @@ router.delete('/:agentId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -59,7 +63,8 @@ router.post('/:agentId/revoke', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -72,7 +77,8 @@ router.post('/:agentId/grant', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

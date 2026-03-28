@@ -50,7 +50,8 @@ router.get('/', async (req: Request, res: Response) => {
     const networks = await proxyToBackend<BackendRemoteNetwork[]>('/api/remote-networks', {}, getJWTFromRequest(req))
     res.json(networks.map(mapBackendNetwork))
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -63,7 +64,8 @@ router.post('/', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(mapBackendNetwork(network))
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -74,7 +76,8 @@ router.get('/:networkId', async (req: Request, res: Response) => {
     const network = await proxyToBackend(`/api/remote-networks/${networkId}`, {}, getJWTFromRequest(req))
     res.json(network)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -87,7 +90,8 @@ router.delete('/:networkId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

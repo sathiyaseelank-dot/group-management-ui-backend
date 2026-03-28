@@ -74,32 +74,36 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     ([, config]) => config.theme || config.color,
   )
 
-  if (!colorConfig.length) {
-    return null
-  }
+  React.useInsertionEffect(() => {
+    if (!colorConfig.length) return
 
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
-${colorConfig
-  .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
-  })
-  .join('\n')}
-}
-`,
-          )
-          .join('\n'),
-      }}
-    />
-  )
+    const cssRules: string[] = []
+    for (const [theme, prefix] of Object.entries(THEMES)) {
+      const vars = colorConfig
+        .map(([key, itemConfig]) => {
+          const color =
+            itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
+            itemConfig.color
+          if (!color || !/^[a-zA-Z0-9#(),.\s/%_-]+$/.test(color)) return null
+          const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '')
+          return `  --color-${safeKey}: ${color};`
+        })
+        .filter(Boolean)
+        .join('\n')
+      if (vars) {
+        const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '')
+        cssRules.push(`${prefix} [data-chart=${safeId}] {\n${vars}\n}`)
+      }
+    }
+
+    const style = document.createElement('style')
+    style.setAttribute('data-chart-style', id)
+    style.textContent = cssRules.join('\n')
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, [id, colorConfig])
+
+  return null
 }
 
 const ChartTooltip = RechartsPrimitive.Tooltip

@@ -9,7 +9,8 @@ router.get('/', async (req: Request, res: Response) => {
     const users = await proxyToBackend('/api/users', {}, getJWTFromRequest(req))
     res.json(Array.isArray(users) ? users : [])
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -22,7 +23,8 @@ router.post('/', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(user)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -33,7 +35,8 @@ router.get('/:userId', async (req: Request, res: Response) => {
     const user = await proxyToBackend(`/api/admin/users/${userId}`, {}, getJWTFromRequest(req))
     res.json(user)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -47,7 +50,8 @@ router.put('/:userId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(user)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -61,7 +65,8 @@ router.patch('/:userId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(user)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -74,7 +79,8 @@ router.delete('/:userId', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 
@@ -87,7 +93,8 @@ router.post('/invite', async (req: Request, res: Response) => {
     }, getJWTFromRequest(req))
     res.json(result)
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message })
+    console.error('request failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

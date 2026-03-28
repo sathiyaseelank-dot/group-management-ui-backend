@@ -58,17 +58,42 @@ func consumeInviteCode(code string) (inviteCodeEntry, bool) {
 }
 
 // isAllowedInviteRedirectURI validates a redirect_uri for the invite PKCE flow.
-// Allows loopback HTTP, custom schemes, and HTTPS (for frontend origins).
+// Allows loopback HTTP, the configured dashboard origin, CORS allowed origins,
+// and the ztna:// custom scheme for mobile clients.
 func isAllowedInviteRedirectURI(uri string) bool {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return false
 	}
 	scheme := strings.ToLower(u.Scheme)
-	if scheme == "https" {
+	// Allow mobile deep link scheme
+	if scheme == "ztna" {
 		return true
 	}
-	return isLoopbackURI(uri)
+	// Allow loopback for local development
+	if isLoopbackURI(uri) {
+		return true
+	}
+	// Only allow HTTPS origins that match configured dashboard or CORS origins.
+	if scheme == "https" {
+		target := scheme + "://" + u.Host
+		if corsDashboardURL != "" {
+			if du, err := url.Parse(corsDashboardURL); err == nil {
+				if target == du.Scheme+"://"+du.Host {
+					return true
+				}
+			}
+		}
+		for _, origin := range corsAllowedOrigins {
+			if ou, err := url.Parse(origin); err == nil {
+				if target == ou.Scheme+"://"+ou.Host {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // ── POST /api/invite/authorize ─────────────────────────────────────────────
@@ -362,11 +387,19 @@ func (s *Server) handleInviteToken(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Mark invite used and add to workspace
-	_, _ = db.Exec(
-		state.Rebind(`UPDATE workspace_invites SET used = 1 WHERE token = ?`),
+	// Atomically mark invite used — prevents concurrent redemption.
+	res, markErr := db.Exec(
+		state.Rebind(`UPDATE workspace_invites SET used = 1 WHERE token = ? AND used = 0`),
 		entry.inviteToken,
 	)
+	if markErr != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		http.Error(w, "invite token already used", http.StatusConflict)
+		return
+	}
 	if s.Workspaces != nil && userID != "" && entry.wsID != "" {
 		_ = s.Workspaces.AddMember(entry.wsID, userID, entry.wsRole)
 	}
