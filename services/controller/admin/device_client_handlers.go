@@ -134,10 +134,13 @@ func loadAuthorizedResources(db *sql.DB, workspaceID, userID string) ([]deviceUs
 }
 
 func lookupAuthorizedConnectorTunnelAddr(db *sql.DB, remoteNetworkID, connectorID string) string {
-	if addr, err := lookupOnlineConnectorTunnelAddrByNetwork(db, remoteNetworkID); err == nil && addr != "" {
+	// Prefer the resource's own connector if it's online — this ensures the
+	// client reaches the connector whose agent actually protects the resource.
+	if addr, err := lookupOnlineConnectorTunnelAddrByID(db, connectorID); err == nil && addr != "" {
 		return addr
 	}
-	if addr, err := lookupOnlineConnectorTunnelAddrByID(db, connectorID); err == nil && addr != "" {
+	// Fall back to any online connector in the same remote network.
+	if addr, err := lookupOnlineConnectorTunnelAddrByNetwork(db, remoteNetworkID); err == nil && addr != "" {
 		return addr
 	}
 	return ""

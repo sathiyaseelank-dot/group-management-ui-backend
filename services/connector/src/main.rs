@@ -568,6 +568,9 @@ async fn handle_control_message(
         "agent_allowlist" => {
             if let Ok(items) = serde_json::from_slice::<Vec<AgentInfo>>(&msg.payload) {
                 let count = items.len();
+                // Preserve controller ordering: connector-bound agents first.
+                let preferred: Vec<String> = items.iter().map(|i| i.agent_id.clone()).collect();
+                agent_tunnel_hub.set_preferred_order(preferred);
                 allowlist.replace(items);
                 info!("agent allowlist replaced: entries={}", count);
             }
