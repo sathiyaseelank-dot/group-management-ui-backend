@@ -281,13 +281,20 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
 
         // QUIC/UDP device tunnel (same port, different protocol)
         let quic_addr = cfg.device_tunnel_addr.clone();
+        let quic_advertise_addr = cfg.device_tunnel_advertise_addr.clone();
         let quic_ctrl = cfg.controller_http_url.clone();
         let quic_store = store.clone();
         let quic_acl = acl.clone();
         let quic_hub = agent_tunnel_hub.clone();
         tokio::spawn(async move {
-            if let Err(e) =
-                quic_listener::listen(&quic_addr, quic_ctrl, quic_store, quic_acl, quic_hub).await
+            if let Err(e) = quic_listener::listen(
+                &quic_addr,
+                &quic_advertise_addr,
+                quic_ctrl,
+                quic_store,
+                quic_acl,
+                quic_hub,
+            ).await
             {
                 // Non-fatal: QUIC is an optimization, TLS still works
                 warn!("QUIC device tunnel failed to start: {}", e);

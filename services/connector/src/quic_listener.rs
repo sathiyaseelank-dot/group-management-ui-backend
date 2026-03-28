@@ -22,6 +22,7 @@ use crate::tls::server_cfg::build_device_tunnel_tls;
 /// client discovery (Option C).
 pub async fn listen(
     addr: &str,
+    advertise_addr: &str,
     controller_http_url: String,
     store: CertStore,
     acl: Arc<PolicyCache>,
@@ -38,8 +39,8 @@ pub async fn listen(
         .map_err(|e| anyhow::anyhow!("bad QUIC listen addr '{}': {}", addr, e))?;
     let endpoint = quinn::Endpoint::server(server_config, socket_addr)?;
 
-    // Advertise this address so TLS tunnel responses include it
-    device_tunnel::set_quic_advertise_addr(addr.to_string());
+    // Advertise the externally reachable address, not the bind address.
+    device_tunnel::set_quic_advertise_addr(advertise_addr.to_string());
     info!("device tunnel (QUIC) listening on {}", addr);
 
     loop {
