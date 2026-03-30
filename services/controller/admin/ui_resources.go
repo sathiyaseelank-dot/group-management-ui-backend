@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,6 +45,47 @@ func resolveResourceNetworkID(db *sql.DB, networkID, connectorID, wsID string) (
 	return "", fmt.Errorf("remote network required")
 }
 
+func persistResourceAgents(db *sql.DB, resourceID, wsID string, agentIDs []string) error {
+	normalized := make([]string, 0, len(agentIDs))
+	seen := make(map[string]struct{}, len(agentIDs))
+	for _, raw := range agentIDs {
+		agentID := strings.TrimSpace(raw)
+		if agentID == "" {
+			continue
+		}
+		if _, ok := seen[agentID]; ok {
+			continue
+		}
+		seen[agentID] = struct{}{}
+		normalized = append(normalized, agentID)
+	}
+	slices.Sort(normalized)
+
+	if wsID != "" {
+		wsClause, wsArgs := wsWhereOnly(wsID, "")
+		for _, agentID := range normalized {
+			args := append([]interface{}{agentID}, wsArgs...)
+			var exists string
+			if err := db.QueryRow(state.Rebind(`SELECT id FROM agents WHERE id = ?`+wsClause), args...).Scan(&exists); err != nil {
+				if err == sql.ErrNoRows {
+					return fmt.Errorf("agent %s not found in workspace", agentID)
+				}
+				return err
+			}
+		}
+	}
+
+	if _, err := db.Exec(state.Rebind(`DELETE FROM resource_agents WHERE resource_id = ?`), resourceID); err != nil {
+		return err
+	}
+	for _, agentID := range normalized {
+		if _, err := db.Exec(state.Rebind(`INSERT INTO resource_agents (resource_id, agent_id, workspace_id) VALUES (?, ?, ?)`), resourceID, agentID, wsID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 	db, ok := s.uiDB(w)
 	if !ok {
@@ -62,21 +104,28 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 		out := []uiResource{}
 		for rows.Next() {
 			if res, ok := scanUIResource(rows); ok {
+				agentIDs, err := loadResourceAgentIDs(db, res.ID, wsID)
+				if err != nil {
+					http.Error(w, "failed to list resources", http.StatusInternalServerError)
+					return
+				}
+				res.AgentIDs = agentIDs
 				out = append(out, res)
 			}
 		}
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPost:
 		var req struct {
-			NetworkID   string  `json:"network_id"`
-			ConnectorID string  `json:"connector_id"`
-			Name        string  `json:"name"`
-			Type        string  `json:"type"`
-			Address     string  `json:"address"`
-			Protocol    string  `json:"protocol"`
-			PortFrom    *int    `json:"port_from"`
-			PortTo      *int    `json:"port_to"`
-			Alias       *string `json:"alias"`
+			NetworkID   string   `json:"network_id"`
+			ConnectorID string   `json:"connector_id"`
+			AgentIDs    []string `json:"agentIds"`
+			Name        string   `json:"name"`
+			Type        string   `json:"type"`
+			Address     string   `json:"address"`
+			Protocol    string   `json:"protocol"`
+			PortFrom    *int     `json:"port_from"`
+			PortTo      *int     `json:"port_to"`
+			Alias       *string  `json:"alias"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -97,6 +146,11 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), networkID, wsID); err != nil {
 			http.Error(w, "failed to create resource", http.StatusBadRequest)
+			return
+		}
+		if err := persistResourceAgents(db, id, wsID, req.AgentIDs); err != nil {
+			_, _ = db.Exec(state.Rebind(`DELETE FROM resources WHERE id = ?`), id)
+			http.Error(w, "failed to assign resource agents", http.StatusBadRequest)
 			return
 		}
 		if s.ACLNotify != nil {
@@ -198,6 +252,7 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 			})
 			return
 		}
+		res.AgentIDs, _ = loadResourceAgentIDs(db, resourceID, wsID)
 		arArgs := append([]interface{}{resourceID}, wsArgs...)
 		accessRows, _ := db.Query(state.Rebind(`SELECT id, name, resource_id, enabled, created_at, updated_at FROM access_rules WHERE resource_id = ?`+wsClause+` ORDER BY created_at ASC`), arArgs...)
 		accessRules := []uiAccessRule{}
@@ -235,15 +290,16 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 		})
 	case http.MethodPut:
 		var req struct {
-			NetworkID   string  `json:"network_id"`
-			ConnectorID string  `json:"connector_id"`
-			Name        string  `json:"name"`
-			Type        string  `json:"type"`
-			Address     string  `json:"address"`
-			Protocol    string  `json:"protocol"`
-			PortFrom    *int    `json:"port_from"`
-			PortTo      *int    `json:"port_to"`
-			Alias       *string `json:"alias"`
+			NetworkID   string   `json:"network_id"`
+			ConnectorID string   `json:"connector_id"`
+			AgentIDs    []string `json:"agentIds"`
+			Name        string   `json:"name"`
+			Type        string   `json:"type"`
+			Address     string   `json:"address"`
+			Protocol    string   `json:"protocol"`
+			PortFrom    *int     `json:"port_from"`
+			PortTo      *int     `json:"port_to"`
+			Alias       *string  `json:"alias"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -270,6 +326,10 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 			updateArgs...)
 		if err != nil {
 			http.Error(w, "failed to update resource", http.StatusBadRequest)
+			return
+		}
+		if err := persistResourceAgents(db, resourceID, wsID, req.AgentIDs); err != nil {
+			http.Error(w, "failed to assign resource agents", http.StatusBadRequest)
 			return
 		}
 		if s.ACLNotify != nil {
@@ -301,6 +361,7 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 		s.audit(r, "resource.update_firewall", resourceID, "ok")
 		writeJSON(w, http.StatusOK, map[string]string{"firewall_status": req.FirewallStatus})
 	case http.MethodDelete:
+		_, _ = db.Exec(state.Rebind(`DELETE FROM resource_agents WHERE resource_id = ?`), resourceID)
 		// Scope access rule cleanup by workspace
 		delRuleArgs := append([]interface{}{resourceID}, wsArgs...)
 		if _, err := db.Exec(state.Rebind(`DELETE FROM access_rule_groups WHERE rule_id IN (SELECT id FROM access_rules WHERE resource_id = ?`+wsClause+`)`), delRuleArgs...); err != nil {

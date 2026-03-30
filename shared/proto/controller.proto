@@ -134,6 +134,7 @@ message DeviceResourceProto {
   bool has_port_to = 14;
   bool has_alias = 15;
   string connector_tunnel_addr = 16;
+  string availability_status = 17;
 }
 
 message DeviceUserProto {

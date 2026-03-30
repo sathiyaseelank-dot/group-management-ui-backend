@@ -209,6 +209,12 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 			group_id TEXT NOT NULL,
 			PRIMARY KEY (rule_id, group_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS resource_agents (
+			resource_id TEXT NOT NULL,
+			agent_id TEXT NOT NULL,
+			workspace_id TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (resource_id, agent_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS service_accounts (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL DEFAULT ''
@@ -454,7 +460,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 	if dialect == "postgres" {
 		rlsTables := []string{
 			"connectors", "agents", "resources", "remote_networks",
-			"user_groups", "access_rules", "access_rule_groups",
+			"user_groups", "access_rules", "access_rule_groups", "resource_agents",
 			"identity_providers", "sessions", "device_posture",
 			"device_trusted_profiles", "device_auth_requests",
 		}
@@ -479,7 +485,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 	// they remain visible after the withWorkspaceContext middleware started requiring a JWT.
 	backfillTables := []string{
 		"connectors", "agents", "resources", "tokens",
-		"remote_networks", "access_rules", "user_groups",
+		"remote_networks", "access_rules", "user_groups", "resource_agents",
 		"service_accounts",
 	}
 	for _, tbl := range backfillTables {
@@ -497,7 +503,7 @@ func initSchemaDialect(db *sql.DB, dialect string) error {
 func migrateWorkspaceColumns(db *sql.DB, dialect string) error {
 	tables := []string{
 		"connectors", "agents", "resources", "tokens",
-		"remote_networks", "access_rules", "user_groups",
+		"remote_networks", "access_rules", "user_groups", "resource_agents",
 		"service_accounts", "audit_logs",
 	}
 	for _, table := range tables {

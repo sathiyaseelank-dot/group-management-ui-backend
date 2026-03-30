@@ -903,6 +903,7 @@ type DeviceResourceProto struct {
 	HasPortTo           bool                   `protobuf:"varint,14,opt,name=has_port_to,json=hasPortTo,proto3" json:"has_port_to,omitempty"`
 	HasAlias            bool                   `protobuf:"varint,15,opt,name=has_alias,json=hasAlias,proto3" json:"has_alias,omitempty"`
 	ConnectorTunnelAddr string                 `protobuf:"bytes,16,opt,name=connector_tunnel_addr,json=connectorTunnelAddr,proto3" json:"connector_tunnel_addr,omitempty"`
+	AvailabilityStatus  string                 `protobuf:"bytes,17,opt,name=availability_status,json=availabilityStatus,proto3" json:"availability_status,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1045,6 +1046,13 @@ func (x *DeviceResourceProto) GetHasAlias() bool {
 func (x *DeviceResourceProto) GetConnectorTunnelAddr() string {
 	if x != nil {
 		return x.ConnectorTunnelAddr
+	}
+	return ""
+}
+
+func (x *DeviceResourceProto) GetAvailabilityStatus() string {
+	if x != nil {
+		return x.AvailabilityStatus
 	}
 	return ""
 }
@@ -1605,7 +1613,7 @@ const file_controller_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x05 \x01(\x03R\texpiresAt\x12!\n" +
 	"\faccess_token\x18\x06 \x01(\tR\vaccessToken\"\x13\n" +
-	"\x11DeviceViewRequest\"\x8b\x04\n" +
+	"\x11DeviceViewRequest\"\xbc\x04\n" +
 	"\x13DeviceResourceProto\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -1623,7 +1631,8 @@ const file_controller_proto_rawDesc = "" +
 	"\rhas_port_from\x18\r \x01(\bR\vhasPortFrom\x12\x1e\n" +
 	"\vhas_port_to\x18\x0e \x01(\bR\thasPortTo\x12\x1b\n" +
 	"\thas_alias\x18\x0f \x01(\bR\bhasAlias\x122\n" +
-	"\x15connector_tunnel_addr\x18\x10 \x01(\tR\x13connectorTunnelAddr\"K\n" +
+	"\x15connector_tunnel_addr\x18\x10 \x01(\tR\x13connectorTunnelAddr\x12/\n" +
+	"\x13availability_status\x18\x11 \x01(\tR\x12availabilityStatus\"K\n" +
 	"\x0fDeviceUserProto\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +

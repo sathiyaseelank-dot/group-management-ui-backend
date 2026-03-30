@@ -446,6 +446,7 @@ func (d *DeviceServiceServer) deviceViewResponse(ctx context.Context, claims all
 			RemoteNetworkName:   r.RemoteNetworkName,
 			FirewallStatus:      r.FirewallStatus,
 			ConnectorTunnelAddr: r.ConnectorTunnelAddr,
+			AvailabilityStatus:  r.AvailabilityStatus,
 		}
 		if r.PortFrom != nil {
 			pr.PortFrom = int32(*r.PortFrom)

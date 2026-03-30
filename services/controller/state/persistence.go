@@ -50,6 +50,7 @@ func GrantAgentInDB(db *sql.DB, id string) error {
 }
 
 func DeleteAgentFromDB(db *sql.DB, id string) error {
+	_, _ = db.Exec(Rebind(`DELETE FROM resource_agents WHERE agent_id = ?`), id)
 	_, err := db.Exec(Rebind(`DELETE FROM agents WHERE id = ?`), id)
 	return err
 }
@@ -149,6 +150,7 @@ func SaveResourceToDB(db *sql.DB, res Resource) error {
 }
 
 func DeleteResourceFromDB(db *sql.DB, id string) error {
+	_, _ = db.Exec(Rebind(`DELETE FROM resource_agents WHERE resource_id = ?`), id)
 	_, err := db.Exec(`DELETE FROM resources WHERE id = ?`, id)
 	return err
 }

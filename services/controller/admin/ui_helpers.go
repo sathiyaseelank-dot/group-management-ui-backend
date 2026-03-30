@@ -77,7 +77,27 @@ func scanUIResource(scanner interface{ Scan(dest ...any) error }) (uiResource, b
 	if firewallStatus.Valid && firewallStatus.String != "" {
 		res.FirewallStatus = firewallStatus.String
 	}
+	res.AgentIDs = []string{}
 	return res, true
+}
+
+func loadResourceAgentIDs(db *sql.DB, resourceID, wsID string) ([]string, error) {
+	wsClause, wsArgs := wsWhereOnly(wsID, "ra")
+	args := append([]interface{}{resourceID}, wsArgs...)
+	rows, err := db.Query(state.Rebind(`SELECT ra.agent_id FROM resource_agents ra WHERE ra.resource_id = ?`+wsClause+` ORDER BY ra.agent_id ASC`), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var agentID string
+		if err := rows.Scan(&agentID); err != nil {
+			return nil, err
+		}
+		out = append(out, agentID)
+	}
+	return out, rows.Err()
 }
 
 // connectorStaleThreshold is the duration after which a connector with no heartbeat

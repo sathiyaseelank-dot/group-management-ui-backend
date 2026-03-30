@@ -31,7 +31,13 @@ type deviceUserResource struct {
 	RemoteNetworkName   string  `json:"remote_network_name"`
 	FirewallStatus      string  `json:"firewall_status"`
 	ConnectorTunnelAddr string  `json:"connector_tunnel_addr,omitempty"`
+	AvailabilityStatus  string  `json:"availability_status"`
 }
+
+const (
+	resourceAvailabilityOnline  = "online"
+	resourceAvailabilityOffline = "offline"
+)
 
 func parsePEMPublicKey(publicKeyPEM string) (interface{}, error) {
 	block, _ := pem.Decode([]byte(publicKeyPEM))
@@ -124,7 +130,7 @@ func loadAuthorizedResources(db *sql.DB, workspaceID, userID string) ([]deviceUs
 		if strings.TrimSpace(res.FirewallStatus) == "" {
 			res.FirewallStatus = "unprotected"
 		}
-		res.ConnectorTunnelAddr = lookupAuthorizedConnectorTunnelAddr(db, res.RemoteNetworkID, res.ConnectorID)
+		res.ConnectorTunnelAddr, res.AvailabilityStatus = lookupAuthorizedConnectorTunnelAddr(db, res.ID)
 		out = append(out, res)
 	}
 	if out == nil {
@@ -133,39 +139,35 @@ func loadAuthorizedResources(db *sql.DB, workspaceID, userID string) ([]deviceUs
 	return out, rows.Err()
 }
 
-func lookupAuthorizedConnectorTunnelAddr(db *sql.DB, remoteNetworkID, connectorID string) string {
-	if addr, err := lookupOnlineConnectorTunnelAddrByNetwork(db, remoteNetworkID); err == nil && addr != "" {
-		return addr
+func lookupAuthorizedConnectorTunnelAddr(db *sql.DB, resourceID string) (string, string) {
+	if addr, err := lookupOnlineConnectorTunnelAddrByResource(db, resourceID); err == nil && addr != "" {
+		return addr, resourceAvailabilityOnline
 	}
-	if addr, err := lookupOnlineConnectorTunnelAddrByID(db, connectorID); err == nil && addr != "" {
-		return addr
-	}
-	return ""
+	return "", resourceAvailabilityOffline
 }
 
-func lookupOnlineConnectorTunnelAddrByNetwork(db *sql.DB, remoteNetworkID string) (string, error) {
-	if strings.TrimSpace(remoteNetworkID) == "" {
+func lookupOnlineConnectorTunnelAddrByResource(db *sql.DB, resourceID string) (string, error) {
+	if strings.TrimSpace(resourceID) == "" {
 		return "", sql.ErrNoRows
 	}
 
+	cutoffUnix := time.Now().Add(-connectorStaleThreshold).Unix()
 	rows, err := db.Query(state.Rebind(`SELECT c.connector_tunnel_addr, c.private_ip, c.last_seen
-		FROM connectors c
-		WHERE c.revoked = 0
+		FROM resource_agents ra
+		JOIN agents a ON a.id = ra.agent_id
+		JOIN connectors c ON c.id = a.connector_id
+		WHERE ra.resource_id = ?
+		  AND a.revoked = 0
+		  AND a.status = 'online'
+		  AND a.last_seen >= ?
+		  AND c.revoked = 0
 		  AND c.status = 'online'
 		  AND (
 			COALESCE(TRIM(c.connector_tunnel_addr), '') <> ''
 			OR COALESCE(TRIM(c.private_ip), '') <> ''
 		  )
-		  AND (
-			c.remote_network_id = ?
-			OR EXISTS (
-				SELECT 1
-				FROM remote_network_connectors rnc
-				WHERE rnc.connector_id = c.id
-				  AND rnc.network_id = ?
-			)
-		  )
-		ORDER BY c.last_seen DESC, c.id ASC`), remoteNetworkID, remoteNetworkID)
+		GROUP BY c.id, c.connector_tunnel_addr, c.private_ip, c.last_seen
+		ORDER BY c.last_seen DESC, c.id ASC`), resourceID, cutoffUnix)
 	if err != nil {
 		return "", err
 	}
@@ -187,33 +189,6 @@ func lookupOnlineConnectorTunnelAddrByNetwork(db *sql.DB, remoteNetworkID string
 		return "", err
 	}
 	return "", sql.ErrNoRows
-}
-
-func lookupOnlineConnectorTunnelAddrByID(db *sql.DB, connectorID string) (string, error) {
-	if strings.TrimSpace(connectorID) == "" {
-		return "", sql.ErrNoRows
-	}
-
-	var tunnelAddr sql.NullString
-	var privateIP sql.NullString
-	var lastSeen sql.NullInt64
-	if err := db.QueryRow(state.Rebind(`SELECT connector_tunnel_addr, private_ip, last_seen
-		FROM connectors
-		WHERE id = ?
-		  AND revoked = 0
-		  AND status = 'online'
-		  AND (
-			COALESCE(TRIM(connector_tunnel_addr), '') <> ''
-			OR COALESCE(TRIM(private_ip), '') <> ''
-		  )`), connectorID).Scan(&tunnelAddr, &privateIP, &lastSeen); err != nil {
-		return "", err
-	}
-
-	addr := connectorTunnelAddrFromRecord(tunnelAddr.String, privateIP.String, lastSeen)
-	if addr == "" {
-		return "", sql.ErrNoRows
-	}
-	return addr, nil
 }
 
 func connectorTunnelAddrFromRecord(tunnelAddr, privateIP string, lastSeen sql.NullInt64) string {
@@ -583,7 +558,7 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 func loadJITGrantResources(db *sql.DB, workspaceID, userID string) ([]deviceUserResource, error) {
 	rows, err := db.Query(
 		state.Rebind(`SELECT DISTINCT r.id, r.name, r.type, r.address, r.protocol, r.port_from, r.port_to, r.alias,
-            r.description, r.remote_network_id, COALESCE(rn.name, ''), r.firewall_status
+            r.description, r.connector_id, r.remote_network_id, COALESCE(rn.name, ''), r.firewall_status
         FROM access_request_grants g
         JOIN resources r ON r.id = g.resource_id
         LEFT JOIN remote_networks rn ON rn.id = r.remote_network_id
@@ -604,7 +579,7 @@ func loadJITGrantResources(db *sql.DB, workspaceID, userID string) ([]deviceUser
 		var portTo sql.NullInt64
 		var alias sql.NullString
 		if err := rows.Scan(&res.ID, &res.Name, &res.Type, &res.Address, &protocol, &portFrom, &portTo, &alias,
-			&res.Description, &res.RemoteNetworkID, &res.RemoteNetworkName, &res.FirewallStatus); err != nil {
+			&res.Description, &res.ConnectorID, &res.RemoteNetworkID, &res.RemoteNetworkName, &res.FirewallStatus); err != nil {
 			return nil, err
 		}
 		res.Protocol = "TCP"
@@ -625,6 +600,7 @@ func loadJITGrantResources(db *sql.DB, workspaceID, userID string) ([]deviceUser
 		if strings.TrimSpace(res.FirewallStatus) == "" {
 			res.FirewallStatus = "unprotected"
 		}
+		res.ConnectorTunnelAddr, res.AvailabilityStatus = lookupAuthorizedConnectorTunnelAddr(db, res.ID)
 		out = append(out, res)
 	}
 	return out, rows.Err()
