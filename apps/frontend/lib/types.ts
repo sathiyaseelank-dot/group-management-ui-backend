@@ -60,6 +60,7 @@ export interface Resource {
   alias?: string;
   description: string;
   remoteNetworkId?: string;
+  agentIds?: string[];
   firewallStatus: FirewallStatus;
 }
 

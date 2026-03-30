@@ -296,6 +296,7 @@ export async function addResource(data: {
   port_from?: number | null;
   port_to?: number | null;
   alias?: string;
+  agentIds?: string[];
 }): Promise<void> {
   await request('/api/resources', {
     method: 'POST',
@@ -506,6 +507,7 @@ export async function addResourcesBatch(resources: {
   protocol: 'TCP' | 'UDP';
   port_from?: number | null;
   port_to?: number | null;
+  agentIds?: string[];
 }[]): Promise<{ created: number; errors: string[] }> {
   return request<{ created: number; errors: string[] }>('/api/resources/batch', {
     method: 'POST',

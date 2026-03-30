@@ -175,14 +175,15 @@ func (s *Server) handleUIResourcesBatch(w http.ResponseWriter, r *http.Request) 
 
 	var req struct {
 		Resources []struct {
-			NetworkID string  `json:"network_id"`
-			Name      string  `json:"name"`
-			Type      string  `json:"type"`
-			Address   string  `json:"address"`
-			Protocol  string  `json:"protocol"`
-			PortFrom  *int    `json:"port_from"`
-			PortTo    *int    `json:"port_to"`
-			Alias     *string `json:"alias"`
+			NetworkID string   `json:"network_id"`
+			AgentIDs  []string `json:"agentIds"`
+			Name      string   `json:"name"`
+			Type      string   `json:"type"`
+			Address   string   `json:"address"`
+			Protocol  string   `json:"protocol"`
+			PortFrom  *int     `json:"port_from"`
+			PortTo    *int     `json:"port_to"`
+			Alias     *string  `json:"alias"`
 		} `json:"resources"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -212,6 +213,11 @@ func (s *Server) handleUIResourcesBatch(w http.ResponseWriter, r *http.Request) 
 		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 			id, res.Name, res.Type, res.Address, ports, res.Protocol, nullInt(res.PortFrom), nullInt(res.PortTo), res.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(res.Type)), networkID, wsID); err != nil {
 			errors = append(errors, fmt.Sprintf("insert error for %s: %v", res.Name, err))
+			continue
+		}
+		if err := persistResourceAgents(db, id, wsID, res.AgentIDs); err != nil {
+			_, _ = db.Exec(state.Rebind(`DELETE FROM resources WHERE id = ?`), id)
+			errors = append(errors, fmt.Sprintf("agent assignment error for %s: %v", res.Name, err))
 			continue
 		}
 		created++

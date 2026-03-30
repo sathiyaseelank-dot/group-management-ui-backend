@@ -267,6 +267,7 @@ export default function AgentDiscoveryPage() {
         protocol: svc.protocol.toUpperCase() as 'TCP' | 'UDP',
         port_from: svc.port,
         port_to: svc.port,
+        agentIds: [svc.agentId],
       })
       setAddedServices((prev) => new Set([...prev, svc.id]))
       getResources().then(setResources).catch(() => {})
@@ -317,6 +318,7 @@ export default function AgentDiscoveryPage() {
             protocol: svc.protocol.toUpperCase() as 'TCP' | 'UDP',
             port_from: svc.port,
             port_to: svc.port,
+            agentIds: [svc.agentId],
           }))
         )
         totalCreated += result.created

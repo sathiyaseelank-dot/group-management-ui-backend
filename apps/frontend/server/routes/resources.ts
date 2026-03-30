@@ -24,6 +24,7 @@ router.get('/', async (req: Request, res: Response) => {
       alias: r.alias ?? r.Alias,
       description: r.description ?? r.Description ?? '',
       remoteNetworkId: r.remoteNetworkId ?? r.remote_network_id ?? r.RemoteNetwork,
+      agentIds: r.agentIds ?? r.agent_ids ?? [],
       protocol: r.protocol ?? r.Protocol ?? 'TCP',
       portFrom: r.portFrom ?? r.port_from ?? r.PortFrom,
       portTo: r.portTo ?? r.port_to ?? r.PortTo,
