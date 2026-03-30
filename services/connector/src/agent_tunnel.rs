@@ -30,6 +30,13 @@ pub enum TunnelEvent {
     Closed(Option<String>),
 }
 
+pub struct AgentRelaySession {
+    hub: AgentTunnelHub,
+    connection_id: String,
+    session_rx: mpsc::UnboundedReceiver<TunnelEvent>,
+    agent_id: String,
+}
+
 fn default_tcp() -> String {
     "tcp".to_string()
 }
@@ -178,17 +185,13 @@ pub fn random_connection_id() -> String {
     hex::encode(buf)
 }
 
-pub async fn relay_stream<S>(
+pub async fn open_relay_session(
     hub: AgentTunnelHub,
     agent_id: &str,
-    stream: S,
     destination: &str,
     port: u16,
     protocol: &str,
-) -> Result<()>
-where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-{
+) -> Result<AgentRelaySession> {
     let connection_id = random_connection_id();
     let mut session_rx = hub.register_session(&connection_id);
     hub.send_message(
@@ -204,89 +207,103 @@ where
     .await?;
 
     match tokio::time::timeout(Duration::from_secs(5), session_rx.recv()).await {
-        Ok(Some(TunnelEvent::Opened(Ok(())))) => {}
+        Ok(Some(TunnelEvent::Opened(Ok(())))) => Ok(AgentRelaySession {
+            hub,
+            connection_id,
+            session_rx,
+            agent_id: agent_id.to_string(),
+        }),
         Ok(Some(TunnelEvent::Opened(Err(err)))) => {
             hub.unregister_session(&connection_id);
-            return Err(anyhow!("agent open failed: {}", err));
+            Err(anyhow!("agent open failed: {}", err))
         }
         Ok(Some(TunnelEvent::Closed(err))) => {
             hub.unregister_session(&connection_id);
-            return Err(anyhow!(
+            Err(anyhow!(
                 "agent closed before open: {}",
                 err.unwrap_or_else(|| "closed".to_string())
-            ));
+            ))
         }
-        Ok(Some(TunnelEvent::Data(_))) => {}
+        Ok(Some(TunnelEvent::Data(_))) => {
+            Err(anyhow!("agent sent data before open acknowledgement"))
+        }
         Ok(None) => {
             hub.unregister_session(&connection_id);
-            return Err(anyhow!("agent relay channel closed"));
+            Err(anyhow!("agent relay channel closed"))
         }
         Err(_) => {
             hub.unregister_session(&connection_id);
-            return Err(anyhow!("timed out waiting for agent tunnel open"));
+            Err(anyhow!("timed out waiting for agent tunnel open"))
         }
     }
+}
 
-    let (mut reader, mut writer) = tokio::io::split(stream);
-    let write_hub = hub.clone();
-    let write_agent = agent_id.to_string();
-    let write_conn = connection_id.clone();
-    let send_task = tokio::spawn(async move {
-        let mut buf = [0u8; 16 * 1024];
-        loop {
-            let n = reader.read(&mut buf).await?;
-            if n == 0 {
-                break;
-            }
-            write_hub
-                .send_message(
-                    &write_agent,
-                    "connector_tunnel_data",
-                    &TunnelData {
-                        connection_id: write_conn.clone(),
-                        data: buf[..n].to_vec(),
-                    },
-                )
-                .await?;
-        }
-        let _ = write_hub
-            .send_message(
-                &write_agent,
-                "connector_tunnel_close",
-                &TunnelClose {
-                    connection_id: write_conn,
-                    error: None,
-                },
-            )
-            .await;
-        Ok::<(), anyhow::Error>(())
-    });
-
-    let recv_conn = connection_id.clone();
-    let recv_task = tokio::spawn(async move {
-        while let Some(event) = session_rx.recv().await {
-            match event {
-                TunnelEvent::Opened(_) => {}
-                TunnelEvent::Data(data) => writer.write_all(&data).await?,
-                TunnelEvent::Closed(err) => {
-                    if let Some(err) = err {
-                        return Err(anyhow!("agent tunnel closed: {}", err));
-                    }
+impl AgentRelaySession {
+    pub async fn relay_stream<S>(mut self, stream: S) -> Result<()>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        let (mut reader, mut writer) = tokio::io::split(stream);
+        let write_hub = self.hub.clone();
+        let write_agent = self.agent_id.clone();
+        let write_conn = self.connection_id.clone();
+        let send_task = tokio::spawn(async move {
+            let mut buf = [0u8; 16 * 1024];
+            loop {
+                let n = reader.read(&mut buf).await?;
+                if n == 0 {
                     break;
                 }
+                write_hub
+                    .send_message(
+                        &write_agent,
+                        "connector_tunnel_data",
+                        &TunnelData {
+                            connection_id: write_conn.clone(),
+                            data: buf[..n].to_vec(),
+                        },
+                    )
+                    .await?;
             }
-        }
-        Ok::<(), anyhow::Error>(())
-    });
+            let _ = write_hub
+                .send_message(
+                    &write_agent,
+                    "connector_tunnel_close",
+                    &TunnelClose {
+                        connection_id: write_conn,
+                        error: None,
+                    },
+                )
+                .await;
+            Ok::<(), anyhow::Error>(())
+        });
 
-    let send_res = send_task
-        .await
-        .map_err(|e| anyhow!("send task join: {}", e))?;
-    let recv_res = recv_task
-        .await
-        .map_err(|e| anyhow!("recv task join: {}", e))?;
-    hub.unregister_session(&recv_conn);
-    send_res?;
-    recv_res?;
-    Ok(())
+        let recv_conn = self.connection_id.clone();
+        let recv_task = tokio::spawn(async move {
+            while let Some(event) = self.session_rx.recv().await {
+                match event {
+                    TunnelEvent::Opened(_) => {}
+                    TunnelEvent::Data(data) => writer.write_all(&data).await?,
+                    TunnelEvent::Closed(err) => {
+                        if let Some(err) = err {
+                            return Err(anyhow!("agent tunnel closed: {}", err));
+                        }
+                        break;
+                    }
+                }
+            }
+            Ok::<(), anyhow::Error>(())
+        });
+
+        let send_res = send_task
+            .await
+            .map_err(|e| anyhow!("send task join: {}", e))?;
+        let recv_res = recv_task
+            .await
+            .map_err(|e| anyhow!("recv task join: {}", e))?;
+        self.hub.unregister_session(&recv_conn);
+        send_res?;
+        recv_res?;
+        Ok(())
+    }
 }

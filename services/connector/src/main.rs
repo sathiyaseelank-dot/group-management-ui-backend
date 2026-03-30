@@ -20,8 +20,10 @@ use allowlist::{AgentAllowlist, AgentInfo};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use enroll::pb::ControlMessage;
+use persistence::DeleteCleanupRequest;
 use policy::{types::PolicyResource, PolicyCache, PolicySnapshot};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 use tls::cert_store::CertStore;
@@ -37,6 +39,8 @@ struct AgentShutdownRequest {
 
 #[derive(serde::Deserialize)]
 struct ConnectorShutdownRequest {
+    #[serde(default)]
+    connector_id: String,
     #[serde(default)]
     reason: String,
 }
@@ -143,6 +147,8 @@ struct Cli {
 enum Commands {
     /// Enroll this connector with the controller (one-time)
     Enroll,
+    /// Run delete-triggered cleanup after the service stops
+    CleanupDelete,
     /// Run the connector service
     Run {
         /// Enable systemd watchdog heartbeats
@@ -173,6 +179,7 @@ async fn main() {
 async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Enroll => cmd_enroll().await,
+        Commands::CleanupDelete => cmd_cleanup_delete(),
         Commands::Run { systemd_watchdog } => cmd_run(systemd_watchdog).await,
     }
 }
@@ -298,7 +305,8 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
                 quic_acl,
                 quic_hub,
                 quic_agent_registry,
-            ).await
+            )
+            .await
             {
                 // Non-fatal: QUIC is an optimization, TLS still works
                 warn!("QUIC device tunnel failed to start: {}", e);
@@ -354,6 +362,45 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     )
     .await;
 
+    Ok(())
+}
+
+fn cmd_cleanup_delete() -> Result<()> {
+    let request = match persistence::load_delete_cleanup_request()? {
+        Some(request) => request,
+        None => {
+            info!("no connector delete cleanup request pending");
+            return Ok(());
+        }
+    };
+
+    if !should_remove_config_for_shutdown_reason(&request.reason) {
+        info!(
+            "connector cleanup skipped: unsupported reason={} connector_id={}",
+            request.reason, request.connector_id
+        );
+        persistence::clear_delete_cleanup_request()?;
+        return Ok(());
+    }
+
+    let config_dir = Path::new("/etc/connector");
+    if config_dir.exists() {
+        std::fs::remove_dir_all(config_dir)
+            .map_err(|e| anyhow::anyhow!("failed to remove {}: {}", config_dir.display(), e))?;
+        info!(
+            "removed connector config directory {} for connector_id={}",
+            config_dir.display(),
+            request.connector_id
+        );
+    } else {
+        info!(
+            "connector config directory {} already absent for connector_id={}",
+            config_dir.display(),
+            request.connector_id
+        );
+    }
+
+    persistence::clear_delete_cleanup_request()?;
     Ok(())
 }
 
@@ -596,9 +643,22 @@ async fn handle_control_message(
         "connector_shutdown" => {
             let req = serde_json::from_slice::<ConnectorShutdownRequest>(&msg.payload).unwrap_or(
                 ConnectorShutdownRequest {
+                    connector_id: String::new(),
                     reason: "deleted".to_string(),
                 },
             );
+            if should_remove_config_for_shutdown_reason(&req.reason) {
+                let request = DeleteCleanupRequest {
+                    connector_id: req.connector_id.clone(),
+                    reason: req.reason.clone(),
+                };
+                if let Err(e) = persistence::save_delete_cleanup_request(&request) {
+                    warn!(
+                        "failed to persist connector delete cleanup request: connector_id={} err={}",
+                        request.connector_id, e
+                    );
+                }
+            }
             error!(
                 "received shutdown from controller: connector was {}",
                 req.reason
@@ -757,6 +817,10 @@ fn resource_owner(
     }
 }
 
+fn should_remove_config_for_shutdown_reason(reason: &str) -> bool {
+    reason.trim().eq_ignore_ascii_case("deleted")
+}
+
 fn extract_port_rules(r: &policy::types::PolicyResource) -> Vec<serde_json::Value> {
     match (r.port_from, r.port_to) {
         (Some(from), Some(to)) => (from..=to)
@@ -821,6 +885,14 @@ mod tests {
             status: "ONLINE".to_string(),
             ip: ip.to_string(),
         }
+    }
+
+    #[test]
+    fn delete_cleanup_is_only_requested_for_deleted_reason() {
+        assert!(should_remove_config_for_shutdown_reason("deleted"));
+        assert!(should_remove_config_for_shutdown_reason(" deleted "));
+        assert!(!should_remove_config_for_shutdown_reason("revoked"));
+        assert!(!should_remove_config_for_shutdown_reason(""));
     }
 
     #[test]

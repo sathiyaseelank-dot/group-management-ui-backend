@@ -81,7 +81,9 @@ impl ControlPlane for ConnectorControlPlane {
         agent_registry.update(&agent_id, "ONLINE", &peer_ip);
 
         tokio::spawn(async move {
-            let _ = send_current_firewall_policy(&tx, &agent_id, &agent_registry, &latest_fw_policy).await;
+            let _ =
+                send_current_firewall_policy(&tx, &agent_id, &agent_registry, &latest_fw_policy)
+                    .await;
 
             loop {
                 tokio::select! {
@@ -180,7 +182,8 @@ async fn handle_agent_message(
                 peer_ip.to_string()
             };
             agent_registry.update(agent_id, status, &ip);
-            let _ = send_current_firewall_policy(tx, agent_id, agent_registry, latest_fw_policy).await;
+            let _ =
+                send_current_firewall_policy(tx, agent_id, agent_registry, latest_fw_policy).await;
             info!(
                 "agent heartbeat: agent_id={} spiffe_id={} status={} ip={}",
                 agent_id, spiffe_id, status, ip

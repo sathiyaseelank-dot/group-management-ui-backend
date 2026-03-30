@@ -168,20 +168,20 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
                             req.destination
                         )
                     })?;
+                let relay_session = crate::agent_tunnel::open_relay_session(
+                    tunnel_hub,
+                    &agent_id,
+                    &req.destination,
+                    req.port,
+                    &req.protocol,
+                )
+                .await?;
                 send_response(&mut stream, true, None).await?;
                 info!(
                     "routing protected device tunnel {}:{} via agent {}",
                     req.destination, req.port, agent_id
                 );
-                return crate::agent_tunnel::relay_stream(
-                    tunnel_hub,
-                    &agent_id,
-                    stream,
-                    &req.destination,
-                    req.port,
-                    &req.protocol,
-                )
-                .await;
+                return relay_session.relay_stream(stream).await;
             }
             send_response(&mut stream, true, None).await?;
         }
@@ -320,9 +320,15 @@ mod tests {
             resolve_protected_resource_owner("192.168.1.85", &registry).as_deref(),
             Some("alpha-1")
         );
-        assert_eq!(resolve_protected_resource_owner("192.168.1.99", &registry), None);
+        assert_eq!(
+            resolve_protected_resource_owner("192.168.1.99", &registry),
+            None
+        );
 
         registry.update("gamma-1", "ONLINE", "192.168.1.85");
-        assert_eq!(resolve_protected_resource_owner("192.168.1.85", &registry), None);
+        assert_eq!(
+            resolve_protected_resource_owner("192.168.1.85", &registry),
+            None
+        );
     }
 }

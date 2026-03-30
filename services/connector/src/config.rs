@@ -147,10 +147,10 @@ pub fn enroll_config_from_env() -> Result<EnrollConfig> {
 }
 
 pub fn run_config_from_env() -> Result<RunConfig> {
-	let controller_addr = env::var("CONTROLLER_ADDR").unwrap_or_default();
-	let connector_id = env::var("CONNECTOR_ID").unwrap_or_default();
-	let (controller_trust_domain, agent_trust_domain) = load_trust_domains();
-	let listen_addr_env = env::var("CONNECTOR_LISTEN_ADDR").unwrap_or_default();
+    let controller_addr = env::var("CONTROLLER_ADDR").unwrap_or_default();
+    let connector_id = env::var("CONNECTOR_ID").unwrap_or_default();
+    let (controller_trust_domain, agent_trust_domain) = load_trust_domains();
+    let listen_addr_env = env::var("CONNECTOR_LISTEN_ADDR").unwrap_or_default();
 
     let stale_grace = {
         let v = env::var("POLICY_STALE_GRACE_SECONDS").unwrap_or_default();
@@ -190,10 +190,8 @@ pub fn run_config_from_env() -> Result<RunConfig> {
     let device_tunnel_addr =
         env::var("DEVICE_TUNNEL_ADDR").unwrap_or_else(|_| format!("{}:9444", private_ip));
     let device_tunnel_addr = device_tunnel_addr.trim().to_string();
-    let device_tunnel_advertise_addr =
-        env::var("DEVICE_TUNNEL_ADVERTISE_ADDR").unwrap_or_else(|_| {
-            default_device_tunnel_advertise_addr(&device_tunnel_addr, &private_ip)
-        });
+    let device_tunnel_advertise_addr = env::var("DEVICE_TUNNEL_ADVERTISE_ADDR")
+        .unwrap_or_else(|_| default_device_tunnel_advertise_addr(&device_tunnel_addr, &private_ip));
     let device_tunnel_advertise_addr = device_tunnel_advertise_addr.trim().to_string();
 
     let ca_pem = load_controller_ca()?;
@@ -201,13 +199,13 @@ pub fn run_config_from_env() -> Result<RunConfig> {
     Ok(RunConfig {
         controller_addr: controller_addr.trim().to_string(),
         connector_id: connector_id.trim().to_string(),
-		controller_trust_domain,
-		agent_trust_domain,
-		listen_addr,
-		private_ip,
-		stale_grace,
-		enrollment_token: enrollment_token.trim().to_string(),
-		ca_pem,
+        controller_trust_domain,
+        agent_trust_domain,
+        listen_addr,
+        private_ip,
+        stale_grace,
+        enrollment_token: enrollment_token.trim().to_string(),
+        ca_pem,
         controller_http_url,
         device_tunnel_addr,
         device_tunnel_advertise_addr,

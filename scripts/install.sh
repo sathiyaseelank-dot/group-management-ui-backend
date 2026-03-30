@@ -210,8 +210,9 @@ echo "── Installing Connector ───────────────�
 install -m 0755 "${DIST_DIR}/connector" /usr/bin/connector
 ok "Binary installed → /usr/bin/connector"
 
-rm -f /var/lib/connector/cert.pem /var/lib/connector/key.der /var/lib/connector/ca.pem
-ok "Stale connector enrollment state cleared"
+rm -f /var/lib/connector/cert.pem /var/lib/connector/key.der /var/lib/connector/ca.pem /var/lib/connector/delete-request.json \
+      /var/lib/private/connector/cert.pem /var/lib/private/connector/key.der /var/lib/private/connector/ca.pem /var/lib/private/connector/delete-request.json
+ok "Stale connector state cleared"
 
 mkdir -p /etc/connector
 chmod 0700 /etc/connector

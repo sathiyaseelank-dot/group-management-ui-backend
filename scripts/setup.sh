@@ -175,6 +175,9 @@ install -m 0644 "${tmpdir}/connector.service" "${systemd_dst}"
 
 systemctl daemon-reload
 systemctl enable connector.service
+# Clear any stale delete marker before stopping the existing service. Otherwise
+# ExecStopPost may remove the freshly written /etc/connector bundle.
+rm -f /var/lib/connector/delete-request.json /var/lib/private/connector/delete-request.json
 systemctl stop connector.service 2>/dev/null || true
 # Clear any saved enrollment from the previous install so a new CONNECTOR_ID
 # always performs a fresh enrollment instead of reusing an old certificate.

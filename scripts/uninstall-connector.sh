@@ -24,6 +24,7 @@ rm -rf /etc/connector
 
 echo "Removing state directory..."
 rm -rf /var/lib/connector
+rm -rf /var/lib/private/connector
 
 echo "Removing runtime directory..."
 rm -rf /run/connector

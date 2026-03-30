@@ -153,6 +153,7 @@ install -m 0644 "${tmpdir}/connector.service" "${systemd_dst}"
 
 systemctl daemon-reload
 systemctl enable connector.service
+rm -rf /var/lib/private/connector /var/lib/connector /run/connector
 systemctl start connector.service
 
 # Unset sensitive env vars.
