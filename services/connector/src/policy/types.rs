@@ -16,6 +16,15 @@ pub struct SnapshotMeta {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PostureRequirements {
+    pub require_firewall: bool,
+    pub require_disk_encryption: bool,
+    pub require_screen_lock: bool,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    pub min_os_version: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PolicyResource {
     pub resource_id: String,
     #[serde(rename = "type")]
@@ -28,10 +37,12 @@ pub struct PolicyResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port_to: Option<u16>,
     pub allowed_identities: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_ids: Vec<String>,
     #[serde(default = "default_firewall_status")]
     pub firewall_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub posture_requirements: Option<PostureRequirements>,
 }
 
 fn default_firewall_status() -> String {

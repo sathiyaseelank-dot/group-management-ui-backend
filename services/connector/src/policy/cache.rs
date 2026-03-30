@@ -384,6 +384,7 @@ mod tests {
             allowed_identities: vec!["identity-1".to_string()],
             agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
+            posture_requirements: None,
         }]);
 
         let (allowed, _, reason) = cache.allowed("identity-1", "db.internal", "TCP", 5432);
@@ -404,6 +405,7 @@ mod tests {
             allowed_identities: vec!["identity-1".to_string()],
             agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
+            posture_requirements: None,
         }]);
 
         let (allowed, _, reason) = cache.allowed("identity-2", "db.internal", "TCP", 5432);
@@ -424,6 +426,7 @@ mod tests {
             allowed_identities: vec!["identity-1".to_string()],
             agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
+            posture_requirements: None,
         }]);
 
         let (allowed, _, reason) = cache.allowed("identity-1", "10.0.10.50", "TCP", 443);
@@ -444,6 +447,7 @@ mod tests {
             allowed_identities: vec!["identity-1".to_string()],
             agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
+            posture_requirements: None,
         }]);
 
         let (allowed, _, reason) = cache.allowed("identity-1", "db.internal", "TCP", 443);
@@ -464,6 +468,7 @@ mod tests {
             allowed_identities: vec!["identity-1".to_string()],
             agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
+            posture_requirements: None,
         }]);
 
         let (allowed, _, reason) = cache.allowed("identity-1", "unknown.host", "TCP", 443);
@@ -485,6 +490,7 @@ mod tests {
                 allowed_identities: vec!["identity-2".to_string()],
                 agent_ids: vec![],
                 firewall_status: "unprotected".to_string(),
+                posture_requirements: None,
             },
             PolicyResource {
                 resource_id: "res_allowed".to_string(),
@@ -497,6 +503,7 @@ mod tests {
                 allowed_identities: vec!["identity-1".to_string()],
                 agent_ids: vec![],
                 firewall_status: "unprotected".to_string(),
+                posture_requirements: None,
             },
         ]);
 

@@ -696,43 +696,52 @@ async fn handle_control_message(
             }
         }
         "policy_snapshot" => {
-            if let Ok(snap) = serde_json::from_slice::<PolicySnapshot>(&msg.payload) {
-                let version = snap.snapshot_meta.policy_version;
-                let resource_count = snap.resources.len();
-                if acl.replace_snapshot(snap.clone()) {
-                    info!(
-                        "policy snapshot applied: version={} resources={}",
-                        version, resource_count
-                    );
+            match serde_json::from_slice::<PolicySnapshot>(&msg.payload) {
+                Ok(snap) => {
+                    let version = snap.snapshot_meta.policy_version;
+                    let resource_count = snap.resources.len();
+                    if acl.replace_snapshot(snap.clone()) {
+                        info!(
+                            "policy snapshot applied: version={} resources={}",
+                            version, resource_count
+                        );
 
-                    let protected_resources: Vec<PolicyResource> = snap
-                        .resources
-                        .iter()
-                        .filter(|r| r.firewall_status == "protected")
-                        .cloned()
-                        .collect();
-                    let protected_resource_count = protected_resources.len();
-                    let summary = summarize_firewall_distribution(
-                        &protected_resources,
-                        &agent_registry.snapshot(),
-                    );
-                    info!(
-                        "firewall policy prepared for agents: action=sync reason=\"policy snapshot applied for protected resources\" version={} protected_resources={} matched_resources={} unmatched_resources={} ambiguous_resources={}",
-                        version,
-                        protected_resource_count,
-                        summary.matched_resources,
-                        summary.unmatched_resources,
-                        summary.ambiguous_resources,
-                    );
-                    for warning in summary.warnings {
-                        warn!("{}", warning);
+                        let protected_resources: Vec<PolicyResource> = snap
+                            .resources
+                            .iter()
+                            .filter(|r| r.firewall_status == "protected")
+                            .cloned()
+                            .collect();
+                        let protected_resource_count = protected_resources.len();
+                        let summary = summarize_firewall_distribution(
+                            &protected_resources,
+                            &agent_registry.snapshot(),
+                        );
+                        info!(
+                            "firewall policy prepared for agents: action=sync reason=\"policy snapshot applied for protected resources\" version={} protected_resources={} matched_resources={} unmatched_resources={} ambiguous_resources={}",
+                            version,
+                            protected_resource_count,
+                            summary.matched_resources,
+                            summary.unmatched_resources,
+                            summary.ambiguous_resources,
+                        );
+                        for warning in summary.warnings {
+                            warn!("{}", warning);
+                        }
+                        latest_fw_policy.store(protected_resources);
+                        let _ = firewall_tx.send(());
+                    } else {
+                        warn!(
+                            "policy snapshot rejected: version={} resources={}",
+                            version, resource_count
+                        );
                     }
-                    latest_fw_policy.store(protected_resources);
-                    let _ = firewall_tx.send(());
-                } else {
+                }
+                Err(err) => {
                     warn!(
-                        "policy snapshot rejected: version={} resources={}",
-                        version, resource_count
+                        "policy snapshot decode failed: payload_bytes={} err={}",
+                        msg.payload.len(),
+                        err
                     );
                 }
             }
@@ -895,6 +904,7 @@ mod tests {
             allowed_identities: Vec::new(),
             agent_ids: Vec::new(),
             firewall_status: "protected".to_string(),
+            posture_requirements: None,
         }
     }
 
