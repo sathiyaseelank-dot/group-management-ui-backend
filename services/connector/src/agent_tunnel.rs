@@ -288,6 +288,10 @@ where
                 TunnelEvent::Opened(_) => {}
                 TunnelEvent::Data(data) => writer.write_all(&data).await?,
                 TunnelEvent::Closed(err) => {
+                    // Send a clean FIN to the client before dropping the writer.
+                    // Without this, the client's read side never gets EOF and
+                    // both sides deadlock waiting for each other to close first.
+                    let _ = writer.shutdown().await;
                     if let Some(err) = err {
                         return Err(anyhow!("agent tunnel closed: {}", err));
                     }
@@ -298,14 +302,15 @@ where
         Ok::<(), anyhow::Error>(())
     });
 
-    let send_res = send_task
-        .await
-        .map_err(|e| anyhow!("send task join: {}", e))?;
-    let recv_res = recv_task
-        .await
-        .map_err(|e| anyhow!("recv task join: {}", e))?;
+    // Drive both tasks concurrently. When either exits, abort the other so
+    // neither task can block indefinitely waiting for the other side to close.
+    // The session is always unregistered regardless of which task exits first.
+    let result = tokio::select! {
+        res = send_task => res.map_err(|e| anyhow!("send task join: {}", e))
+            .and_then(|r| r),
+        res = recv_task => res.map_err(|e| anyhow!("recv task join: {}", e))
+            .and_then(|r| r),
+    };
     hub.unregister_session(&recv_conn);
-    send_res?;
-    recv_res?;
-    Ok(())
+    result
 }
