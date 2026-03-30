@@ -124,7 +124,7 @@ export default function InstallPage() {
   const controllerUrl = buildControllerUrl()
   const controllerGrpcAddr = buildControllerGrpcAddr(controllerUrl)
   const installCommand =
-    'curl -fsSL https://raw.githubusercontent.com/vairabarath/zero-trust/alpha/scripts/client-install-release.sh | sudo bash'
+    'curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/merge/alpha-sync-20260330/scripts/client-install-release.sh | sudo bash'
   const setupCommand = [
     'sudo tee /etc/ztna-client/client.conf >/dev/null <<\'CONF\'',
     `controller_url = "${controllerUrl}"`,
