@@ -123,8 +123,11 @@ export default function InstallPage() {
   const platform = detectPlatform()
   const controllerUrl = buildControllerUrl()
   const controllerGrpcAddr = buildControllerGrpcAddr(controllerUrl)
+  const clientInstallScript =
+    import.meta.env.VITE_CLIENT_INSTALL_SCRIPT_URL ||
+    'https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/merge/alpha-sync-20260330/scripts/client-install-release.sh'
   const installCommand =
-    'curl -fsSL https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/merge/alpha-sync-20260330/scripts/client-install-release.sh | sudo bash'
+    `curl -fsSL ${clientInstallScript} | sudo bash`
   const setupCommand = [
     'sudo tee /etc/ztna-client/client.conf >/dev/null <<\'CONF\'',
     `controller_url = "${controllerUrl}"`,

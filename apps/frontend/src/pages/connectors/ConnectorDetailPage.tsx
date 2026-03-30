@@ -65,7 +65,9 @@ export default function ConnectorDetailPage() {
   const [agentTrustDomain, setAgentTrustDomain] = useState(
     workspaceSlug ? `${workspaceSlug}.zerotrust.com` : 'mycorp.internal',
   );
-  const connectorInstallScript = 'https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/merge/alpha-sync-20260330/scripts/setup.sh';
+  const connectorInstallScript =
+    import.meta.env.VITE_CONNECTOR_INSTALL_SCRIPT_URL ||
+    'https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/merge/alpha-sync-20260330/scripts/setup.sh';
   const INSTALL_COMMAND = useMemo(() => {
     if (!enrollmentToken) return null;
     return (
