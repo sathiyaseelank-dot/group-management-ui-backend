@@ -318,7 +318,10 @@ impl AgentRelaySession {
             while let Some(event) = self.session_rx.recv().await {
                 match event {
                     TunnelEvent::Opened(_) => {}
-                    TunnelEvent::Data(data) => writer.write_all(&data).await?,
+                    TunnelEvent::Data(data) => {
+                        writer.write_all(&data).await?;
+                        writer.flush().await?;
+                    }
                     TunnelEvent::Closed(err) => {
                         if let Some(err) = err {
                             return Err(anyhow!("agent tunnel closed: {}", err));

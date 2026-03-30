@@ -138,6 +138,7 @@ async fn send_response<S: AsyncWrite + Unpin>(
     let mut line = serde_json::to_string(&resp)?;
     line.push('\n');
     stream.write_all(line.as_bytes()).await?;
+    stream.flush().await?;
     Ok(())
 }
 
@@ -338,6 +339,7 @@ async fn relay_udp_direct<S: AsyncRead + AsyncWrite + Unpin>(
                         let len = (n as u32).to_be_bytes();
                         if stream.write_all(&len).await.is_err() { break; }
                         if stream.write_all(&udp_buf[..n]).await.is_err() { break; }
+                        if stream.flush().await.is_err() { break; }
                     }
                     Err(_) => break,
                 }

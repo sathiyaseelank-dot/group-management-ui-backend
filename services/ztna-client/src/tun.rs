@@ -25,6 +25,7 @@ use crate::tun_routing::{RouteManager, BYPASS_FWMARK};
 use crate::tunnel;
 
 const SOCKET_BUF_SIZE: usize = 65536;
+const QUIC_FALLBACK_TIMEOUT: Duration = Duration::from_millis(200);
 
 // ---------------------------------------------------------------------------
 // smoltcp virtual device backed by packet queues
@@ -1090,7 +1091,7 @@ async fn tunnel_relay_task(
     if let (Some(quic_addr), Some(pool)) = (&cached_quic, &quic_pool) {
         debug!("[tun-relay] trying QUIC at {} for {}:{}", quic_addr, destination, dst_port);
         match tokio::time::timeout(
-            Duration::from_secs(3),
+            QUIC_FALLBACK_TIMEOUT,
             pool.open_stream(quic_addr, &access_token, &destination, dst_port, &protocol),
         )
         .await
