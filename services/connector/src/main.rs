@@ -762,7 +762,7 @@ pub(crate) fn build_agent_firewall_payload(
         let ip_owners = collect_ip_owners(agent_snapshot);
         protected_resources
             .iter()
-            .filter(|resource| resource_owner(resource, &ip_owners).as_deref() == Some(agent_id))
+            .filter(|resource| resource_owners(resource, &ip_owners).iter().any(|owner| owner == agent_id))
             .flat_map(extract_port_rules)
             .collect()
     };
@@ -782,28 +782,25 @@ fn summarize_firewall_distribution(
     let mut summary = FirewallDistributionSummary::default();
 
     for resource in protected_resources {
-        match resource_owner(resource, &ip_owners) {
-            Some(_) => summary.matched_resources += 1,
-            None => {
-                let address = resource.address.trim();
-                let owners = ip_owners.get(address).cloned().unwrap_or_default();
-                if owners.is_empty() {
-                    summary.unmatched_resources += 1;
-                    summary.warnings.push(format!(
-                        "protected resource skipped for firewall distribution: resource_id={} address={} reason=\"no owning agent matched\"",
-                        resource.resource_id,
-                        if address.is_empty() { "\"\"" } else { address }
-                    ));
-                } else {
-                    summary.ambiguous_resources += 1;
-                    summary.warnings.push(format!(
-                        "protected resource skipped for firewall distribution: resource_id={} address={} reason=\"multiple owning agents matched\" agents={}",
-                        resource.resource_id,
-                        address,
-                        owners.join(","),
-                    ));
-                }
-            }
+        let owners = resource_owners(resource, &ip_owners);
+        if owners.is_empty() {
+            let address = resource.address.trim();
+            summary.unmatched_resources += 1;
+            summary.warnings.push(format!(
+                "protected resource skipped for firewall distribution: resource_id={} address={} reason=\"no owning agent matched\"",
+                resource.resource_id,
+                if address.is_empty() { "\"\"" } else { address }
+            ));
+        } else if owners.len() == 1 {
+            summary.matched_resources += 1;
+        } else {
+            summary.ambiguous_resources += 1;
+            summary.warnings.push(format!(
+                "protected resource distributed to multiple owning agents: resource_id={} address={} agents={}",
+                resource.resource_id,
+                resource.address.trim(),
+                owners.join(","),
+            ));
         }
     }
 
@@ -825,16 +822,17 @@ fn collect_ip_owners(agent_snapshot: &[AgentStatusEntry]) -> HashMap<String, Vec
     ip_owners
 }
 
-fn resource_owner(
+fn resource_owners(
     resource: &PolicyResource,
     ip_owners: &HashMap<String, Vec<String>>,
-) -> Option<String> {
-    let owners = ip_owners.get(resource.address.trim())?;
-    if owners.len() == 1 {
-        owners.first().cloned()
-    } else {
-        None
+) -> Vec<String> {
+    if !resource.agent_ids.is_empty() {
+        return resource.agent_ids.clone();
     }
+    ip_owners
+        .get(resource.address.trim())
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn should_remove_config_for_shutdown_reason(reason: &str) -> bool {
@@ -895,6 +893,7 @@ mod tests {
             port_from: None,
             port_to: None,
             allowed_identities: Vec::new(),
+            agent_ids: Vec::new(),
             firewall_status: "protected".to_string(),
         }
     }
@@ -947,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn summarize_firewall_distribution_marks_unmatched_and_ambiguous_resources() {
+    fn summarize_firewall_distribution_marks_unmatched_and_multi_owner_resources() {
         let resources = vec![
             policy_resource("res-matched", "10.0.0.10", "TCP", 22),
             policy_resource("res-unmatched", "10.0.0.30", "TCP", 443),
@@ -964,5 +963,46 @@ mod tests {
         assert_eq!(summary.unmatched_resources, 1);
         assert_eq!(summary.ambiguous_resources, 1);
         assert_eq!(summary.warnings.len(), 2);
+    }
+
+    #[test]
+    fn build_agent_firewall_payload_uses_owned_agent_ids() {
+        let mut owned = policy_resource("res-owned", "192.168.1.253", "TCP", 5175);
+        owned.agent_ids = vec!["agent-owned".to_string()];
+        let resources = vec![owned];
+        let agents = vec![agent_entry("agent-owned", "10.0.0.99")];
+
+        let payload = build_agent_firewall_payload("agent-owned", "10.0.0.99", &resources, &agents);
+        let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        let ports = parsed["protected_ports"].as_array().unwrap();
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0]["port"].as_u64(), Some(5175));
+    }
+
+    #[test]
+    fn summarize_firewall_distribution_uses_owned_agent_ids() {
+        let mut owned = policy_resource("res-owned", "192.168.1.253", "TCP", 5175);
+        owned.agent_ids = vec!["agent-owned".to_string()];
+        let resources = vec![owned];
+        let agents = vec![agent_entry("agent-owned", "10.0.0.99")];
+
+        let summary = summarize_firewall_distribution(&resources, &agents);
+        assert_eq!(summary.matched_resources, 1);
+        assert_eq!(summary.unmatched_resources, 0);
+        assert_eq!(summary.ambiguous_resources, 0);
+    }
+
+    #[test]
+    fn build_agent_firewall_payload_supports_multi_owner_resources() {
+        let mut shared = policy_resource("res-shared", "192.168.1.253", "TCP", 5175);
+        shared.agent_ids = vec!["agent-a".to_string(), "agent-b".to_string()];
+        let resources = vec![shared];
+        let agents = vec![agent_entry("agent-a", "10.0.0.10"), agent_entry("agent-b", "10.0.0.11")];
+
+        let payload = build_agent_firewall_payload("agent-a", "10.0.0.10", &resources, &agents);
+        let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        let ports = parsed["protected_ports"].as_array().unwrap();
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0]["port"].as_u64(), Some(5175));
     }
 }

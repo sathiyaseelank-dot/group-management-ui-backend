@@ -382,6 +382,7 @@ mod tests {
             port_from: None,
             port_to: None,
             allowed_identities: vec!["identity-1".to_string()],
+            agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
         }]);
 
@@ -401,6 +402,7 @@ mod tests {
             port_from: None,
             port_to: None,
             allowed_identities: vec!["identity-1".to_string()],
+            agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
         }]);
 
@@ -420,6 +422,7 @@ mod tests {
             port_from: None,
             port_to: None,
             allowed_identities: vec!["identity-1".to_string()],
+            agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
         }]);
 
@@ -439,6 +442,7 @@ mod tests {
             port_from: None,
             port_to: None,
             allowed_identities: vec!["identity-1".to_string()],
+            agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
         }]);
 
@@ -458,6 +462,7 @@ mod tests {
             port_from: None,
             port_to: None,
             allowed_identities: vec!["identity-1".to_string()],
+            agent_ids: vec![],
             firewall_status: "unprotected".to_string(),
         }]);
 
@@ -478,6 +483,7 @@ mod tests {
                 port_from: None,
                 port_to: None,
                 allowed_identities: vec!["identity-2".to_string()],
+                agent_ids: vec![],
                 firewall_status: "unprotected".to_string(),
             },
             PolicyResource {
@@ -489,6 +495,7 @@ mod tests {
                 port_from: None,
                 port_to: None,
                 allowed_identities: vec!["identity-1".to_string()],
+                agent_ids: vec![],
                 firewall_status: "unprotected".to_string(),
             },
         ]);
