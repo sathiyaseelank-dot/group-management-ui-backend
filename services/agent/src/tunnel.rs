@@ -56,9 +56,10 @@ impl AgentTunnelManager {
         &self,
         req: TunnelOpen,
         stream_tx: tokio::sync::mpsc::Sender<ControlMessage>,
+        agent_id: &str,
     ) -> Result<()> {
         if req.protocol == "udp" {
-            return self.open_udp(req, stream_tx).await;
+            return self.open_udp(req, stream_tx, agent_id).await;
         }
         let dest = format!("{}:{}", req.destination, req.port);
         let stream = match TcpStream::connect(&dest).await {
@@ -93,6 +94,7 @@ impl AgentTunnelManager {
             },
         )
         .await?;
+        emit_access_log(&stream_tx, agent_id, &req).await;
 
         let writers = self.writers.clone();
         tokio::spawn(async move {
@@ -189,6 +191,7 @@ impl AgentTunnelManager {
         &self,
         req: TunnelOpen,
         stream_tx: tokio::sync::mpsc::Sender<ControlMessage>,
+        agent_id: &str,
     ) -> Result<()> {
         let dest = format!("{}:{}", req.destination, req.port);
         let socket = match UdpSocket::bind("0.0.0.0:0").await {
@@ -237,6 +240,7 @@ impl AgentTunnelManager {
             },
         )
         .await?;
+        emit_access_log(&stream_tx, agent_id, &req).await;
 
         // Spawn a read loop: recv datagrams from the resource and send back
         // as TunnelData messages.
@@ -290,6 +294,25 @@ impl AgentTunnelManager {
 
         Ok(())
     }
+}
+
+async fn emit_access_log(
+    stream_tx: &tokio::sync::mpsc::Sender<ControlMessage>,
+    agent_id: &str,
+    req: &TunnelOpen,
+) {
+    let _ = send_message(
+        stream_tx,
+        "agent_log",
+        &serde_json::json!({
+            "agent_id": agent_id,
+            "message": format!(
+                "client access opened: destination={} port={} protocol={} connection_id={}",
+                req.destination, req.port, req.protocol, req.connection_id
+            ),
+        }),
+    )
+    .await;
 }
 
 async fn send_message<T: Serialize>(

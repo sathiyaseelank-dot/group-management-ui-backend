@@ -8,6 +8,7 @@ use tracing::{info, warn};
 
 use crate::tls::cert_store::CertStore;
 use crate::tls::server_cfg::build_device_tunnel_tls;
+use crate::ControlMessage;
 use crate::{agent_tunnel::AgentTunnelHub, policy::PolicyCache, AgentRegistry};
 
 fn default_tcp() -> String {
@@ -56,6 +57,8 @@ pub async fn listen(
     acl: Arc<PolicyCache>,
     tunnel_hub: AgentTunnelHub,
     agent_registry: Arc<AgentRegistry>,
+    connector_id: String,
+    control_tx: tokio::sync::mpsc::Sender<ControlMessage>,
 ) -> Result<()> {
     let tls_config = build_device_tunnel_tls(&store)?;
     let acceptor = TlsAcceptor::from(Arc::new(tls_config));
@@ -69,12 +72,23 @@ pub async fn listen(
                 let acl = acl.clone();
                 let tunnel_hub = tunnel_hub.clone();
                 let agent_registry = agent_registry.clone();
+                let connector_id = connector_id.clone();
+                let control_tx = control_tx.clone();
                 let acc = acceptor.clone();
                 tokio::spawn(async move {
                     match acc.accept(stream).await {
                         Ok(tls) => {
                             if let Err(e) =
-                                handle_stream(tls, &ctrl, acl, tunnel_hub, agent_registry).await
+                                handle_stream(
+                                    tls,
+                                    &ctrl,
+                                    acl,
+                                    tunnel_hub,
+                                    agent_registry,
+                                    &connector_id,
+                                    &control_tx,
+                                )
+                                .await
                             {
                                 warn!("device tunnel client error from {}: {}", peer, e);
                             }
@@ -133,6 +147,8 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     acl: Arc<PolicyCache>,
     tunnel_hub: AgentTunnelHub,
     agent_registry: Arc<AgentRegistry>,
+    connector_id: &str,
+    control_tx: &tokio::sync::mpsc::Sender<ControlMessage>,
 ) -> Result<()> {
     let line = read_line(&mut stream).await?;
     let req: TunnelRequest =
@@ -177,6 +193,15 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
                 )
                 .await?;
                 send_response(&mut stream, true, None).await?;
+                emit_connector_access_log(
+                    control_tx,
+                    connector_id,
+                    &format!(
+                        "client access opened: destination={} port={} protocol={} path=agent_relay agent_id={}",
+                        req.destination, req.port, req.protocol, agent_id
+                    ),
+                )
+                .await;
                 info!(
                     "routing protected device tunnel {}:{} via agent {}",
                     req.destination, req.port, agent_id
@@ -201,12 +226,40 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
             return Err(anyhow::anyhow!("{}", msg));
         }
     };
+    emit_connector_access_log(
+        control_tx,
+        connector_id,
+        &format!(
+            "client access opened: destination={} port={} protocol={} path=connector_direct",
+            req.destination, req.port, req.protocol
+        ),
+    )
+    .await;
 
     match tokio::io::copy_bidirectional(&mut stream, &mut resource).await {
         Ok((sent, recv)) => info!("device tunnel closed {} sent={} recv={}", dest, sent, recv),
         Err(e) => warn!("device tunnel I/O error {}: {}", dest, e),
     }
     Ok(())
+}
+
+async fn emit_connector_access_log(
+    control_tx: &tokio::sync::mpsc::Sender<ControlMessage>,
+    connector_id: &str,
+    message: &str,
+) {
+    let payload = serde_json::json!({
+        "connector_id": connector_id,
+        "message": message,
+    });
+    let _ = control_tx
+        .send(ControlMessage {
+            r#type: "connector_log".to_string(),
+            connector_id: connector_id.to_string(),
+            payload: serde_json::to_vec(&payload).unwrap_or_default(),
+            ..Default::default()
+        })
+        .await;
 }
 
 async fn check_access(

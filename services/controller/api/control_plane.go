@@ -320,6 +320,21 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 				)
 			}
 		}
+		if msg.GetType() == "connector_log" && s.db != nil && strings.TrimSpace(connectorID) != "" {
+			var payload struct {
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(msg.GetPayload(), &payload); err == nil &&
+				strings.TrimSpace(payload.Message) != "" {
+				nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+				_, _ = s.db.Exec(
+					state.Rebind(`INSERT INTO connector_logs (connector_id, timestamp, message) VALUES (?, ?, ?)`),
+					connectorID,
+					nowISO,
+					payload.Message,
+				)
+			}
+		}
 		if msg.GetType() == "agent_discovery_diff" {
 			log.Printf("agent_discovery_diff: received payload=%s", string(msg.GetPayload()))
 			if s.db != nil {

@@ -113,15 +113,21 @@ function isWildcard(ip: string): boolean {
 
 function resolveAddress(svc: AgentDiscoveredService, agent: Agent | undefined): string {
   if (!isWildcard(svc.boundIp)) return svc.boundIp
-  return agent?.hostname || '0.0.0.0'
+  return agent?.ip || agent?.hostname || '0.0.0.0'
 }
 
-function isManaged(svc: AgentDiscoveredService, resources: Resource[]): boolean {
+function isManaged(svc: AgentDiscoveredService, resources: Resource[], agent?: Agent): boolean {
+  const resolvedAddress = resolveAddress(svc, agent)
   return resources.some(
     (r) =>
+      (!(r.agentIds && r.agentIds.length > 0) || r.agentIds.includes(svc.agentId)) &&
       r.portFrom === svc.port &&
       r.protocol.toLowerCase() === svc.protocol.toLowerCase() &&
-      (r.address === svc.boundIp || r.address === '0.0.0.0' || svc.boundIp === '0.0.0.0' || svc.boundIp === '')
+      (r.address === svc.boundIp ||
+        r.address === resolvedAddress ||
+        r.address === '0.0.0.0' ||
+        svc.boundIp === '0.0.0.0' ||
+        svc.boundIp === '')
   )
 }
 
@@ -282,7 +288,10 @@ export default function AgentDiscoveryPage() {
     setBulkAdding(true)
     setError(null)
 
-    const toAdd = services.filter((s) => selected.has(s.id) && !isManaged(s, resources) && !addedServices.has(s.id) && s.status !== 'gone')
+    const toAdd = services.filter((s) => {
+      const agent = agents.find((a) => a.id === s.agentId)
+      return selected.has(s.id) && !isManaged(s, resources, agent) && !addedServices.has(s.id) && s.status !== 'gone'
+    })
     if (toAdd.length === 0) {
       setError('No eligible services selected')
       setBulkAdding(false)
@@ -402,7 +411,9 @@ export default function AgentDiscoveryPage() {
   }
 
   const toggleSelectAll = (svcs: AgentDiscoveredService[]) => {
-    const eligibleIds = svcs.filter((s) => !isManaged(s, resources) && !addedServices.has(s.id) && s.status !== 'gone' && !s.dismissed).map((s) => s.id)
+    const eligibleIds = svcs
+      .filter((s) => !isManaged(s, resources, agent) && !addedServices.has(s.id) && s.status !== 'gone' && !s.dismissed)
+      .map((s) => s.id)
     const allSelected = eligibleIds.every((id) => selected.has(id))
     setSelected((prev) => {
       const next = new Set(prev)
@@ -564,8 +575,8 @@ export default function AgentDiscoveryPage() {
                             type="checkbox"
                             className="rounded"
                             checked={
-                              group.services.filter((s) => !isManaged(s, resources) && !addedServices.has(s.id) && s.status !== 'gone' && !s.dismissed).length > 0 &&
-                              group.services.filter((s) => !isManaged(s, resources) && !addedServices.has(s.id) && s.status !== 'gone' && !s.dismissed).every((s) => selected.has(s.id))
+                              group.services.filter((s) => !isManaged(s, resources, group.agent) && !addedServices.has(s.id) && s.status !== 'gone' && !s.dismissed).length > 0 &&
+                              group.services.filter((s) => !isManaged(s, resources, group.agent) && !addedServices.has(s.id) && s.status !== 'gone' && !s.dismissed).every((s) => selected.has(s.id))
                             }
                             onChange={() => toggleSelectAll(group.services)}
                           />
@@ -581,7 +592,7 @@ export default function AgentDiscoveryPage() {
                     </TableHeader>
                     <TableBody>
                       {group.services.map((svc) => {
-                        const managed = isManaged(svc, resources)
+                        const managed = isManaged(svc, resources, group.agent)
                         const isNewService = isNew(svc)
                         const isGone = svc.status === 'gone'
                         const canSelect = !managed && !addedServices.has(svc.id) && !isGone && !svc.dismissed

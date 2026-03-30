@@ -274,6 +274,8 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         let tunnel_acl = acl.clone();
         let tunnel_hub = agent_tunnel_hub.clone();
         let tunnel_agent_registry = agent_registry.clone();
+        let tunnel_connector_id = enrolled_connector_id.clone();
+        let tunnel_control_tx = send_ch.clone();
         tokio::spawn(async move {
             if let Err(e) = device_tunnel::listen(
                 &device_tunnel_addr,
@@ -282,6 +284,8 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
                 tunnel_acl,
                 tunnel_hub,
                 tunnel_agent_registry,
+                tunnel_connector_id,
+                tunnel_control_tx,
             )
             .await
             {
@@ -297,6 +301,8 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         let quic_acl = acl.clone();
         let quic_hub = agent_tunnel_hub.clone();
         let quic_agent_registry = agent_registry.clone();
+        let quic_connector_id = enrolled_connector_id.clone();
+        let quic_control_tx = send_ch.clone();
         tokio::spawn(async move {
             if let Err(e) = quic_listener::listen(
                 &quic_addr,
@@ -306,6 +312,8 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
                 quic_acl,
                 quic_hub,
                 quic_agent_registry,
+                quic_connector_id,
+                quic_control_tx,
             )
             .await
             {

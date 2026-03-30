@@ -86,7 +86,7 @@ func scanUIResource(scanner interface{ Scan(dest ...any) error }) (uiResource, b
 }
 
 func loadResourceAgentIDs(db *sql.DB, resourceID, wsID string) ([]string, error) {
-	wsClause, wsArgs := wsWhereOnly(wsID, "ra")
+	wsClause, wsArgs := wsWhere(wsID, "ra")
 	args := append([]interface{}{resourceID}, wsArgs...)
 	rows, err := db.Query(state.Rebind(`SELECT ra.agent_id FROM resource_agents ra WHERE ra.resource_id = ?`+wsClause+` ORDER BY ra.agent_id ASC`), args...)
 	if err != nil {

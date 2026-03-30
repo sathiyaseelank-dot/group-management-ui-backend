@@ -77,7 +77,7 @@ func persistResourceAgents(db *sql.DB, resourceID, wsID string, agentIDs []strin
 	slices.Sort(normalized)
 
 	if wsID != "" {
-		wsClause, wsArgs := wsWhereOnly(wsID, "")
+		wsClause, wsArgs := wsWhere(wsID, "")
 		for _, agentID := range normalized {
 			args := append([]interface{}{agentID}, wsArgs...)
 			var exists string

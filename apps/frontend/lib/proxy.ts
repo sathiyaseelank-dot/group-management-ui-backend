@@ -61,7 +61,7 @@ export async function proxyToBackend<T = any>(
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(error || `Backend error: ${response.status}`);
+    throw new Error(`Backend error: ${response.status}${error ? `: ${error}` : ''}`);
   }
 
   return response.json();
@@ -89,7 +89,7 @@ export async function proxyWithJWT<T = any>(
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(error || `Backend error: ${response.status}`);
+    throw new Error(`Backend error: ${response.status}${error ? `: ${error}` : ''}`);
   }
 
   return response.json();

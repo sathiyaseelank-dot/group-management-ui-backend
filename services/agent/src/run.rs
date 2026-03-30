@@ -461,7 +461,8 @@ async fn handle_inbound_message(
         }
         "connector_tunnel_open" => {
             let req: TunnelOpen = serde_json::from_slice(&msg.payload)?;
-            tunnel_manager.open(req, stream_tx.clone()).await?;
+            let log_agent_id = agent_id.to_string();
+            tunnel_manager.open(req, stream_tx.clone(), &log_agent_id).await?;
         }
         "connector_tunnel_data" => {
             let data: TunnelData = serde_json::from_slice(&msg.payload)?;
