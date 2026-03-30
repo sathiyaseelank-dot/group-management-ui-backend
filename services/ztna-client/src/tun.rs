@@ -1089,7 +1089,7 @@ async fn tunnel_relay_task(
     let mut use_quic_stream: Option<crate::quic_tunnel::QuicBiStream> = None;
 
     if let (Some(quic_addr), Some(pool)) = (&cached_quic, &quic_pool) {
-        debug!("[tun-relay] trying QUIC at {} for {}:{}", quic_addr, destination, dst_port);
+        info!("[tun-relay] trying QUIC at {} for {}:{}", quic_addr, destination, dst_port);
         match tokio::time::timeout(
             QUIC_FALLBACK_TIMEOUT,
             pool.open_stream(quic_addr, &access_token, &destination, dst_port, &protocol),
@@ -1101,11 +1101,14 @@ async fn tunnel_relay_task(
                 use_quic_stream = Some(stream);
             }
             Ok(Err(e)) => {
-                debug!("[tun-relay] QUIC failed, falling back to TLS: {}", e);
+                info!("[tun-relay] QUIC failed, falling back to TLS: {}", e);
                 quic_cache.remove(&connector_tunnel_addr).await;
             }
             Err(_) => {
-                debug!("[tun-relay] QUIC timed out, falling back to TLS");
+                info!(
+                    "[tun-relay] QUIC timed out after {:?}, falling back to TLS",
+                    QUIC_FALLBACK_TIMEOUT
+                );
                 quic_cache.remove(&connector_tunnel_addr).await;
             }
         }
