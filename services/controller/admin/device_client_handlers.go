@@ -586,7 +586,7 @@ func (s *Server) handleDeviceEnrollCert(w http.ResponseWriter, r *http.Request) 
 func loadJITGrantResources(db *sql.DB, workspaceID, userID string) ([]deviceUserResource, error) {
 	rows, err := db.Query(
 		state.Rebind(`SELECT DISTINCT r.id, r.name, r.type, r.address, r.protocol, r.port_from, r.port_to, r.alias,
-            r.description, r.remote_network_id, COALESCE(rn.name, ''), r.firewall_status
+            r.description, r.connector_id, r.remote_network_id, COALESCE(rn.name, ''), r.firewall_status
         FROM access_request_grants g
         JOIN resources r ON r.id = g.resource_id
         LEFT JOIN remote_networks rn ON rn.id = r.remote_network_id
@@ -607,7 +607,7 @@ func loadJITGrantResources(db *sql.DB, workspaceID, userID string) ([]deviceUser
 		var portTo sql.NullInt64
 		var alias sql.NullString
 		if err := rows.Scan(&res.ID, &res.Name, &res.Type, &res.Address, &protocol, &portFrom, &portTo, &alias,
-			&res.Description, &res.RemoteNetworkID, &res.RemoteNetworkName, &res.FirewallStatus); err != nil {
+			&res.Description, &res.ConnectorID, &res.RemoteNetworkID, &res.RemoteNetworkName, &res.FirewallStatus); err != nil {
 			return nil, err
 		}
 		res.Protocol = "TCP"
@@ -628,6 +628,7 @@ func loadJITGrantResources(db *sql.DB, workspaceID, userID string) ([]deviceUser
 		if strings.TrimSpace(res.FirewallStatus) == "" {
 			res.FirewallStatus = "unprotected"
 		}
+		res.ConnectorTunnelAddr = lookupAuthorizedConnectorTunnelAddr(db, res.RemoteNetworkID, res.ConnectorID)
 		out = append(out, res)
 	}
 	return out, rows.Err()

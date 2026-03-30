@@ -19,8 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { RemoteNetwork, ResourceType } from '@/lib/types';
-import { getRemoteNetworks, addResource } from '@/lib/mock-api';
+import { RemoteNetwork, Connector, ResourceType } from '@/lib/types';
+import { getRemoteNetworks, getConnectors, addResource } from '@/lib/mock-api';
 import { listResourcePolicies, ensureDefaultResourcePolicy, ResourcePolicy } from '@/lib/resource-policies';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
@@ -44,11 +44,13 @@ export function AddResourceModal({
   lockNetwork = false,
 }: AddResourceModalProps) {
   const [networks, setNetworks] = useState<RemoteNetwork[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
   const [loadingNetworks, setLoadingNetworks] = useState(true);
   const [policies, setPolicies] = useState<ResourcePolicy[]>([]);
 
   // Form state
   const [networkId, setNetworkId] = useState<string>(defaultNetworkId ?? '');
+  const [connectorId, setConnectorId] = useState<string>('');
   const [name, setName] = useState('');
   const [resourceType, setResourceType] = useState<ResourceType>('STANDARD');
   const [address, setAddress] = useState('');
@@ -68,18 +70,19 @@ export function AddResourceModal({
 
   useEffect(() => {
     if (isOpen) {
-      const fetchNetworks = async () => {
+      const fetchData = async () => {
         setLoadingNetworks(true);
         try {
-          const data = await getRemoteNetworks();
-          setNetworks(data);
+          const [nets, conns] = await Promise.all([getRemoteNetworks(), getConnectors()]);
+          setNetworks(nets);
+          setConnectors(conns);
         } catch {
           toast.error('Failed to load networks');
         } finally {
           setLoadingNetworks(false);
         }
       };
-      fetchNetworks();
+      fetchData();
       if (!networkId && defaultNetworkId) setNetworkId(defaultNetworkId);
 
       ensureDefaultResourcePolicy();
@@ -91,6 +94,7 @@ export function AddResourceModal({
 
   const resetForm = () => {
     setNetworkId(defaultNetworkId ?? '');
+    setConnectorId('');
     setName('');
     setResourceType('STANDARD');
     setAddress('');
@@ -121,6 +125,7 @@ export function AddResourceModal({
     try {
       await addResource({
         network_id: networkId,
+        connector_id: connectorId || undefined,
         name,
         type: resourceType,
         address,
@@ -168,6 +173,28 @@ export function AddResourceModal({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Connector (optional) */}
+          {networkId && connectors.filter(c => c.remoteNetworkId === networkId).length > 0 && (
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="connector" className="text-right">Connector</Label>
+              <Select value={connectorId} onValueChange={setConnectorId}>
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Auto-detect" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Auto-detect</SelectItem>
+                  {connectors
+                    .filter(c => c.remoteNetworkId === networkId)
+                    .map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name} {c.privateIp ? `(${c.privateIp})` : ''} — {c.status}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Label */}
           <div className="grid grid-cols-4 items-center gap-4">
