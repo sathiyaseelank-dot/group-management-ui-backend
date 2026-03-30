@@ -713,14 +713,19 @@ func (s *ControlPlaneServer) allowlistForConnector(connectorID string) ([]state.
 		return nil, "", err
 	}
 
+	// Prefer agents explicitly bound to this connector; fall back to all
+	// agents in the network so connectors without direct agent affinity
+	// still receive a usable allowlist.
 	rows, err := s.db.Query(
 		state.Rebind(`SELECT id, spiffe_id
 			FROM agents
 			WHERE remote_network_id = ?
 			  AND revoked = 0
 			  AND COALESCE(TRIM(spiffe_id), '') <> ''
-			ORDER BY id ASC`),
-		networkID,
+			ORDER BY
+				CASE WHEN connector_id = ? THEN 0 ELSE 1 END,
+				id ASC`),
+		networkID, connectorID,
 	)
 	if err != nil {
 		return nil, "", err

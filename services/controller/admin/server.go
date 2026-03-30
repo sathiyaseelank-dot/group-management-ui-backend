@@ -627,7 +627,7 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
 		wsID := workspaceIDFromContext(r.Context())
 		if wsID != "" && s.ACLs.DB() != nil {
 			wsClause, wsArgs := wsWhereOnly(wsID, "")
-			rows, err := s.ACLs.DB().Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources`+wsClause), wsArgs...)
+			rows, err := s.ACLs.DB().Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, connector_id, firewall_status FROM resources`+wsClause), wsArgs...)
 			if err != nil {
 				http.Error(w, "failed to query resources", http.StatusInternalServerError)
 				return

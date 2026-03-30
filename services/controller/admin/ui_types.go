@@ -45,6 +45,7 @@ type uiResource struct {
 	Alias          *string  `json:"alias,omitempty"`
 	Description    string   `json:"description"`
 	RemoteNetwork  *string  `json:"remoteNetworkId,omitempty"`
+	ConnectorID    string   `json:"connectorId,omitempty"`
 	AgentIDs       []string `json:"agentIds"`
 	FirewallStatus string   `json:"firewallStatus"`
 }

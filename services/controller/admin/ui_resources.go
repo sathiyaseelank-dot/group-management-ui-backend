@@ -12,6 +12,21 @@ import (
 	"controller/state"
 )
 
+// resolveConnectorIDFromAddress finds the connector that owns the agent whose
+// IP matches the resource address.  Returns "" if no match (backward compat).
+func resolveConnectorIDFromAddress(db *sql.DB, address, networkID, wsID string) string {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return ""
+	}
+	var connID string
+	q := `SELECT connector_id FROM agents WHERE ip = ? AND remote_network_id = ? AND COALESCE(TRIM(connector_id), '') <> '' LIMIT 1`
+	if err := db.QueryRow(state.Rebind(q), address, networkID).Scan(&connID); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(connID)
+}
+
 func resolveResourceNetworkID(db *sql.DB, networkID, connectorID, wsID string) (string, error) {
 	networkID = strings.TrimSpace(networkID)
 	if networkID != "" {
@@ -95,7 +110,7 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		wsID := workspaceIDFromContext(r.Context())
 		wsClause, wsArgs := wsWhereOnly(wsID, "")
-		rows, err := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources`+wsClause+` ORDER BY name ASC`), wsArgs...)
+		rows, err := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, connector_id, firewall_status FROM resources`+wsClause+` ORDER BY name ASC`), wsArgs...)
 		if err != nil {
 			http.Error(w, "failed to list resources", http.StatusInternalServerError)
 			return
@@ -141,10 +156,14 @@ func (s *Server) handleUIResources(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to resolve remote network", http.StatusBadRequest)
 			return
 		}
+		connectorID := strings.TrimSpace(req.ConnectorID)
+		if connectorID == "" {
+			connectorID = resolveConnectorIDFromAddress(db, req.Address, networkID, wsID)
+		}
 		ports := buildPorts(req.PortFrom, req.PortTo)
 		id := fmt.Sprintf("res_%d", time.Now().UTC().UnixMilli())
-		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), networkID, wsID); err != nil {
+		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, connector_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			id, req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(req.Type)), networkID, connectorID, wsID); err != nil {
 			http.Error(w, "failed to create resource", http.StatusBadRequest)
 			return
 		}
@@ -208,10 +227,11 @@ func (s *Server) handleUIResourcesBatch(w http.ResponseWriter, r *http.Request) 
 			errors = append(errors, fmt.Sprintf("network error for %s: %v", res.Name, err))
 			continue
 		}
+		batchConnID := resolveConnectorIDFromAddress(db, res.Address, networkID, wsID)
 		ports := buildPorts(res.PortFrom, res.PortTo)
 		id := fmt.Sprintf("res_%d_%d", time.Now().UTC().UnixMilli(), created)
-		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-			id, res.Name, res.Type, res.Address, ports, res.Protocol, nullInt(res.PortFrom), nullInt(res.PortTo), res.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(res.Type)), networkID, wsID); err != nil {
+		if _, err := db.Exec(state.Rebind(`INSERT INTO resources (id, name, type, address, ports, protocol, port_from, port_to, alias, description, remote_network_id, connector_id, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			id, res.Name, res.Type, res.Address, ports, res.Protocol, nullInt(res.PortFrom), nullInt(res.PortTo), res.Alias, fmt.Sprintf("A new %s resource", strings.ToLower(res.Type)), networkID, batchConnID, wsID); err != nil {
 			errors = append(errors, fmt.Sprintf("insert error for %s: %v", res.Name, err))
 			continue
 		}
@@ -249,7 +269,7 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 	switch r.Method {
 	case http.MethodGet:
 		args := append([]interface{}{resourceID}, wsArgs...)
-		row := db.QueryRow(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources WHERE id = ?`+wsClause), args...)
+		row := db.QueryRow(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, connector_id, firewall_status FROM resources WHERE id = ?`+wsClause), args...)
 		res, ok := scanUIResource(row)
 		if !ok {
 			writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -326,9 +346,13 @@ func (s *Server) handleUIResourcesSubroutes(w http.ResponseWriter, r *http.Reque
 				return
 			}
 		}
+		connectorID := strings.TrimSpace(req.ConnectorID)
+		if connectorID == "" {
+			connectorID = resolveConnectorIDFromAddress(db, req.Address, resolvedNetworkID, wsID)
+		}
 		ports := buildPorts(req.PortFrom, req.PortTo)
-		updateArgs := append([]interface{}{req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, resolvedNetworkID, resourceID}, wsArgs...)
-		_, err = db.Exec(state.Rebind(`UPDATE resources SET name = ?, type = ?, address = ?, ports = ?, protocol = ?, port_from = ?, port_to = ?, alias = ?, remote_network_id = ? WHERE id = ?`+wsClause),
+		updateArgs := append([]interface{}{req.Name, req.Type, req.Address, ports, req.Protocol, nullInt(req.PortFrom), nullInt(req.PortTo), req.Alias, resolvedNetworkID, connectorID, resourceID}, wsArgs...)
+		_, err = db.Exec(state.Rebind(`UPDATE resources SET name = ?, type = ?, address = ?, ports = ?, protocol = ?, port_from = ?, port_to = ?, alias = ?, remote_network_id = ?, connector_id = ? WHERE id = ?`+wsClause),
 			updateArgs...)
 		if err != nil {
 			http.Error(w, "failed to update resource", http.StatusBadRequest)

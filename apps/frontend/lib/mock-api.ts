@@ -289,6 +289,7 @@ export async function getResources(): Promise<Resource[]> {
 // API: Add a new resource
 export async function addResource(data: {
   network_id: string;
+  connector_id?: string;
   name: string;
   type: ResourceType;
   address: string;
@@ -309,6 +310,7 @@ export async function updateResource(
   resourceId: string,
   data: {
     network_id: string;
+    connector_id?: string;
     name: string;
     type: ResourceType;
     address: string;

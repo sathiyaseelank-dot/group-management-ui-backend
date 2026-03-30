@@ -262,7 +262,7 @@ func (s *Server) handleUIRemoteNetworksSubroutes(w http.ResponseWriter, r *http.
 		connectorRows.Close()
 	}
 	resListArgs := append([]interface{}{networkID}, wsArgs...)
-	resourceRows, _ := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, firewall_status FROM resources WHERE remote_network_id = ?`+wsClause+` ORDER BY name ASC`), resListArgs...)
+	resourceRows, _ := db.Query(state.Rebind(`SELECT id, name, type, address, protocol, port_from, port_to, alias, description, remote_network_id, connector_id, firewall_status FROM resources WHERE remote_network_id = ?`+wsClause+` ORDER BY name ASC`), resListArgs...)
 	resources := []uiResource{}
 	if resourceRows != nil {
 		for resourceRows.Next() {

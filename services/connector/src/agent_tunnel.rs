@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -19,8 +19,10 @@ pub struct AgentTunnelHub {
 
 #[derive(Debug)]
 struct Inner {
-    agents: HashMap<String, AgentStreamTx>,
+    agents: BTreeMap<String, AgentStreamTx>,
     sessions: HashMap<String, mpsc::UnboundedSender<TunnelEvent>>,
+    /// Agent IDs in controller-preferred order (connector-bound agents first).
+    preferred_order: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -73,8 +75,9 @@ impl AgentTunnelHub {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(RwLock::new(Inner {
-                agents: HashMap::new(),
+                agents: BTreeMap::new(),
                 sessions: HashMap::new(),
+                preferred_order: Vec::new(),
             })),
         }
     }
@@ -91,11 +94,27 @@ impl AgentTunnelHub {
         }
     }
 
+    /// Returns the best connected agent, preferring controller-assigned order
+    /// (connector-bound agents first, then others by sorted ID).
     pub fn first_agent_id(&self) -> Option<String> {
-        self.inner
-            .read()
-            .ok()
-            .and_then(|inner| inner.agents.keys().next().cloned())
+        self.inner.read().ok().and_then(|inner| {
+            // Try preferred order first (connector-bound agents come first).
+            for id in &inner.preferred_order {
+                if inner.agents.contains_key(id) {
+                    return Some(id.clone());
+                }
+            }
+            // Fallback: first connected agent by sorted ID (BTreeMap).
+            inner.agents.keys().next().cloned()
+        })
+    }
+
+    /// Update the preferred agent order from the controller's allowlist.
+    /// The controller sends agents sorted with connector-bound ones first.
+    pub fn set_preferred_order(&self, order: Vec<String>) {
+        if let Ok(mut inner) = self.inner.write() {
+            inner.preferred_order = order;
+        }
     }
 
     pub fn register_session(&self, connection_id: &str) -> mpsc::UnboundedReceiver<TunnelEvent> {
