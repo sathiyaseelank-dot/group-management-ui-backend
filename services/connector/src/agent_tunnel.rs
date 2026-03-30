@@ -109,6 +109,22 @@ impl AgentTunnelHub {
         })
     }
 
+    /// Returns the best connected agent from the provided candidate list,
+    /// preferring controller-assigned order when possible.
+    pub fn select_agent_id(&self, candidates: &[String]) -> Option<String> {
+        self.inner.read().ok().and_then(|inner| {
+            for id in &inner.preferred_order {
+                if candidates.iter().any(|candidate| candidate == id) && inner.agents.contains_key(id) {
+                    return Some(id.clone());
+                }
+            }
+            candidates
+                .iter()
+                .find(|candidate| inner.agents.contains_key(candidate.as_str()))
+                .cloned()
+        })
+    }
+
     /// Update the preferred agent order from the controller's allowlist.
     /// The controller sends agents sorted with connector-bound ones first.
     pub fn set_preferred_order(&self, order: Vec<String>) {

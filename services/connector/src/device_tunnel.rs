@@ -172,16 +172,27 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
             return Ok(());
         }
         Ok(resp) => {
-            let protected = acl
-                .resource_by_id(&resp.resource_id)
-                .map(|resource| resource.firewall_status.eq_ignore_ascii_case("protected"))
+            let resource = acl.resource_by_id(&resp.resource_id);
+            let protected = resource
+                .as_ref()
+                .map(|res| res.firewall_status.eq_ignore_ascii_case("protected"))
                 .unwrap_or(false);
             if protected {
-                let agent_id = resolve_protected_resource_owner(&req.destination, &agent_registry)
+                let agent_id = resource
+                    .as_ref()
+                    .and_then(|res| {
+                        if res.agent_ids.is_empty() {
+                            None
+                        } else {
+                            tunnel_hub.select_agent_id(&res.agent_ids)
+                        }
+                    })
+                    .or_else(|| resolve_protected_resource_owner(&req.destination, &agent_registry))
                     .ok_or_else(|| {
                         anyhow::anyhow!(
-                            "no uniquely connected owning agent for protected resource {}",
-                            req.destination
+                            "no connected owning agent for protected resource {} ({})",
+                            req.destination,
+                            resp.resource_id
                         )
                     })?;
                 let relay_session = crate::agent_tunnel::open_relay_session(

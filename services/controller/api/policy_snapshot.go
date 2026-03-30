@@ -44,6 +44,7 @@ type PolicyResource struct {
 	PortFrom             *int                 `json:"port_from,omitempty"`
 	PortTo               *int                 `json:"port_to,omitempty"`
 	AllowedIdentities    []string             `json:"allowed_identities"`
+	AgentIDs             []string             `json:"agent_ids,omitempty"`
 	FirewallStatus       string               `json:"firewall_status"`
 	PostureRequirements  *PostureRequirements `json:"posture_requirements,omitempty"`
 }
@@ -220,6 +221,7 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 			Port:              0,
 			Protocol:          "TCP",
 			AllowedIdentities: identities,
+			AgentIDs:          loadPolicyResourceAgentIDs(db, id),
 			FirewallStatus:    fwStatus,
 		}
 		if postureStmt != nil {
@@ -258,6 +260,23 @@ func policyResources(db *sql.DB, remoteNetworkID string) ([]PolicyResource, erro
 		postureStmt.Close()
 	}
 	return resources, nil
+}
+
+func loadPolicyResourceAgentIDs(db *sql.DB, resourceID string) []string {
+	rows, err := db.Query(state.Rebind(`SELECT agent_id FROM resource_agents WHERE resource_id = ? ORDER BY agent_id ASC`), resourceID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var agentID string
+		if err := rows.Scan(&agentID); err == nil && strings.TrimSpace(agentID) != "" {
+			out = append(out, agentID)
+		}
+	}
+	return out
 }
 
 func policyHash(resources []PolicyResource) string {
