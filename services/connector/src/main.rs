@@ -263,6 +263,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     let agent_tunnel_hub = AgentTunnelHub::new();
     let (firewall_tx, _) = broadcast::channel::<()>(16);
     let latest_fw_policy = LatestFirewallPolicy::new();
+    let reload = Arc::new(Notify::new());
     let shutdown = Arc::new(Notify::new());
 
     if !cfg.device_tunnel_addr.is_empty() && !cfg.controller_http_url.is_empty() {
@@ -338,6 +339,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         store.clone(),
         cfg.ca_pem.clone(),
         result.ca_pem.clone(),
+        reload.clone(),
         shutdown.clone(),
     ));
 
@@ -354,6 +356,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         acl.clone(),
         send_ch,
         recv_ch,
+        reload,
         agent_registry,
         agent_tunnel_hub,
         firewall_tx,
@@ -418,6 +421,7 @@ async fn control_plane_loop(
     acl: Arc<PolicyCache>,
     send_ch: mpsc::Sender<ControlMessage>,
     mut recv_ch: mpsc::Receiver<ControlMessage>,
+    reload: Arc<Notify>,
     agent_registry: Arc<AgentRegistry>,
     agent_tunnel_hub: AgentTunnelHub,
     firewall_tx: broadcast::Sender<()>,
@@ -461,6 +465,11 @@ async fn control_plane_loop(
                         true
                     }
                 }
+            }
+            _ = reload.notified() => {
+                info!("cert reload signal received, reconnecting");
+                backoff = Duration::from_secs(2);
+                false
             }
             _ = shutdown.notified() => return,
         };

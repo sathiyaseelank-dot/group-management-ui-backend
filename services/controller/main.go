@@ -32,6 +32,11 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+type grpcStopper interface {
+	GracefulStop()
+	Stop()
+}
+
 func main() {
 	// ---- required environment variables ----
 	caCertPEM, caKeyPEM, err := loadCA()
@@ -397,15 +402,43 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	sig := <-sigCh
 	log.Printf("received %s, shutting down gracefully...", sig)
+	go func() {
+		sig = <-sigCh
+		log.Printf("received %s during shutdown, forcing exit", sig)
+		os.Exit(1)
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	grpcServer.GracefulStop()
+	shutdownGRPCServer(ctx, grpcServer, sig == syscall.SIGINT)
 	_ = adminHTTP.Shutdown(ctx)
 	if oauthHTTP != nil {
 		_ = oauthHTTP.Shutdown(ctx)
 	}
 	log.Println("controller shut down")
+}
+
+func shutdownGRPCServer(ctx context.Context, server grpcStopper, force bool) {
+	if force {
+		log.Println("forcing gRPC server stop")
+		server.Stop()
+		return
+	}
+
+	done := make(chan struct{})
+	go func() {
+		server.GracefulStop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("gRPC server stopped gracefully")
+	case <-ctx.Done():
+		log.Printf("gRPC graceful shutdown timed out: %v; forcing stop", ctx.Err())
+		server.Stop()
+		<-done
+	}
 }
 
 func loadCA() ([]byte, []byte, error) {

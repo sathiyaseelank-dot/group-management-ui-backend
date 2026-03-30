@@ -12,6 +12,7 @@ pub async fn renewal_loop(
     store: CertStore,
     controller_ca_pem: Vec<u8>,
     workload_ca_pem: Vec<u8>,
+    reload: Arc<Notify>,
     shutdown: Arc<Notify>,
 ) {
     loop {
@@ -48,6 +49,7 @@ pub async fn renewal_loop(
                     total_ttl,
                 );
                 info!("certificate renewed successfully");
+                reload.notify_one();
             }
             Err(e) => {
                 let msg = format!("{}", e);
