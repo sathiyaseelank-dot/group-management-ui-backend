@@ -73,6 +73,10 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 		if req.Role == "" {
 			req.Role = "Member"
 		}
+		if !isValidRole(req.Role) {
+			http.Error(w, "invalid role: must be Member, Admin, or Owner", http.StatusBadRequest)
+			return
+		}
 		user := state.User{
 			Name:      req.Name,
 			Email:     req.Email,
@@ -140,6 +144,19 @@ func (s *Server) handleUserSubroutes(w http.ResponseWriter, r *http.Request) {
 			existing.Status = req.Status
 		}
 		if req.Role != "" {
+			if !isValidRole(req.Role) {
+				http.Error(w, "invalid role: must be Member, Admin, or Owner", http.StatusBadRequest)
+				return
+			}
+			callerRole := strings.ToLower(workspaceRoleFromContext(r.Context()))
+			if !roleAtLeast(callerRole, "admin") {
+				http.Error(w, "insufficient privileges to change user role", http.StatusForbidden)
+				return
+			}
+			if strings.ToLower(req.Role) == "owner" && callerRole != "owner" {
+				http.Error(w, "only owners can assign the Owner role", http.StatusForbidden)
+				return
+			}
 			existing.Role = req.Role
 		}
 		if err := s.Users.UpdateUser(existing); err != nil {
@@ -233,6 +250,15 @@ func (s *Server) handleUserGroups(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// isValidRole returns true only for the three canonical user roles.
+func isValidRole(r string) bool {
+	switch r {
+	case "Member", "Admin", "Owner":
+		return true
+	}
+	return false
 }
 
 func (s *Server) handleUserGroupMembers(w http.ResponseWriter, r *http.Request) {
