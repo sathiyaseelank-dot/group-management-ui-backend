@@ -504,11 +504,59 @@ pub async fn run_tun_listener(
         None
     };
 
+    // ---- 5b2. Shared TLS config (built once, avoids PEM parsing per-connection) ----
+    let shared_tls_config = if !ca_pem.is_empty() {
+        match tunnel::SharedTlsConfig::new(&ca_pem) {
+            Ok(cfg) => Some(Arc::new(cfg)),
+            Err(e) => {
+                warn!("[tun] failed to build shared TLS config: {} (TLS tunnel will rebuild per-connection)", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // ---- 5c. ACL decision cache (avoids repeated controller round-trips) ----
     let acl_cache = Arc::new(acl::AclCache::new(Duration::from_secs(60)));
 
+    // ---- 5d. Pre-warm QUIC connections to all known connectors ----
+    // Discovers QUIC addresses via a single TLS probe per connector, then
+    // pre-establishes QUIC connections so first real traffic is instant.
+    if let (Some(state), Some(ref tls_cfg), Some(ref pool)) =
+        (&ws_state, &shared_tls_config, &quic_pool)
+    {
+        let access_token = state.session.access_token.clone();
+        let fallback_addr = config.connector_tunnel_addr.clone();
+        let addrs = collect_connector_addrs(&state.resources, &fallback_addr);
+        let tls_cfg = Arc::clone(tls_cfg);
+        let pool = Arc::clone(pool);
+        let quic_cache = quic_addr_cache.clone();
+        tokio::spawn(async move {
+            prewarm_quic_connections(&addrs, &tls_cfg, &access_token, &pool, &quic_cache).await;
+        });
+    }
+
+    // ---- 5e. Pre-populate ACL cache for all known resources ----
+    if let Some(state) = &ws_state {
+        let acl_cache_clone = acl_cache.clone();
+        let ctrl_url = config.controller_url.clone();
+        let token = state.session.access_token.clone();
+        let destinations: Vec<(String, u16)> = state
+            .resources
+            .iter()
+            .map(|r| (r.address.clone(), r.port_from.unwrap_or(0) as u16))
+            .collect();
+        tokio::spawn(async move {
+            acl_cache_clone
+                .prewarm(&ctrl_url, &token, &destinations)
+                .await;
+        });
+    }
+
     let mut route_timer = tokio::time::interval(Duration::from_secs(60));
-    let mut poll_timer = tokio::time::interval(Duration::from_millis(5));
+    let mut quic_maintain_timer = tokio::time::interval(Duration::from_secs(30));
+    let mut poll_timer = tokio::time::interval(Duration::from_millis(1));
 
     info!("[tun] listener running");
 
@@ -609,6 +657,7 @@ pub async fn run_tun_listener(
                             .unwrap_or_else(|| dst_ip.to_string());
 
                         let udp_acl_cache = acl_cache.clone();
+                        let udp_tls_config = shared_tls_config.clone();
                         tokio::spawn(udp_tunnel_relay_task(
                             key,
                             rx,
@@ -621,6 +670,7 @@ pub async fn run_tun_listener(
                             destination,
                             dst_port,
                             udp_acl_cache,
+                            udp_tls_config,
                         ));
                     }
                     // Don't feed UDP packets to smoltcp.
@@ -734,6 +784,40 @@ pub async fn run_tun_listener(
                             warn!("[tun] route sync after login failed: {}", e);
                         }
                         dns_domains = tun_dns_intercept::resource_domains(&state.resources);
+
+                        // Pre-warm QUIC connections for newly discovered resources
+                        if let (Some(ref tls_cfg), Some(ref pool)) =
+                            (&shared_tls_config, &quic_pool)
+                        {
+                            let addrs = collect_connector_addrs(
+                                &state.resources,
+                                &config.connector_tunnel_addr,
+                            );
+                            let tls_cfg = Arc::clone(tls_cfg);
+                            let pool = Arc::clone(pool);
+                            let cache = quic_addr_cache.clone();
+                            let token = state.session.access_token.clone();
+                            tokio::spawn(async move {
+                                prewarm_quic_connections(&addrs, &tls_cfg, &token, &pool, &cache)
+                                    .await;
+                            });
+                        }
+
+                        // Pre-populate ACL cache for all resources
+                        {
+                            let acl = acl_cache.clone();
+                            let url = config.controller_url.clone();
+                            let token = state.session.access_token.clone();
+                            let dests: Vec<(String, u16)> = state
+                                .resources
+                                .iter()
+                                .map(|r| (r.address.clone(), r.port_from.unwrap_or(0) as u16))
+                                .collect();
+                            tokio::spawn(async move {
+                                acl.prewarm(&url, &token, &dests).await;
+                            });
+                        }
+
                         ws_state = Some(state);
                     }
                 }
@@ -764,6 +848,14 @@ pub async fn run_tun_listener(
                             }
                         }
                     }
+                }
+            }
+
+            // -- QUIC pool maintenance (reconnect stale connections) --
+            _ = quic_maintain_timer.tick() => {
+                if let Some(ref pool) = quic_pool {
+                    let pool = Arc::clone(pool);
+                    tokio::spawn(async move { pool.maintain().await });
                 }
             }
 
@@ -846,6 +938,7 @@ pub async fn run_tun_listener(
             let task_quic_pool = quic_pool.clone();
             let task_quic_cache = quic_addr_cache.clone();
             let task_acl_cache = acl_cache.clone();
+            let task_tls_config = shared_tls_config.clone();
             tokio::spawn(tunnel_relay_task(
                 key,
                 rx,
@@ -863,6 +956,7 @@ pub async fn run_tun_listener(
                 task_quic_pool,
                 task_quic_cache,
                 task_acl_cache,
+                task_tls_config,
             ));
         }
 
@@ -977,6 +1071,7 @@ async fn tunnel_relay_task(
     quic_pool: Option<Arc<crate::quic_tunnel::QuicPool>>,
     quic_cache: crate::quic_tunnel::QuicAddrCache,
     acl_cache: Arc<acl::AclCache>,
+    shared_tls_config: Option<Arc<tunnel::SharedTlsConfig>>,
 ) {
     info!(
         "[tun-relay] starting ACL check for {}:{}",
@@ -1124,16 +1219,29 @@ async fn tunnel_relay_task(
 
     // Fall back to TLS if QUIC didn't work
     if use_quic_stream.is_none() {
-        let tunnel_result = match tunnel::open(
-            &connector_tunnel_addr,
-            &effective_ca_pem,
-            &access_token,
-            &destination,
-            dst_port,
-            &protocol,
-        )
-        .await
-        {
+        // Use pre-built TLS config (fast) or fall back to building from PEM (slow)
+        let tunnel_result = if let Some(ref tls_cfg) = shared_tls_config {
+            tunnel::open_with_config(
+                tls_cfg,
+                &connector_tunnel_addr,
+                &access_token,
+                &destination,
+                dst_port,
+                &protocol,
+            )
+            .await
+        } else {
+            tunnel::open(
+                &connector_tunnel_addr,
+                &effective_ca_pem,
+                &access_token,
+                &destination,
+                dst_port,
+                &protocol,
+            )
+            .await
+        };
+        let tunnel_result = match tunnel_result {
             Ok(r) => r,
             Err(e) => {
                 warn!(
@@ -1266,6 +1374,7 @@ async fn udp_tunnel_relay_task(
     destination: String,
     dst_port: u16,
     acl_cache: Arc<acl::AclCache>,
+    shared_tls_config: Option<Arc<tunnel::SharedTlsConfig>>,
 ) {
     info!(
         "[udp-relay] starting ACL check for {}:{}",
@@ -1312,17 +1421,29 @@ async fn udp_tunnel_relay_task(
         return;
     }
 
-    // Open tunnel with protocol "udp"
-    let mut tunnel_stream = match tunnel::open(
-        &connector_tunnel_addr,
-        &ca_pem,
-        &access_token,
-        &destination,
-        dst_port,
-        "udp",
-    )
-    .await
-    {
+    // Open tunnel with protocol "udp" — use pre-built TLS config when available
+    let tunnel_open_result = if let Some(ref tls_cfg) = shared_tls_config {
+        tunnel::open_with_config(
+            tls_cfg,
+            &connector_tunnel_addr,
+            &access_token,
+            &destination,
+            dst_port,
+            "udp",
+        )
+        .await
+    } else {
+        tunnel::open(
+            &connector_tunnel_addr,
+            &ca_pem,
+            &access_token,
+            &destination,
+            dst_port,
+            "udp",
+        )
+        .await
+    };
+    let mut tunnel_stream = match tunnel_open_result {
         Ok(r) => r.stream,
         Err(e) => {
             warn!(
@@ -1374,4 +1495,124 @@ async fn udp_tunnel_relay_task(
 
     let _ = to_tun.send(TunEvent::UdpClosed { key }).await;
     info!("[udp-relay] closed {}:{}", destination, dst_port);
+}
+
+// ---------------------------------------------------------------------------
+// Pre-warming: discover QUIC addresses and pre-connect to all connectors
+// ---------------------------------------------------------------------------
+
+/// Collect unique connector tunnel addresses from resource list + fallback.
+fn collect_connector_addrs(resources: &[StoredResource], fallback: &str) -> Vec<String> {
+    let mut addrs: Vec<String> = resources
+        .iter()
+        .map(|r| r.connector_tunnel_addr.trim().to_string())
+        .filter(|a| !a.is_empty())
+        .collect();
+    let fb = fallback.trim().to_string();
+    if !fb.is_empty() && !addrs.contains(&fb) {
+        addrs.push(fb);
+    }
+    addrs.sort();
+    addrs.dedup();
+    addrs
+}
+
+/// Probe each connector via TLS to discover its QUIC address, then
+/// pre-establish the QUIC connection so first real traffic pays zero
+/// handshake cost.
+async fn prewarm_quic_connections(
+    connector_addrs: &[String],
+    tls_config: &tunnel::SharedTlsConfig,
+    access_token: &str,
+    quic_pool: &crate::quic_tunnel::QuicPool,
+    quic_cache: &crate::quic_tunnel::QuicAddrCache,
+) {
+    if connector_addrs.is_empty() {
+        return;
+    }
+
+    info!(
+        "[prewarm] probing {} connector(s) for QUIC discovery",
+        connector_addrs.len()
+    );
+
+    for addr in connector_addrs {
+        // Check if we already have a cached QUIC address (e.g. from a prior session)
+        if let Some(quic_addr) = quic_cache.get(addr).await {
+            // Already cached — just ensure the QUIC connection is alive
+            info!("[prewarm] QUIC address cached for {} → {} — pre-connecting", addr, quic_addr);
+            match tokio::time::timeout(
+                Duration::from_secs(3),
+                quic_pool.get_or_connect_only(&quic_addr),
+            )
+            .await
+            {
+                Ok(Ok(())) => {
+                    info!("[prewarm] QUIC pre-connected to {} via {}", addr, quic_addr);
+                }
+                Ok(Err(e)) => {
+                    debug!("[prewarm] QUIC pre-connect to {} failed: {} — will probe TLS", quic_addr, e);
+                    quic_cache.remove(addr).await;
+                    probe_tls_for_quic(addr, tls_config, access_token, quic_pool, quic_cache).await;
+                }
+                Err(_) => {
+                    debug!("[prewarm] QUIC pre-connect to {} timed out — will probe TLS", quic_addr);
+                    quic_cache.remove(addr).await;
+                    probe_tls_for_quic(addr, tls_config, access_token, quic_pool, quic_cache).await;
+                }
+            }
+            continue;
+        }
+
+        probe_tls_for_quic(addr, tls_config, access_token, quic_pool, quic_cache).await;
+    }
+}
+
+/// Make one TLS probe connection to discover the QUIC address, cache it, and
+/// pre-establish the QUIC connection in the pool.
+async fn probe_tls_for_quic(
+    tunnel_addr: &str,
+    tls_config: &tunnel::SharedTlsConfig,
+    access_token: &str,
+    quic_pool: &crate::quic_tunnel::QuicPool,
+    quic_cache: &crate::quic_tunnel::QuicAddrCache,
+) {
+    info!("[prewarm] TLS probe to {} for QUIC discovery", tunnel_addr);
+    match tokio::time::timeout(
+        Duration::from_secs(5),
+        tunnel::probe_quic_addr(tls_config, tunnel_addr, access_token),
+    )
+    .await
+    {
+        Ok(Ok(Some(quic_addr))) => {
+            info!(
+                "[prewarm] discovered QUIC at {} for connector {} — pre-connecting",
+                quic_addr, tunnel_addr
+            );
+            quic_cache.set(tunnel_addr, quic_addr.clone()).await;
+
+            // Pre-establish the QUIC connection by calling get_or_connect
+            // (open_stream would fail with dummy dest, but connecting is enough
+            // to warm the pool).
+            match tokio::time::timeout(
+                Duration::from_secs(3),
+                quic_pool.get_or_connect_only(&quic_addr),
+            )
+            .await
+            {
+                Ok(Ok(_)) => info!("[prewarm] QUIC connection established to {}", quic_addr),
+                Ok(Err(e)) => debug!("[prewarm] QUIC pre-connect failed: {}", e),
+                Err(_) => debug!("[prewarm] QUIC pre-connect timed out"),
+            }
+        }
+        Ok(Ok(None)) => {
+            info!("[prewarm] connector {} does not support QUIC", tunnel_addr);
+        }
+        Ok(Err(e)) => {
+            debug!("[prewarm] TLS probe to {} failed: {}", tunnel_addr, e);
+        }
+        Err(_) => {
+            debug!("[prewarm] TLS probe to {} timed out", tunnel_addr);
+        }
+    }
 }

@@ -47,6 +47,53 @@ impl AclCache {
         }
     }
 
+    /// Pre-populate the cache for a list of (destination, port) pairs.
+    /// Errors are logged and swallowed — pre-warming is best-effort.
+    pub async fn prewarm(
+        &self,
+        controller_url: &str,
+        access_token: &str,
+        destinations: &[(String, u16)],
+    ) {
+        // Fire all checks concurrently via JoinSet
+        let mut handles = tokio::task::JoinSet::new();
+        for (dest, port) in destinations {
+            let key = (dest.clone(), "tcp".to_string(), *port);
+            // Skip if already cached and fresh
+            {
+                let cache = self.entries.read().await;
+                if let Some((_, cached_at)) = cache.get(&key) {
+                    if cached_at.elapsed() < self.ttl {
+                        continue;
+                    }
+                }
+            }
+            let url = controller_url.to_string();
+            let token = access_token.to_string();
+            let dest = dest.clone();
+            let port = *port;
+            handles.spawn(async move {
+                match check_access_remote(&url, &token, &dest, port, "tcp").await {
+                    Ok(resp) => Some(((dest, "tcp".to_string(), port), resp)),
+                    Err(e) => {
+                        tracing::debug!("[acl-prewarm] check-access for {}:{} failed: {}", dest, port, e);
+                        None
+                    }
+                }
+            });
+        }
+
+        let mut count = 0usize;
+        while let Some(result) = handles.join_next().await {
+            if let Ok(Some((key, resp))) = result {
+                let mut cache = self.entries.write().await;
+                cache.insert(key, (resp, Instant::now()));
+                count += 1;
+            }
+        }
+        tracing::info!("[acl-prewarm] pre-cached {} ACL decisions", count);
+    }
+
     pub async fn check_access(
         &self,
         controller_url: &str,

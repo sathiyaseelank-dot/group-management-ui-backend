@@ -26,7 +26,7 @@ func (s *Server) handleUIUsers(w http.ResponseWriter, r *http.Request) {
 			rows, err = db.Query(state.Rebind(`SELECT u.id, u.name, u.email, u.status, u.certificate_identity,
 				CAST(u.created_at AS TEXT) as created_at, COALESCE(wm.role, 'member') as role
 				FROM users u
-				LEFT JOIN workspace_members wm ON wm.user_id = u.id AND wm.workspace_id = ?
+				INNER JOIN workspace_members wm ON wm.user_id = u.id AND wm.workspace_id = ?
 				ORDER BY u.name ASC`), wsID)
 		} else {
 			rows, err = db.Query(`SELECT id, name, email, status, certificate_identity,

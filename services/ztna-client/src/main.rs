@@ -1078,6 +1078,14 @@ fn start_socks_listener(config: &Config) {
 
     tokio::spawn(async move {
         let fallback_ca_pem: Arc<Vec<u8>> = Arc::new(load_ca_pem(&config_for_ca).await);
+        // Pre-build TLS config once for all SOCKS5 connections
+        let socks5_tls_config: Option<Arc<tunnel::SharedTlsConfig>> = if !fallback_ca_pem.is_empty() {
+            tunnel::SharedTlsConfig::new(&fallback_ca_pem)
+                .map(|c| Arc::new(c))
+                .ok()
+        } else {
+            None
+        };
         let handler = move |req: socks5::ConnectRequest, mut stream: tokio::net::TcpStream| {
             let config = Config {
                 config_file: std::path::PathBuf::new(),
@@ -1103,6 +1111,7 @@ fn start_socks_listener(config: &Config) {
             let tenant = tenant.clone();
             let connector_tunnel_addr = connector_tunnel_addr.clone();
             let fallback_ca_pem = Arc::clone(&fallback_ca_pem);
+            let socks5_tls_config = socks5_tls_config.clone();
 
             async move {
                 if tenant.is_empty() {
@@ -1188,16 +1197,28 @@ fn start_socks_listener(config: &Config) {
                     return;
                 }
 
-                let mut tunnel_stream = match tunnel::open(
-                    &connector_tunnel_addr,
-                    &ca_pem,
-                    &state.session.access_token,
-                    &req.destination,
-                    req.port,
-                    "tcp",
-                )
-                .await
-                {
+                let tunnel_open_result = if let Some(ref tls_cfg) = socks5_tls_config {
+                    tunnel::open_with_config(
+                        tls_cfg,
+                        &connector_tunnel_addr,
+                        &state.session.access_token,
+                        &req.destination,
+                        req.port,
+                        "tcp",
+                    )
+                    .await
+                } else {
+                    tunnel::open(
+                        &connector_tunnel_addr,
+                        &ca_pem,
+                        &state.session.access_token,
+                        &req.destination,
+                        req.port,
+                        "tcp",
+                    )
+                    .await
+                };
+                let mut tunnel_stream = match tunnel_open_result {
                     Ok(result) => result.stream,
                     Err(e) => {
                         tracing::warn!(

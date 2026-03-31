@@ -142,11 +142,9 @@ async fn send_response<S: AsyncWrite + Unpin>(
     let resp = TunnelResponse {
         ok,
         error: error.map(|s| s.to_string()),
-        quic_addr: if ok {
-            QUIC_ADVERTISE_ADDR.get().cloned()
-        } else {
-            None
-        },
+        // Always advertise QUIC address so clients can discover and pre-warm
+        // QUIC connections even from rejected probe requests.
+        quic_addr: QUIC_ADVERTISE_ADDR.get().cloned(),
     };
     let mut line = serde_json::to_string(&resp)?;
     line.push('\n');

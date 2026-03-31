@@ -163,7 +163,7 @@ export function AgentInstall({
     const safeToken = token || 'fetching_enrollment_token';
     const agentInstallScript =
       import.meta.env.VITE_AGENT_INSTALL_SCRIPT_URL ||
-      'https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/merge/alpha-sync-20260330/scripts/agent-setup.sh';
+      'https://raw.githubusercontent.com/vairabarath/zero-trust/alpha/scripts/agent-setup.sh';
     return (
       `curl -fsSL ${agentInstallScript} | sudo \\\n` +
       `  CONTROLLER_ADDR="${controllerAddr || '127.0.0.1:8443'}" \\\n` +

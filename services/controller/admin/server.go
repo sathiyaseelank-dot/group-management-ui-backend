@@ -191,8 +191,12 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 			http.Error(w, "device tokens cannot access admin endpoints", http.StatusUnauthorized)
 			return
 		}
-		// Validate session not revoked (if Sessions store and jti present).
-		if s.Sessions != nil && claims.jti != "" {
+		// Validate session not revoked. Tokens without jti cannot be revoked — reject them.
+		if s.Sessions != nil {
+			if claims.jti == "" {
+				http.Error(w, "unauthorized: token missing session id", http.StatusUnauthorized)
+				return
+			}
 			if valid, err := s.Sessions.IsValid(claims.jti); err == nil && !valid {
 				http.Error(w, "session revoked or expired", http.StatusUnauthorized)
 				return
