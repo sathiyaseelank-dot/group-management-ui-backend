@@ -23,20 +23,6 @@ const (
 const sessionCookieName = "ztna_session"
 const jwtIssuer = "ztna-controller"
 
-// signSessionJWT creates a signed JWT containing the user's email.
-func (s *Server) signSessionJWT(email string) (string, error) {
-	if len(s.JWTSecret) == 0 {
-		return "", fmt.Errorf("JWT_SECRET not configured")
-	}
-	claims := jwt.MapClaims{
-		"sub": email,
-		"iss": jwtIssuer,
-		"exp": time.Now().Add(4 * time.Hour).Unix(),
-		"iat": time.Now().Unix(),
-	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return tok.SignedString(s.JWTSecret)
-}
 
 // verifySessionJWT validates a JWT and returns the email claim.
 func (s *Server) verifySessionJWT(tokenStr string) (string, error) {
@@ -111,24 +97,6 @@ func sessionEmailFromContext(ctx context.Context) string {
 	return v
 }
 
-// signWorkspaceJWT creates a JWT with workspace claims.
-func (s *Server) signWorkspaceJWT(email, userID, wsID, wsSlug, wsRole string) (string, error) {
-	if len(s.JWTSecret) == 0 {
-		return "", fmt.Errorf("JWT_SECRET not configured")
-	}
-	claims := jwt.MapClaims{
-		"sub":   email,
-		"uid":   userID,
-		"wid":   wsID,
-		"wslug": wsSlug,
-		"wrole": wsRole,
-		"iss":   jwtIssuer,
-		"exp":   time.Now().Add(4 * time.Hour).Unix(),
-		"iat":   time.Now().Unix(),
-	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return tok.SignedString(s.JWTSecret)
-}
 
 // workspaceClaimsFromJWT validates a JWT and extracts workspace claims.
 func workspaceClaimsFromJWT(tokenStr string, secret []byte) (email, userID, wsID, wsSlug, wsRole string, err error) {

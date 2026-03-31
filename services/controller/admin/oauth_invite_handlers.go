@@ -465,13 +465,7 @@ func (s *Server) handleProviderCallback(provider string, cfg *oauth2.Config, fet
 			}
 			_ = s.Sessions.Create(sess)
 		}
-		var jwtToken string
-		var jwtErr error
-		if wsID != "" {
-			jwtToken, jwtErr = s.signAdminJWT(email, userID, wsID, wsSlug, wsRole, sessionID)
-		} else {
-			jwtToken, jwtErr = s.signSessionJWT(email)
-		}
+		jwtToken, jwtErr := s.signAdminJWT(email, userID, wsID, wsSlug, wsRole, sessionID)
 		if jwtErr != nil {
 			http.Error(w, "failed to create session", http.StatusInternalServerError)
 			return

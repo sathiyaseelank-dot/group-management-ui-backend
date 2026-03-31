@@ -24,10 +24,10 @@ func doWithWorkspace(srv *Server, method, path string, body interface{}, wsEmail
 	req := httptest.NewRequest(method, path, strings.NewReader(buf.String()))
 	req.Header.Set("Content-Type", "application/json")
 
-	// Sign a workspace JWT so withWorkspaceContext extracts claims.
-	tok, err := srv.signWorkspaceJWT(wsEmail, wsUserID, wsID, wsSlug, wsRole)
+	// Sign an admin JWT so withWorkspaceContext extracts claims.
+	tok, err := srv.signAdminJWT(wsEmail, wsUserID, wsID, wsSlug, wsRole, "test-session-id")
 	if err != nil {
-		panic(fmt.Sprintf("signWorkspaceJWT: %v", err))
+		panic(fmt.Sprintf("signAdminJWT: %v", err))
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 
