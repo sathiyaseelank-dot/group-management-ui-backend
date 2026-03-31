@@ -12,9 +12,10 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 /// Cache of discovered QUIC addresses, keyed by TLS tunnel address.
 /// Populated from `quic_addr` in TLS handshake responses.
@@ -45,18 +46,38 @@ impl QuicAddrCache {
 }
 
 /// Pool of QUIC connections, one per connector endpoint.
+///
+/// Uses a single persistent `quinn::Endpoint` (instead of creating a new one
+/// per connection) and configures QUIC keep-alive to prevent idle connections
+/// from silently dying behind NATs or firewalls.
 #[derive(Clone)]
 pub struct QuicPool {
     connections: Arc<Mutex<HashMap<String, quinn::Connection>>>,
-    client_config: Arc<quinn::ClientConfig>,
+    endpoint: Arc<Mutex<quinn::Endpoint>>,
 }
 
 impl QuicPool {
     pub fn new(ca_pem: &[u8]) -> Result<Self> {
-        let client_config = build_quic_client_config(ca_pem)?;
+        let mut client_config = build_quic_client_config(ca_pem)?;
+
+        // Configure QUIC transport with keep-alive to prevent idle connections
+        // from being silently dropped by NATs/firewalls.
+        let mut transport = quinn::TransportConfig::default();
+        transport.keep_alive_interval(Some(Duration::from_secs(15)));
+        // Allow connections to idle for up to 60s without being closed.
+        transport.max_idle_timeout(Some(
+            quinn::IdleTimeout::try_from(Duration::from_secs(60)).unwrap(),
+        ));
+        client_config.transport_config(Arc::new(transport));
+
+        // Single persistent endpoint — reused across all connections.
+        let mut endpoint =
+            quinn::Endpoint::client("0.0.0.0:0".parse().unwrap())?;
+        endpoint.set_default_client_config(client_config);
+
         Ok(Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
-            client_config: Arc::new(client_config),
+            endpoint: Arc::new(Mutex::new(endpoint)),
         })
     }
 
@@ -103,6 +124,38 @@ impl QuicPool {
         Ok(stream)
     }
 
+    /// Pre-establish a QUIC connection to an endpoint without opening a stream.
+    /// Used by the pre-warming logic to warm the connection pool in advance.
+    pub async fn get_or_connect_only(&self, quic_addr: &str) -> Result<()> {
+        let _conn = self.get_or_connect(quic_addr).await?;
+        Ok(())
+    }
+
+    /// Check all pooled connections and reconnect any that have gone stale.
+    /// Called periodically from a background task to keep connections warm.
+    pub async fn maintain(&self) {
+        let addrs: Vec<String> = {
+            let mut conns = self.connections.lock().await;
+            let mut stale = Vec::new();
+            for (addr, conn) in conns.iter() {
+                if conn.close_reason().is_some() {
+                    stale.push(addr.clone());
+                }
+            }
+            for addr in &stale {
+                conns.remove(addr);
+            }
+            stale
+        };
+
+        for addr in addrs {
+            debug!("[quic] reconnecting stale connection to {}", addr);
+            if let Err(e) = self.get_or_connect(&addr).await {
+                warn!("[quic] reconnect to {} failed: {}", addr, e);
+            }
+        }
+    }
+
     async fn get_or_connect(&self, quic_addr: &str) -> Result<quinn::Connection> {
         // Check for a live cached connection without holding the lock during I/O.
         {
@@ -120,10 +173,6 @@ impl QuicPool {
             .parse()
             .map_err(|e| anyhow::anyhow!("bad QUIC addr '{}': {}", quic_addr, e))?;
 
-        let mut endpoint =
-            quinn::Endpoint::client("0.0.0.0:0".parse().unwrap())?;
-        endpoint.set_default_client_config((*self.client_config).clone());
-
         let host = quic_addr
             .rsplit_once(':')
             .map(|(h, _)| h)
@@ -131,6 +180,7 @@ impl QuicPool {
             .trim_matches(['[', ']']);
 
         info!("[quic] connecting to {} (server_name={})", quic_addr, host);
+        let endpoint = self.endpoint.lock().await;
         let conn = endpoint
             .connect(addr, host)?
             .await
