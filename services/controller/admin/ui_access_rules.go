@@ -68,6 +68,33 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "resourceId, name, and groupIds are required", http.StatusBadRequest)
 			return
 		}
+		wsID := workspaceIDFromContext(r.Context())
+		// Verify resource belongs to this workspace.
+		if wsID != "" {
+			var resCount int
+			if err := db.QueryRow(state.Rebind(
+				`SELECT COUNT(*) FROM resources WHERE id = ? AND workspace_id = ?`,
+			), req.ResourceID, wsID).Scan(&resCount); err != nil || resCount == 0 {
+				http.Error(w, "resource not found in this workspace", http.StatusBadRequest)
+				return
+			}
+		}
+		// Verify every group belongs to this workspace.
+		if wsID != "" && len(req.GroupIDs) > 0 {
+			placeholders := make([]string, len(req.GroupIDs))
+			args := make([]interface{}, len(req.GroupIDs)+1)
+			for i, gid := range req.GroupIDs {
+				placeholders[i] = "?"
+				args[i] = gid
+			}
+			args[len(req.GroupIDs)] = wsID
+			grpQuery := state.Rebind(`SELECT COUNT(*) FROM user_groups WHERE id IN (` + strings.Join(placeholders, ",") + `) AND workspace_id = ?`)
+			var grpCount int
+			if err := db.QueryRow(grpQuery, args...).Scan(&grpCount); err != nil || grpCount != len(req.GroupIDs) {
+				http.Error(w, "one or more groups not found in this workspace", http.StatusBadRequest)
+				return
+			}
+		}
 		ruleID := fmt.Sprintf("rule_%d", time.Now().UTC().UnixMilli())
 		now := dateStringNow()
 		enabled := 1
@@ -80,7 +107,6 @@ func (s *Server) handleUIAccessRules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		wsID := workspaceIDFromContext(r.Context())
 		_, err = tx.Exec(state.Rebind(`INSERT INTO access_rules (id, name, resource_id, enabled, created_at, updated_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)`), ruleID, req.Name, req.ResourceID, enabled, now, now, wsID)
 		if err != nil {
 			_ = tx.Rollback()
