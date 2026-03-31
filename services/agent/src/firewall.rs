@@ -155,10 +155,16 @@ impl FirewallEnforcer {
         Ok(())
     }
 
-    /// Add three nftables rules for a port:
-    /// 1. Accept from loopback
-    /// 2. Accept from TUN interface
-    /// 3. Drop everything else
+    /// Add nftables rules for a port:
+    /// 1. Accept from loopback interface (local services, agent self-connections)
+    /// 2. Accept from TUN interface (tunneled traffic)
+    /// 3. Accept traffic sourced from localhost (agent forwarding to its own IP)
+    /// 4. Drop everything else (block direct external access)
+    ///
+    /// Rule 3 is critical: the agent process does `TcpStream::connect("resource_ip:port")`.
+    /// When the resource is on the same host, Linux may route this through the real
+    /// NIC instead of loopback, so `iifname "lo"` doesn't match. Matching on source
+    /// IP 127.0.0.0/8 or the host's own IP catches these self-connections.
     async fn protect_port(&self, port: u16, protocol: &str) -> Result<Vec<u64>> {
         let proto = validate_protocol(protocol)?;
         let port_str = port.to_string();
@@ -191,15 +197,33 @@ impl FirewallEnforcer {
         };
         handles.push(h2);
 
-        // Rule 3: drop all other traffic to this port
-        let h3 = match self.add_rule(&[proto, "dport", &port_str, "drop"]).await {
+        // Rule 3: accept traffic sourced from localhost (agent self-connections).
+        // On some Linux configs, connecting to your own non-loopback IP routes
+        // through the real NIC, bypassing iifname "lo".
+        let h3 = match self
+            .add_rule(&[
+                "ip", "saddr", "127.0.0.0/8",
+                proto, "dport", &port_str, "accept",
+            ])
+            .await
+        {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = self.delete_rules(&handles).await;
+                return Err(e).context("localhost source accept rule");
+            }
+        };
+        handles.push(h3);
+
+        // Rule 4: drop all other traffic to this port
+        let h4 = match self.add_rule(&[proto, "dport", &port_str, "drop"]).await {
             Ok(h) => h,
             Err(e) => {
                 let _ = self.delete_rules(&handles).await;
                 return Err(e).context("drop rule");
             }
         };
-        handles.push(h3);
+        handles.push(h4);
 
         Ok(handles)
     }
