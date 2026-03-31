@@ -1163,6 +1163,9 @@ async fn tunnel_relay_task(
             dst_port,
         )
         .await;
+        // Send a clean FIN to the connector so its send_task gets EOF and
+        // can exit cleanly rather than waiting forever for client data.
+        let _ = tls_stream.shutdown().await;
 
         let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
         info!("[tun-relay] closed {}:{}", destination, dst_port);
@@ -1180,6 +1183,10 @@ async fn tunnel_relay_task(
         dst_port,
     )
     .await;
+    // Finish the QUIC send stream cleanly (sends FIN_STREAM instead of
+    // RESET_STREAM). Without this the connector gets a stream reset error,
+    // skips sending connector_tunnel_close to the agent, and leaks the session.
+    let _ = quic_stream.shutdown().await;
 
     let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
     info!("[tun-relay] closed {}:{}", destination, dst_port);

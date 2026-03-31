@@ -104,18 +104,18 @@ impl QuicPool {
     }
 
     async fn get_or_connect(&self, quic_addr: &str) -> Result<quinn::Connection> {
-        let mut conns = self.connections.lock().await;
-
-        // Reuse existing connection if still alive
-        if let Some(conn) = conns.get(quic_addr) {
-            if conn.close_reason().is_none() {
-                return Ok(conn.clone());
+        // Check for a live cached connection without holding the lock during I/O.
+        {
+            let conns = self.connections.lock().await;
+            if let Some(conn) = conns.get(quic_addr) {
+                if conn.close_reason().is_none() {
+                    return Ok(conn.clone());
+                }
             }
-        }
-        // Remove stale connection (if any) before creating a new one
-        conns.remove(quic_addr);
+        } // lock released here before the async connect
 
-        // Create new QUIC connection
+        // Build the new connection outside the lock so concurrent callers are
+        // not serialized behind the QUIC handshake (which can take 100-500 ms).
         let addr: std::net::SocketAddr = quic_addr
             .parse()
             .map_err(|e| anyhow::anyhow!("bad QUIC addr '{}': {}", quic_addr, e))?;
@@ -137,8 +137,13 @@ impl QuicPool {
             .map_err(|e| anyhow::anyhow!("QUIC connect to {}: {}", quic_addr, e))?;
 
         info!("[quic] connected to {}", quic_addr);
-        conns.insert(quic_addr.to_string(), conn.clone());
-        Ok(conn)
+        // Re-acquire lock to insert; use or_insert_with in case another task
+        // raced and already inserted a fresh connection.
+        let mut conns = self.connections.lock().await;
+        let entry = conns
+            .entry(quic_addr.to_string())
+            .or_insert_with(|| conn.clone());
+        Ok(entry.clone())
     }
 }
 
