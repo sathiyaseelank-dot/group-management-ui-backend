@@ -1,0 +1,124 @@
+networks:
+  ztna-net-1:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.1.0/24
+
+  ztna-net-2:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.2.0/24
+
+volumes:
+  connector-1-state:
+  connector-2-state:
+
+services:
+
+  # ── Pair 1 (apple) ──────────────────────────────────────────────
+
+  connector-1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.connector
+    env_file: docker/env/connector-1.env
+    environment:
+      - STATE_DIRECTORY=/var/lib/connector
+      - CONNECTOR_LISTEN_ADDR=0.0.0.0:9443
+      - DEVICE_TUNNEL_ADDR=0.0.0.0:9444
+    volumes:
+      - connector-1-state:/var/lib/connector
+      - ./services/connector/target/release/connector:/usr/local/bin/connector:ro
+      - ./docker/ca.crt:/etc/ztna/ca.crt:ro
+    ports:
+      - "19443:9443"
+      - "19444:9444"
+    networks:
+      - ztna-net-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  agent-1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    env_file: docker/env/agent-1.env
+    environment:
+      - CONNECTOR_ADDR=connector-1:9443
+    volumes:
+      - ./services/agent/target/release/agent:/usr/local/bin/agent:ro
+      - ./docker/ca.crt:/etc/ztna/ca.crt:ro
+    networks:
+      - ztna-net-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    depends_on:
+      - connector-1
+
+  resource-1:
+    image: nginx:alpine
+    volumes:
+      - ./docker/nginx/resource-1.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      ztna-net-1:
+        ipv4_address: 172.20.1.10
+    restart: unless-stopped
+
+  # ── Pair 2 (apple) ──────────────────────────────────────────────
+
+  connector-2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.connector
+    env_file: docker/env/connector-2.env
+    environment:
+      - STATE_DIRECTORY=/var/lib/connector
+      - CONNECTOR_LISTEN_ADDR=0.0.0.0:9443
+      - DEVICE_TUNNEL_ADDR=0.0.0.0:9444
+    volumes:
+      - connector-2-state:/var/lib/connector
+      - ./services/connector/target/release/connector:/usr/local/bin/connector:ro
+      - ./docker/ca.crt:/etc/ztna/ca.crt:ro
+    ports:
+      - "20443:9443"
+      - "20444:9444"
+    networks:
+      - ztna-net-2
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  agent-2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    env_file: docker/env/agent-2.env
+    environment:
+      - CONNECTOR_ADDR=connector-2:9443
+    volumes:
+      - ./services/agent/target/release/agent:/usr/local/bin/agent:ro
+      - ./docker/ca.crt:/etc/ztna/ca.crt:ro
+    networks:
+      - ztna-net-2
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    depends_on:
+      - connector-2
+
+  resource-2:
+    image: nginx:alpine
+    volumes:
+      - ./docker/nginx/resource-2.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      ztna-net-2:
+        ipv4_address: 172.20.2.10
+    restart: unless-stopped

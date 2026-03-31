@@ -1,0 +1,16 @@
+FROM ubuntu:24.04
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libssl3t64 \
+        nftables \
+        iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/entrypoint-agent.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Binary is bind-mounted at runtime from
+# services/agent/target/release/agent
+ENTRYPOINT ["/entrypoint.sh"]
