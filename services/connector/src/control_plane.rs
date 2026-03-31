@@ -265,12 +265,43 @@ async fn send_current_firewall_policy(
     latest_fw_policy: &crate::LatestFirewallPolicy,
 ) -> Result<(), mpsc::error::SendError<Result<ControlMessage, Status>>> {
     let agent_ip = agent_registry.get_ip(agent_id).unwrap_or_default();
+    let protected_resources = latest_fw_policy.get();
+    let agent_snapshot = agent_registry.snapshot();
+    info!(
+        "building firewall payload: agent_id={} agent_ip={} protected_resources={} agents={}",
+        agent_id,
+        agent_ip,
+        protected_resources.len(),
+        agent_snapshot.len(),
+    );
     let payload = crate::build_agent_firewall_payload(
         agent_id,
         &agent_ip,
-        &latest_fw_policy.get(),
-        &agent_registry.snapshot(),
+        &protected_resources,
+        &agent_snapshot,
     );
+    if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&payload) {
+        let port_count = parsed["protected_ports"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        info!(
+            "firewall payload for agent {}: protected_ports={} payload={}",
+            agent_id,
+            port_count,
+            if port_count == 0 {
+                format!("EMPTY (agent_ip={}, resource addresses: {})",
+                    agent_ip,
+                    protected_resources.iter()
+                        .map(|r| format!("{}[agent_ids={:?}]", r.address.trim(), r.agent_ids))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            } else {
+                String::from("ok")
+            }
+        );
+    }
     tx.send(Ok(ControlMessage {
         r#type: "firewall_policy".to_string(),
         payload,

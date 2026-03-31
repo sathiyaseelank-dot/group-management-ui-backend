@@ -125,7 +125,7 @@ export default function InstallPage() {
   const controllerGrpcAddr = buildControllerGrpcAddr(controllerUrl)
   const clientInstallScript =
     import.meta.env.VITE_CLIENT_INSTALL_SCRIPT_URL ||
-    'https://raw.githubusercontent.com/sathiyaseelank-dot/group-management-ui-backend/merge/alpha-sync-20260330/scripts/client-install-release.sh'
+    'https://raw.githubusercontent.com/vairabarath/zero-trust/alpha/scripts/client-install-release.sh'
   const installCommand =
     `curl -fsSL ${clientInstallScript} | sudo bash`
   const setupCommand = [
