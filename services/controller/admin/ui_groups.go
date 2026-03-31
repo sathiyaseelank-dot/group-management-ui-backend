@@ -267,6 +267,34 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 				http.Error(w, "memberIds must be an array", http.StatusBadRequest)
 				return
 			}
+			// Validate that all supplied user IDs belong to this workspace.
+			// Super-admin path (wsID == "") skips validation intentionally.
+			validIDs := map[string]bool{}
+			if wsID != "" && len(req.MemberIDs) > 0 {
+				placeholders := strings.Repeat("?,", len(req.MemberIDs))
+				placeholders = strings.TrimSuffix(placeholders, ",")
+				args := make([]interface{}, 0, 1+len(req.MemberIDs))
+				args = append(args, wsID)
+				for _, id := range req.MemberIDs {
+					args = append(args, id)
+				}
+				valRows, err := db.Query(state.Rebind(
+					`SELECT user_id FROM workspace_members WHERE workspace_id = ? AND user_id IN (`+placeholders+`)`), args...)
+				if err == nil {
+					for valRows.Next() {
+						var uid string
+						if valRows.Scan(&uid) == nil {
+							validIDs[uid] = true
+						}
+					}
+					valRows.Close()
+				}
+			} else {
+				for _, id := range req.MemberIDs {
+					validIDs[id] = true
+				}
+			}
+
 			tx, err := db.Begin()
 			if err != nil {
 				http.Error(w, "failed to update members", http.StatusInternalServerError)
@@ -279,7 +307,7 @@ func (s *Server) handleUIGroupsSubroutes(w http.ResponseWriter, r *http.Request)
 			}
 			stmt, _ := tx.Prepare(state.Rebind(`INSERT INTO user_group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)`))
 			for _, id := range req.MemberIDs {
-				if stmt != nil {
+				if stmt != nil && validIDs[id] {
 					_, _ = stmt.Exec(groupID, id, time.Now().UTC().Unix())
 				}
 			}
