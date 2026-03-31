@@ -223,14 +223,25 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
                     resource_id
                 )
             })?;
-        let relay_session = crate::agent_tunnel::open_relay_session(
+        let relay_session = match crate::agent_tunnel::open_relay_session(
             tunnel_hub,
             &agent_id,
             &req.destination,
             req.port,
             &req.protocol,
         )
-        .await?;
+        .await
+        {
+            Ok(session) => session,
+            Err(err) => {
+                let msg = format!(
+                    "agent relay open failed for {}:{} via {}: {}",
+                    req.destination, req.port, agent_id, err
+                );
+                let _ = send_response(&mut stream, false, Some(&msg)).await;
+                return Err(anyhow::anyhow!(msg));
+            }
+        };
         send_response(&mut stream, true, None).await?;
         emit_connector_access_log(
             control_tx,
