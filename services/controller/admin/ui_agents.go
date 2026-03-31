@@ -103,6 +103,15 @@ func (s *Server) handleUIAgentsSubroutes(w http.ResponseWriter, r *http.Request)
 	agentID := parts[0]
 	wsID := workspaceIDFromContext(r.Context())
 	wsClauseT, wsArgsT := wsWhere(wsID, "t")
+	// Ownership guard: ensure this agent belongs to the current workspace.
+	if wsID != "" {
+		var exists int
+		_ = db.QueryRow(state.Rebind(`SELECT COUNT(*) FROM agents WHERE id = ? AND workspace_id = ?`), agentID, wsID).Scan(&exists)
+		if exists == 0 {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+	}
 	if len(parts) == 1 {
 		if r.Method == http.MethodDelete {
 			// Verify agent belongs to workspace before deleting

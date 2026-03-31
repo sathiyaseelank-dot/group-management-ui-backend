@@ -79,6 +79,15 @@ func (s *Server) handleUIConnectorsSubroutes(w http.ResponseWriter, r *http.Requ
 	connectorID := parts[0]
 	wsID := workspaceIDFromContext(r.Context())
 	wsClause, wsArgs := wsWhere(wsID, "")
+	// Ownership guard: ensure this connector belongs to the current workspace.
+	if wsID != "" {
+		var exists int
+		_ = db.QueryRow(state.Rebind(`SELECT COUNT(*) FROM connectors WHERE id = ? AND workspace_id = ?`), connectorID, wsID).Scan(&exists)
+		if exists == 0 {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+	}
 	if len(parts) == 1 {
 		if r.Method == http.MethodDelete {
 			if s.ControlPlane != nil {
