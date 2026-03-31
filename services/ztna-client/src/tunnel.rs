@@ -119,7 +119,9 @@ fn build_client_tls(ca_pem: &[u8]) -> Result<Arc<rustls::ClientConfig>> {
 
 /// Build a rustls ClientConfig for QUIC (needs owned config, not Arc).
 pub fn build_client_tls_for_quic(ca_pem: &[u8]) -> Result<rustls::ClientConfig> {
-    build_client_tls_inner(ca_pem)
+    let mut config = build_client_tls_inner(ca_pem)?;
+    config.alpn_protocols = vec![b"ztna-tunnel-v1".to_vec()];
+    Ok(config)
 }
 
 fn build_client_tls_inner(ca_pem: &[u8]) -> Result<rustls::ClientConfig> {

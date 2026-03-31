@@ -33,7 +33,8 @@ pub async fn listen(
     connector_id: String,
     control_tx: tokio::sync::mpsc::Sender<ControlMessage>,
 ) -> Result<()> {
-    let tls_config = build_device_tunnel_tls(&store)?;
+    let mut tls_config = build_device_tunnel_tls(&store)?;
+    tls_config.alpn_protocols = vec![b"ztna-tunnel-v1".to_vec()];
 
     let quic_server_config = quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)
         .map_err(|e| anyhow::anyhow!("QUIC server config: {}", e))?;
