@@ -4,6 +4,16 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::Notify;
 use tracing::{error, info, warn};
 
+fn is_transport_error_message(msg: &str) -> bool {
+    let msg = msg.to_ascii_lowercase();
+    msg.contains("transport error")
+        || msg.contains("connection refused")
+        || msg.contains("broken pipe")
+        || msg.contains("unexpected eof")
+        || msg.contains("http2")
+        || msg.contains("h2 protocol error")
+}
+
 pub async fn renewal_loop(
     controller_addr: String,
     agent_id: String,
@@ -12,8 +22,10 @@ pub async fn renewal_loop(
     controller_ca_pem: Vec<u8>,
     workload_ca_pem: Vec<u8>,
     reload: Arc<Notify>,
+    controller_reset: Arc<Notify>,
     shutdown: Arc<Notify>,
 ) {
+    let mut transport_error_count: u32 = 0;
     loop {
         let sleep_dur = next_renewal_delay(store.not_after(), store.total_ttl());
         tokio::time::sleep(sleep_dur).await;
@@ -29,6 +41,7 @@ pub async fn renewal_loop(
         .await
         {
             Ok(result) => {
+                transport_error_count = 0;
                 let (not_before, not_after) = crate::enroll::cert_validity(&result.cert_der)
                     .unwrap_or((
                         SystemTime::now(),
@@ -60,6 +73,20 @@ pub async fn renewal_loop(
                     shutdown.notify_one();
                     return;
                 }
+                if is_transport_error_message(&msg) {
+                    transport_error_count += 1;
+                    warn!(
+                        "certificate renewal failed (consecutive transport errors={}): {}",
+                        transport_error_count,
+                        e
+                    );
+                    if transport_error_count >= 3 {
+                        warn!("agent renewal forcing immediate reconnect/reset after repeated controller transport errors");
+                        controller_reset.notify_one();
+                    }
+                    continue;
+                }
+                transport_error_count = 0;
                 warn!("certificate renewal failed: {}", e);
             }
         }

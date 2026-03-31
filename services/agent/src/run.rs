@@ -25,6 +25,16 @@ fn is_permission_denied(err: &anyhow::Error) -> bool {
     msg.contains("PermissionDenied")
 }
 
+fn is_transport_error(err: &anyhow::Error) -> bool {
+    let msg = format!("{}", err).to_ascii_lowercase();
+    msg.contains("transport error")
+        || msg.contains("connection refused")
+        || msg.contains("broken pipe")
+        || msg.contains("unexpected eof")
+        || msg.contains("http2")
+        || msg.contains("h2 protocol error")
+}
+
 pub async fn run() -> Result<()> {
     let cfg = config::run_config_from_env()?;
 
@@ -98,6 +108,7 @@ pub async fn run() -> Result<()> {
     }
 
     let reload = Arc::new(Notify::new());
+    let controller_reset = Arc::new(Notify::new());
     let shutdown = Arc::new(Notify::new());
     let firewall_cleaned = Arc::new(AtomicBool::new(false));
     let tunnel_manager = Arc::new(AgentTunnelManager::new());
@@ -111,6 +122,7 @@ pub async fn run() -> Result<()> {
         result.spiffe_id.clone(),
         cfg.agent_id.clone(),
         reload.clone(),
+        controller_reset.clone(),
         enforcer.clone(),
         tunnel_manager.clone(),
         shutdown.clone(),
@@ -126,6 +138,7 @@ pub async fn run() -> Result<()> {
         cfg.ca_pem.clone(),
         result.ca_pem.clone(),
         reload.clone(),
+        controller_reset.clone(),
         shutdown.clone(),
     ));
 
@@ -152,6 +165,7 @@ async fn control_plane_loop(
     spiffe_id: String,
     agent_id: String,
     reload: Arc<Notify>,
+    controller_reset: Arc<Notify>,
     enforcer: Arc<FirewallEnforcer>,
     tunnel_manager: Arc<AgentTunnelManager>,
     shutdown: Arc<Notify>,
@@ -159,6 +173,7 @@ async fn control_plane_loop(
 ) {
     let mut backoff = Duration::from_secs(2);
     let mut permission_denied_count: u32 = 0;
+    let mut transport_error_count: u32 = 0;
     loop {
         let is_cert_reload = tokio::select! {
             result = connect_to_connector(
@@ -181,6 +196,7 @@ async fn control_plane_loop(
                         warn!("connector connection ended: {}", e);
                         if is_permission_denied(e) {
                             permission_denied_count += 1;
+                            transport_error_count = 0;
                             if permission_denied_count >= 3 {
                                 error!(
                                     "agent permanently rejected by connector ({} consecutive denials) — shutting down",
@@ -189,8 +205,19 @@ async fn control_plane_loop(
                                 shutdown.notify_one();
                                 return;
                             }
+                        } else if is_transport_error(e) {
+                            permission_denied_count = 0;
+                            transport_error_count += 1;
+                            if transport_error_count >= 3 {
+                                warn!(
+                                    "agent observed {} consecutive transport errors to connector; forcing immediate reconnect cycle",
+                                    transport_error_count
+                                );
+                                controller_reset.notify_one();
+                            }
                         } else {
                             permission_denied_count = 0;
+                            transport_error_count = 0;
                         }
                     }
                 }
@@ -199,6 +226,13 @@ async fn control_plane_loop(
             _ = reload.notified() => {
                 info!("cert reload signal received, reconnecting");
                 permission_denied_count = 0;
+                transport_error_count = 0;
+                true
+            }
+            _ = controller_reset.notified() => {
+                info!("controller/connector transport reset signal received, reconnecting");
+                permission_denied_count = 0;
+                transport_error_count = 0;
                 true
             }
         };
@@ -235,7 +269,8 @@ async fn connect_to_connector(
         ca_pem,
         "connector",
     )
-    .await?;
+    .await
+    .map_err(|e| anyhow::anyhow!("channel build: {}", e))?;
 
     let mut client = enroll::pb::control_plane_client::ControlPlaneClient::new(channel);
 
@@ -244,7 +279,8 @@ async fn connect_to_connector(
 
     let mut stream = client
         .connect(tonic::Request::new(in_stream))
-        .await?
+        .await
+        .map_err(|e| anyhow::anyhow!("stream connect: {}", e))?
         .into_inner();
 
     // Send initial hello

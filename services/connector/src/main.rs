@@ -55,6 +55,16 @@ fn is_permission_denied(err: &anyhow::Error) -> bool {
     msg.contains("PermissionDenied")
 }
 
+fn is_transport_error(err: &anyhow::Error) -> bool {
+    let msg = format!("{}", err).to_ascii_lowercase();
+    msg.contains("transport error")
+        || msg.contains("connection refused")
+        || msg.contains("broken pipe")
+        || msg.contains("unexpected eof")
+        || msg.contains("http2")
+        || msg.contains("h2 protocol error")
+}
+
 /// Stores the latest protected resources so each agent can receive
 /// a personalized firewall policy based on its own IP.
 #[derive(Clone)]
@@ -199,38 +209,27 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         tokio::spawn(watchdog::watchdog_loop());
     }
 
-    // Try loading saved enrollment state; fall back to fresh enrollment.
-    let result = match persistence::load_saved_enrollment() {
-        Ok(Some(saved)) => {
-            info!("reusing saved certificate for {}", saved.spiffe_id);
-            saved
+    info!("connector is running in memory-only enrollment mode");
+    let enroll_cfg = config::EnrollConfig {
+        controller_addr: cfg.controller_addr.clone(),
+        connector_id: cfg.connector_id.clone(),
+        controller_trust_domain: cfg.controller_trust_domain.clone(),
+        token: cfg.enrollment_token.clone(),
+        private_ip: cfg.private_ip.clone(),
+        version: buildinfo::version().to_string(),
+        ca_pem: cfg.ca_pem.clone(),
+    };
+    let result = match enroll::enroll(&enroll_cfg).await {
+        Ok(enrolled) => {
+            info!("connector enrolled as {}", enrolled.spiffe_id);
+            enrolled
         }
-        _ => {
-            let enroll_cfg = config::EnrollConfig {
-                controller_addr: cfg.controller_addr.clone(),
-                connector_id: cfg.connector_id.clone(),
-                controller_trust_domain: cfg.controller_trust_domain.clone(),
-                token: cfg.enrollment_token.clone(),
-                private_ip: cfg.private_ip.clone(),
-                version: buildinfo::version().to_string(),
-                ca_pem: cfg.ca_pem.clone(),
-            };
-            match enroll::enroll(&enroll_cfg).await {
-                Ok(enrolled) => {
-                    info!("connector enrolled as {}", enrolled.spiffe_id);
-                    if let Err(e) = persistence::save_enrollment(&enrolled) {
-                        warn!("failed to persist enrollment state: {}", e);
-                    }
-                    enrolled
-                }
-                Err(e) => {
-                    if is_permission_denied(&e) {
-                        error!("enrollment rejected: connector token was revoked or deleted; shutting down");
-                        return Ok(());
-                    }
-                    return Err(e);
-                }
+        Err(e) => {
+            if is_permission_denied(&e) {
+                error!("enrollment rejected: connector token was revoked or deleted; shutting down");
+                return Ok(());
             }
+            return Err(e);
         }
     };
 
@@ -264,6 +263,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
     let (firewall_tx, _) = broadcast::channel::<()>(16);
     let latest_fw_policy = LatestFirewallPolicy::new();
     let reload = Arc::new(Notify::new());
+    let controller_reset = Arc::new(Notify::new());
     let shutdown = Arc::new(Notify::new());
 
     if !cfg.device_tunnel_addr.is_empty() && !cfg.controller_http_url.is_empty() {
@@ -348,6 +348,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         cfg.ca_pem.clone(),
         result.ca_pem.clone(),
         reload.clone(),
+        controller_reset.clone(),
         shutdown.clone(),
     ));
 
@@ -365,6 +366,7 @@ async fn cmd_run(systemd_watchdog: bool) -> Result<()> {
         send_ch,
         recv_ch,
         reload,
+        controller_reset,
         agent_registry,
         agent_tunnel_hub,
         firewall_tx,
@@ -430,6 +432,7 @@ async fn control_plane_loop(
     send_ch: mpsc::Sender<ControlMessage>,
     mut recv_ch: mpsc::Receiver<ControlMessage>,
     reload: Arc<Notify>,
+    controller_reset: Arc<Notify>,
     agent_registry: Arc<AgentRegistry>,
     agent_tunnel_hub: AgentTunnelHub,
     firewall_tx: broadcast::Sender<()>,
@@ -437,6 +440,7 @@ async fn control_plane_loop(
     shutdown: Arc<Notify>,
 ) {
     let mut backoff = Duration::from_secs(2);
+    let mut transport_error_count: u32 = 0;
     loop {
         let connect = connect_control_plane(
             &controller_addr,
@@ -470,6 +474,18 @@ async fn control_plane_loop(
                             shutdown.notify_one();
                             return;
                         }
+                        if is_transport_error(&e) {
+                            transport_error_count += 1;
+                            if transport_error_count >= 3 {
+                                warn!(
+                                    "connector observed {} consecutive controller transport errors; forcing immediate reconnect cycle",
+                                    transport_error_count
+                                );
+                                controller_reset.notify_one();
+                            }
+                        } else {
+                            transport_error_count = 0;
+                        }
                         true
                     }
                 }
@@ -477,6 +493,13 @@ async fn control_plane_loop(
             _ = reload.notified() => {
                 info!("cert reload signal received, reconnecting");
                 backoff = Duration::from_secs(2);
+                transport_error_count = 0;
+                false
+            }
+            _ = controller_reset.notified() => {
+                info!("controller transport reset signal received, reconnecting");
+                backoff = Duration::from_secs(2);
+                transport_error_count = 0;
                 false
             }
             _ = shutdown.notified() => return,
@@ -530,7 +553,8 @@ async fn connect_control_plane(
         connector_id,
         Some(policy_cb),
     )
-    .await?;
+    .await
+    .map_err(|e| anyhow::anyhow!("channel build: {}", e))?;
 
     let mut client = enroll::pb::control_plane_client::ControlPlaneClient::new(channel);
 
@@ -539,7 +563,8 @@ async fn connect_control_plane(
 
     let mut stream = client
         .connect(tonic::Request::new(in_stream))
-        .await?
+        .await
+        .map_err(|e| anyhow::anyhow!("stream connect: {}", e))?
         .into_inner();
 
     // Send initial hello
