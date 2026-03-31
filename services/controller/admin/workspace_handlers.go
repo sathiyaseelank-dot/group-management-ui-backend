@@ -203,8 +203,25 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sign workspace JWT
-	token, err := s.signWorkspaceJWT(email, userID, ws.ID, ws.Slug, "owner")
+	// Create a revocable session for the new workspace owner.
+	wsSessionID := uuid.New().String()
+	wsNow := time.Now().Unix()
+	if s.Sessions != nil {
+		_ = s.Sessions.Create(&state.Session{
+			ID:                wsSessionID,
+			UserID:            userID,
+			WorkspaceID:       ws.ID,
+			SessionType:       "admin",
+			IPAddress:         r.RemoteAddr,
+			UserAgent:         r.Header.Get("User-Agent"),
+			CreatedAt:         wsNow,
+			ExpiresAt:         wsNow + 4*60*60,
+			AbsoluteExpiresAt: wsNow + 30*24*60*60,
+			IPSubnet:          state.ExtractIPSubnet(r.RemoteAddr),
+			UAHash:            state.HashUserAgent(r.Header.Get("User-Agent")),
+		})
+	}
+	token, err := s.signAdminJWT(email, userID, ws.ID, ws.Slug, "owner", wsSessionID)
 	if err != nil {
 		log.Printf("workspace sign token: %v", err)
 		http.Error(w, "failed to sign token", http.StatusInternalServerError)
@@ -375,7 +392,24 @@ func (s *Server) handleSelectWorkspace(w http.ResponseWriter, r *http.Request, w
 		return
 	}
 
-	token, err := s.signWorkspaceJWT(email, userID, ws.ID, ws.Slug, member.Role)
+	selSessionID := uuid.New().String()
+	selNow := time.Now().Unix()
+	if s.Sessions != nil {
+		_ = s.Sessions.Create(&state.Session{
+			ID:                selSessionID,
+			UserID:            userID,
+			WorkspaceID:       ws.ID,
+			SessionType:       "admin",
+			IPAddress:         r.RemoteAddr,
+			UserAgent:         r.Header.Get("User-Agent"),
+			CreatedAt:         selNow,
+			ExpiresAt:         selNow + 4*60*60,
+			AbsoluteExpiresAt: selNow + 30*24*60*60,
+			IPSubnet:          state.ExtractIPSubnet(r.RemoteAddr),
+			UAHash:            state.HashUserAgent(r.Header.Get("User-Agent")),
+		})
+	}
+	token, err := s.signAdminJWT(email, userID, ws.ID, ws.Slug, member.Role, selSessionID)
 	if err != nil {
 		log.Printf("workspace select sign token: %v", err)
 		http.Error(w, "failed to sign token", http.StatusInternalServerError)
