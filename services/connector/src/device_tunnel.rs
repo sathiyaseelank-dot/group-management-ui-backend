@@ -1,10 +1,23 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio_rustls::TlsAcceptor;
 use tracing::{info, warn};
+
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn shared_http_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .pool_max_idle_per_host(4)
+            .build()
+            .expect("failed to build HTTP client")
+    })
+}
 
 use crate::tls::cert_store::CertStore;
 use crate::tls::server_cfg::build_device_tunnel_tls;
@@ -155,74 +168,86 @@ pub async fn handle_stream<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     let req: TunnelRequest =
         serde_json::from_str(line.trim()).map_err(|e| anyhow::anyhow!("bad handshake: {}", e))?;
 
-    let allowed = check_access(
-        controller_http_url,
-        &req.token,
-        &req.destination,
-        req.port,
-        &req.protocol,
-    )
-    .await;
-    match allowed {
-        Err(e) => {
-            let _ = send_response(&mut stream, false, Some("check-access error")).await;
-            return Err(e);
-        }
-        Ok(resp) if !resp.allowed => {
-            send_response(&mut stream, false, Some("access denied")).await?;
-            return Ok(());
-        }
-        Ok(resp) => {
-            let resource = acl.resource_by_id(&resp.resource_id);
-            let protected = resource
-                .as_ref()
-                .map(|res| res.firewall_status.eq_ignore_ascii_case("protected"))
-                .unwrap_or(false);
-            if protected {
-                let agent_id = resource
-                    .as_ref()
-                    .and_then(|res| {
-                        if res.agent_ids.is_empty() {
-                            None
-                        } else {
-                            tunnel_hub.select_agent_id(&res.agent_ids)
-                        }
-                    })
-                    .or_else(|| resolve_protected_resource_owner(&req.destination, &agent_registry))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "no connected owning agent for protected resource {} ({})",
-                            req.destination,
-                            resp.resource_id
-                        )
-                    })?;
-                let relay_session = crate::agent_tunnel::open_relay_session(
-                    tunnel_hub,
-                    &agent_id,
-                    &req.destination,
-                    req.port,
-                    &req.protocol,
-                )
-                .await?;
-                send_response(&mut stream, true, None).await?;
-                emit_connector_access_log(
-                    control_tx,
-                    connector_id,
-                    &format!(
-                        "client access opened: destination={} port={} protocol={} path=agent_relay agent_id={}",
-                        req.destination, req.port, req.protocol, agent_id
-                    ),
-                )
-                .await;
-                info!(
-                    "routing protected device tunnel {}:{} via agent {}",
-                    req.destination, req.port, agent_id
-                );
-                return relay_session.relay_stream(stream).await;
+    // Fast path: resolve resource from the local policy cache (no controller round-trip).
+    // The client already verified access via the controller; the connector only needs to
+    // identify the resource to determine protected/unprotected routing.
+    // Fall back to the controller HTTP check only if the local cache has no match.
+    let (resource_id, protected) = match acl.resolve_resource(&req.destination, &req.protocol, req.port) {
+        Some(result) => result,
+        None => {
+            // Cache miss — fall back to controller.
+            let resp = check_access(
+                controller_http_url,
+                &req.token,
+                &req.destination,
+                req.port,
+                &req.protocol,
+            )
+            .await;
+            match resp {
+                Err(e) => {
+                    let _ = send_response(&mut stream, false, Some("check-access error")).await;
+                    return Err(e);
+                }
+                Ok(r) if !r.allowed => {
+                    send_response(&mut stream, false, Some("access denied")).await?;
+                    return Ok(());
+                }
+                Ok(r) => {
+                    let p = acl
+                        .resource_by_id(&r.resource_id)
+                        .map(|res| res.firewall_status.eq_ignore_ascii_case("protected"))
+                        .unwrap_or(false);
+                    (r.resource_id, p)
+                }
             }
-            send_response(&mut stream, true, None).await?;
         }
+    };
+
+    let resource = acl.resource_by_id(&resource_id);
+    if protected {
+        let agent_id = resource
+            .as_ref()
+            .and_then(|res| {
+                if res.agent_ids.is_empty() {
+                    None
+                } else {
+                    tunnel_hub.select_agent_id(&res.agent_ids)
+                }
+            })
+            .or_else(|| resolve_protected_resource_owner(&req.destination, &agent_registry))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no connected owning agent for protected resource {} ({})",
+                    req.destination,
+                    resource_id
+                )
+            })?;
+        let relay_session = crate::agent_tunnel::open_relay_session(
+            tunnel_hub,
+            &agent_id,
+            &req.destination,
+            req.port,
+            &req.protocol,
+        )
+        .await?;
+        send_response(&mut stream, true, None).await?;
+        emit_connector_access_log(
+            control_tx,
+            connector_id,
+            &format!(
+                "client access opened: destination={} port={} protocol={} path=agent_relay agent_id={}",
+                req.destination, req.port, req.protocol, agent_id
+            ),
+        )
+        .await;
+        info!(
+            "routing protected device tunnel {}:{} via agent {}",
+            req.destination, req.port, agent_id
+        );
+        return relay_session.relay_stream(stream).await;
     }
+    send_response(&mut stream, true, None).await?;
 
     let dest = format!("{}:{}", req.destination, req.port);
 
@@ -288,7 +313,7 @@ async fn check_access(
         port: u16,
     }
 
-    let resp = reqwest::Client::new()
+    let resp = shared_http_client()
         .post(format!("{}/api/device/check-access", controller_http_url))
         .bearer_auth(token)
         .json(&Req {

@@ -1,0 +1,25 @@
+# Rust build artifacts — binaries are bind-mounted at runtime, not copied into images
+services/connector/target/
+services/agent/target/
+services/ztna-client/target/
+services/ztna-client-mobile/target/
+
+# Node / frontend
+apps/frontend/node_modules/
+apps/frontend/.next/
+apps/frontend/dist/
+
+# Android build outputs
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/build/
+
+# Git and IDE
+.git/
+.idea/
+.vscode/
+
+# Generated / secrets
+docker/env/
+docker/ca.crt
+services/controller/.env

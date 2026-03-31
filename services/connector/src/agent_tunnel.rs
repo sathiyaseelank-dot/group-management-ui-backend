@@ -314,7 +314,7 @@ impl AgentRelaySession {
         });
 
         let recv_conn = self.connection_id.clone();
-        let recv_task = tokio::spawn(async move {
+        let mut recv_task = tokio::spawn(async move {
             while let Some(event) = self.session_rx.recv().await {
                 match event {
                     TunnelEvent::Opened(_) => {}
@@ -323,6 +323,8 @@ impl AgentRelaySession {
                         writer.flush().await?;
                     }
                     TunnelEvent::Closed(err) => {
+                        // Send a clean FIN to the client before dropping the writer.
+                        let _ = writer.shutdown().await;
                         if let Some(err) = err {
                             return Err(anyhow!("agent tunnel closed: {}", err));
                         }
@@ -333,15 +335,16 @@ impl AgentRelaySession {
             Ok::<(), anyhow::Error>(())
         });
 
-        let send_res = send_task
-            .await
-            .map_err(|e| anyhow!("send task join: {}", e))?;
-        let recv_res = recv_task
-            .await
-            .map_err(|e| anyhow!("recv task join: {}", e))?;
+        let mut send_task = send_task;
+        let result = tokio::select! {
+            res = &mut send_task => res.map_err(|e| anyhow!("send task join: {}", e))
+                .and_then(|r| r),
+            res = &mut recv_task => res.map_err(|e| anyhow!("recv task join: {}", e))
+                .and_then(|r| r),
+        };
+        send_task.abort();
+        recv_task.abort();
         self.hub.unregister_session(&recv_conn);
-        send_res?;
-        recv_res?;
-        Ok(())
+        result
     }
 }

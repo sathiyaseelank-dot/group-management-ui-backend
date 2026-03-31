@@ -504,6 +504,9 @@ pub async fn run_tun_listener(
         None
     };
 
+    // ---- 5c. ACL decision cache (avoids repeated controller round-trips) ----
+    let acl_cache = Arc::new(acl::AclCache::new(Duration::from_secs(60)));
+
     let mut route_timer = tokio::time::interval(Duration::from_secs(60));
     let mut poll_timer = tokio::time::interval(Duration::from_millis(5));
 
@@ -605,6 +608,7 @@ pub async fn run_tun_listener(
                             .lookup_domain(IpAddr::V4(dst_ip))
                             .unwrap_or_else(|| dst_ip.to_string());
 
+                        let udp_acl_cache = acl_cache.clone();
                         tokio::spawn(udp_tunnel_relay_task(
                             key,
                             rx,
@@ -616,6 +620,7 @@ pub async fn run_tun_listener(
                             ca_pem,
                             destination,
                             dst_port,
+                            udp_acl_cache,
                         ));
                     }
                     // Don't feed UDP packets to smoltcp.
@@ -840,6 +845,7 @@ pub async fn run_tun_listener(
 
             let task_quic_pool = quic_pool.clone();
             let task_quic_cache = quic_addr_cache.clone();
+            let task_acl_cache = acl_cache.clone();
             tokio::spawn(tunnel_relay_task(
                 key,
                 rx,
@@ -856,6 +862,7 @@ pub async fn run_tun_listener(
                         "tcp".to_string(),
                 task_quic_pool,
                 task_quic_cache,
+                task_acl_cache,
             ));
         }
 
@@ -969,15 +976,16 @@ async fn tunnel_relay_task(
     protocol: String,
     quic_pool: Option<Arc<crate::quic_tunnel::QuicPool>>,
     quic_cache: crate::quic_tunnel::QuicAddrCache,
+    acl_cache: Arc<acl::AclCache>,
 ) {
     info!(
         "[tun-relay] starting ACL check for {}:{}",
         destination, dst_port
     );
 
-    // ACL check
+    // ACL check (cached — avoids controller round-trip on repeated connections)
     let acl_resp =
-        match acl::check_access(&controller_url, &access_token, &destination, dst_port, &protocol).await {
+        match acl_cache.check_access(&controller_url, &access_token, &destination, dst_port, &protocol).await {
             Ok(r) => r,
             Err(e) => {
                 warn!(
@@ -1159,6 +1167,9 @@ async fn tunnel_relay_task(
             dst_port,
         )
         .await;
+        // Send a clean FIN to the connector so its send_task gets EOF and
+        // can exit cleanly rather than waiting forever for client data.
+        let _ = tls_stream.shutdown().await;
 
         let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
         info!("[tun-relay] closed {}:{}", destination, dst_port);
@@ -1176,6 +1187,10 @@ async fn tunnel_relay_task(
         dst_port,
     )
     .await;
+    // Finish the QUIC send stream cleanly (sends FIN_STREAM instead of
+    // RESET_STREAM). Without this the connector gets a stream reset error,
+    // skips sending connector_tunnel_close to the agent, and leaks the session.
+    let _ = quic_stream.shutdown().await;
 
     let _ = to_smoltcp.send(TunEvent::Closed { key }).await;
     info!("[tun-relay] closed {}:{}", destination, dst_port);
@@ -1250,15 +1265,16 @@ async fn udp_tunnel_relay_task(
     ca_pem: Arc<Vec<u8>>,
     destination: String,
     dst_port: u16,
+    acl_cache: Arc<acl::AclCache>,
 ) {
     info!(
         "[udp-relay] starting ACL check for {}:{}",
         destination, dst_port
     );
 
-    // ACL check
+    // ACL check (cached)
     let acl_resp =
-        match acl::check_access(&controller_url, &access_token, &destination, dst_port, "udp")
+        match acl_cache.check_access(&controller_url, &access_token, &destination, dst_port, "udp")
             .await
         {
             Ok(r) => r,

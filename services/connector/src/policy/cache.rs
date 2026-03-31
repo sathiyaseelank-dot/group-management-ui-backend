@@ -186,6 +186,55 @@ impl PolicyCache {
         (false, String::new(), "not_allowed")
     }
 
+    /// Resolve a destination to a resource_id using the cached policy snapshot.
+    /// Matches by IP, DNS, CIDR, or internet, then checks protocol and port.
+    /// Does NOT check identity/ACL — used for device tunnels where the client
+    /// already verified access.
+    pub fn resolve_resource(&self, dest: &str, protocol: &str, port: u16) -> Option<(String, bool)> {
+        let r = self.inner.read().ok()?;
+        if !r.has_snapshot {
+            return None;
+        }
+
+        let key = dest.trim().to_lowercase();
+        let mut resource_ids: Vec<String> = Vec::new();
+
+        if let Ok(ip) = key.parse::<IpAddr>() {
+            if let Some(ids) = r.by_ip.get(&ip) {
+                resource_ids.extend_from_slice(ids);
+            }
+            for (net, ids) in &r.cidr_list {
+                if net.contains(&ip) {
+                    resource_ids.extend_from_slice(ids);
+                }
+            }
+        }
+        if resource_ids.is_empty() && !key.is_empty() {
+            if let Some(ids) = r.by_dns.get(&key) {
+                resource_ids.extend_from_slice(ids);
+            }
+        }
+        if resource_ids.is_empty() && !r.internet_ids.is_empty() {
+            resource_ids.extend_from_slice(&r.internet_ids);
+        }
+
+        for resource_id in &resource_ids {
+            let res = r.by_id.get(resource_id)?;
+            if !res.protocol.is_empty()
+                && !protocol.is_empty()
+                && !res.protocol.eq_ignore_ascii_case(protocol)
+            {
+                continue;
+            }
+            if !port_matches(res, port) {
+                continue;
+            }
+            let protected = res.firewall_status.eq_ignore_ascii_case("protected");
+            return Some((resource_id.clone(), protected));
+        }
+        None
+    }
+
     pub fn resource_by_id(&self, resource_id: &str) -> Option<PolicyResource> {
         self.inner
             .read()
